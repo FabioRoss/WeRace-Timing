@@ -8,12 +8,12 @@ MYWER_ORIGIN = "https://stg.mk.time2race.it"
 
 
 def _apex(label: str, port: int, origin: str = APEX_ORIGIN) -> SourceConfig:
-    # Apex live-timing ports speak plain ws (their live pages are http + ws);
-    # wss on these ports dies at the TLS handshake.
+    # The live feed is served from live-data.apex-timing.com (wss works there);
+    # www.apex-timing.com resets the TLS handshake on these ports.
     return SourceConfig(
         kind="apex",
         label=label,
-        url=f"ws://www.apex-timing.com:{port}/",
+        url=f"wss://live-data.apex-timing.com:{port}/",
         origin=origin,
     )
 
