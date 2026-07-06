@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
+import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { fmtLap } from '../lib/format'
@@ -8,6 +9,7 @@ import { fmtLap } from '../lib/format'
 export function GeneralDashboard() {
   const { slot = '1' } = useParams()
   const { snapshot, status } = useLive(slot)
+  const [orderMode, setOrderMode] = useOrderMode()
 
   const race = snapshot?.race
   return (
@@ -42,9 +44,12 @@ export function GeneralDashboard() {
         </div>
       </div>
       <main className="flex-1 px-4 pb-8">
+        <div className="mb-2 flex justify-end">
+          <OrderToggle mode={orderMode} onChange={setOrderMode} />
+        </div>
         <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
           {snapshot ? (
-            <TimingTable snapshot={snapshot} />
+            <TimingTable snapshot={snapshot} orderMode={orderMode} />
           ) : (
             <div className="p-10 text-center text-ink-500">Connecting…</div>
           )}

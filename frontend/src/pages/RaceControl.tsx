@@ -5,6 +5,7 @@ import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
 import type { RaceMessage, SourceStatus } from '../lib/types'
@@ -38,6 +39,7 @@ function RaceControlInner() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const { toasts, push, dismiss } = useToasts()
+  const [orderMode, setOrderMode] = useOrderMode()
 
   // Messaging
   const [target, setTarget] = useState<'all' | 'select'>('all')
@@ -225,7 +227,7 @@ function RaceControlInner() {
               <option value="__replay__">Replay a recording…</option>
             </select>
             {selected === '__custom__' && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <select
                   value={customKind}
                   onChange={(e) => setCustomKind(e.target.value as 'apex' | 'mywer')}
@@ -238,7 +240,7 @@ function RaceControlInner() {
                   value={customUrl}
                   onChange={(e) => setCustomUrl(e.target.value)}
                   placeholder="wss://…"
-                  className="flex-1 rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
+                  className="min-w-0 flex-1 basis-40 rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
                 />
               </div>
             )}
@@ -323,13 +325,13 @@ function RaceControlInner() {
                 </button>
               ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 maxLength={300}
                 placeholder="Message to drivers…"
-                className="flex-1 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
+                className="min-w-0 flex-1 basis-48 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
               />
               <select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)}
                 className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600">
@@ -363,8 +365,11 @@ function RaceControlInner() {
 
         {/* Standings */}
         <div className="lg:col-span-3 rounded-xl bg-pit-900 ring-1 ring-pit-800">
+          <div className="flex justify-end px-3 pt-3">
+            <OrderToggle mode={orderMode} onChange={setOrderMode} />
+          </div>
           {snapshot ? (
-            <TimingTable snapshot={snapshot} compact />
+            <TimingTable snapshot={snapshot} compact orderMode={orderMode} />
           ) : (
             <div className="p-10 text-center text-ink-500">Connecting…</div>
           )}
