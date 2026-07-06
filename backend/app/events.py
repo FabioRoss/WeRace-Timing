@@ -41,6 +41,7 @@ class Event:
         self._msg_id = 0
         self._broadcast_task: asyncio.Task | None = None
         self._last_broadcast_state = -1.0
+        self._last_source_status: dict | None = None
 
     # ---------------------------------------------------------------- source
 
@@ -51,13 +52,25 @@ class Event:
             raise ValueError(f"unknown source kind: {config.kind}")
         self.source = cls(config, self._on_data, self._on_frame)
         self.source.start()
-        log.info("slot %d connected to %s (%s)", self.slot, config.label or config.url, config.kind)
+        # Wait (briefly) for the first connect attempt to succeed or fail so
+        # the caller gets a real outcome, not just "task scheduled".
+        try:
+            await asyncio.wait_for(self.source.first_attempt.wait(), timeout=6)
+        except asyncio.TimeoutError:
+            log.warning(
+                "slot %d: %s not connected after 6s, still trying", self.slot, config.url
+            )
+        log.info("slot %d source %s (%s): connected=%s error=%r",
+                 self.slot, config.label or config.url, config.kind,
+                 self.source.status.connected, self.source.status.error)
         return self.source_status()
 
     async def disconnect_source(self) -> None:
         if self.source:
             await self.source.stop()
             self.source = None
+            # Tell dashboards immediately; no frames will arrive to trigger it.
+            await self.broadcast_now()
         self.stop_recording()
 
     def source_status(self) -> SourceStatus:
@@ -133,9 +146,17 @@ class Event:
         while True:
             await asyncio.sleep(BROADCAST_INTERVAL)
             try:
-                if self.state.updated_at == self._last_broadcast_state:
+                # Broadcast on data updates AND on source-status transitions
+                # (connect, disconnect, errors) — a failing source produces no
+                # frames, so status changes must trigger pushes on their own.
+                source_status = self.source_status().model_dump()
+                if (
+                    self.state.updated_at == self._last_broadcast_state
+                    and source_status == self._last_source_status
+                ):
                     continue
                 self._last_broadcast_state = self.state.updated_at
+                self._last_source_status = source_status
                 await self.broadcast_now()
             except Exception:
                 log.exception("broadcast loop error (slot %d)", self.slot)
