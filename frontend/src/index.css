@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  /* Dark racing theme — fixed dark, tuned for glare-y outdoor phone use */
+  --color-pit-950: #07080c;
+  --color-pit-900: #0b0d14;
+  --color-pit-850: #10131d;
+  --color-pit-800: #161a27;
+  --color-pit-700: #232939;
+  --color-pit-600: #333b52;
+  --color-ink-100: #f4f6fb;
+  --color-ink-300: #b9c0d4;
+  --color-ink-500: #7c86a3;
+  --color-race-red: #e10600;
+  --color-race-green: #2fd058;
+  --color-race-yellow: #ffd21f;
+  --color-race-blue: #3987e5;
+  --color-race-purple: #b569f0;
+
+  --font-display: "Segoe UI", "Inter", system-ui, sans-serif;
+  --font-timing: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-pit-950 text-ink-100 font-display antialiased;
+}
+
+.timing {
+  font-family: var(--font-timing);
+  font-variant-numeric: tabular-nums;
+}
+
+.label-race {
+  @apply uppercase tracking-[0.18em] text-[0.65rem] font-semibold text-ink-500;
+}
+
+/* Checkered strip used on headers */
+.checker {
+  background-image:
+    repeating-conic-gradient(#e8eaf2 0% 25%, #14161f 0% 50%);
+  background-size: 12px 12px;
+}
+
+@keyframes flash-msg {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.msg-flash { animation: flash-msg 1.2s ease-in-out infinite; }

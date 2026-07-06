@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    # Required: create backend/.env first (see backend/.env.example)
+    env_file: backend/.env
+    volumes:
+      - recordings:/app/backend/recordings
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # The domain Caddy serves and gets a Let's Encrypt certificate for
+      WRB_DOMAIN: ${WRB_DOMAIN:?set WRB_DOMAIN, e.g. WRB_DOMAIN=timing.example.com docker compose up -d}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  recordings:
+  caddy_data:
+  caddy_config:
