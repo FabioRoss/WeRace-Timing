@@ -12,7 +12,10 @@ with the target first, then a CSS style class, then the text value:
     rXcY|class|text          set cell text + style. Time styles: tn=normal,
                              ti=personal best, tb=session best, ib=info.
                              Status column: sr=crossed line, si=pit in,
-                             so=pit out, su=position up, in=idle.
+                             so=pit out, su=position up, in=idle. Indicator
+                             column classes gm/gf/gl/gs are position-change
+                             arrows (ignored); c12 carries an avg-speed-like
+                             number at lap completion (ignored).
     rXcY||text               set text, keep style (e.g. position updates)
     rXcY|class|              set style, clear text (e.g. last lap at pit-in)
     rX|#|26                  move row X to standing position 26
@@ -305,9 +308,11 @@ class ApexGrid:
     def standings(self) -> list[DriverRow]:
         columns = self.columns or DEFAULT_COLUMNS
         status_col = next((c for c, s in columns.items() if s == "status"), None)
-        rows: list[DriverRow] = []
         order = [r for r in self.row_order if r != self.header_row]
-        for fallback_pos, row in enumerate(order, start=1):
+        positioned: list[tuple[int, DriverRow]] = []
+        # sort key: best lap (unknown last), laps desc, stream appearance
+        unpositioned: list[tuple[float, int, int, DriverRow]] = []
+        for appearance, row in enumerate(order):
             values: dict[str, str] = {}
             for col, semantic in columns.items():
                 cell = self.cells.get((row, col))
@@ -320,6 +325,9 @@ class ApexGrid:
                 if not any(values.get(k) for k in ("name", "last", "best", "laps", "position")):
                     continue
                 kart_no = str(row)
+            # rX|#|n and the position-column text are absolute standings
+            # positions maintained by the server (verified: no duplicates, no
+            # best-lap inversions across a full practice capture).
             position = self.row_pos.get(row, 0)
             if not position:
                 try:
@@ -330,26 +338,40 @@ class ApexGrid:
             status_class = ""
             if status_col is not None:
                 status_class = (self.cells.get((row, status_col)) or {}).get("class", "").lower()
-            rows.append(
-                DriverRow(
-                    kart_no=kart_no,
-                    name=values.get("name", ""),
-                    position=position or fallback_pos,
-                    last_lap_ms=parse_duration_ms(values.get("last")),
-                    best_lap_ms=parse_duration_ms(values.get("best")),
-                    gap_ahead=values.get("interval", ""),
-                    gap_leader=values.get("gap", ""),
-                    laps=int(re.sub(r"\D", "", values.get("laps", "")) or 0),
-                    pits=int(re.sub(r"\D", "", values.get("pits", "")) or 0),
-                    in_pit=(
-                        row in self.pit_rows
-                        or status_class == "si"
-                        or "pit" in status
-                        or "pit" in status_class
-                    ),
-                )
+            driver = DriverRow(
+                kart_no=kart_no,
+                name=values.get("name", ""),
+                position=position,
+                last_lap_ms=parse_duration_ms(values.get("last")),
+                best_lap_ms=parse_duration_ms(values.get("best")),
+                gap_ahead=values.get("interval", ""),
+                gap_leader=values.get("gap", ""),
+                laps=int(re.sub(r"\D", "", values.get("laps", "")) or 0),
+                pits=int(re.sub(r"\D", "", values.get("pits", "")) or 0),
+                in_pit=(
+                    row in self.pit_rows
+                    or status_class == "si"
+                    or "pit" in status
+                    or "pit" in status_class
+                ),
             )
-        rows.sort(key=lambda d: d.position if d.position > 0 else 999)
+            if position:
+                positioned.append((position, driver))
+            else:
+                best = driver.best_lap_ms if driver.best_lap_ms else float("inf")
+                unpositioned.append((best, -driver.laps, appearance, driver))
+
+        # Karts the server never (re)positioned while we were connected go
+        # after the known block, ranked by best lap — in a mid-session join of
+        # a practice session (no known positions at all) this yields exactly
+        # "ordered by fastest time".
+        positioned.sort(key=lambda t: t[0])
+        unpositioned.sort(key=lambda t: t[:3])
+        rows = [driver for _, driver in positioned]
+        next_pos = positioned[-1][0] if positioned else 0
+        for offset, (_, _, _, driver) in enumerate(unpositioned, start=1):
+            driver.position = next_pos + offset
+            rows.append(driver)
         return rows
 
 

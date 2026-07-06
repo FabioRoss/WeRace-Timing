@@ -1,4 +1,6 @@
-import type { Snapshot } from '../lib/types'
+import { useEffect, useRef } from 'react'
+import type { CSSProperties } from 'react'
+import type { DriverRow, Snapshot } from '../lib/types'
 import { fmtGap, fmtLap } from '../lib/format'
 
 interface Props {
@@ -7,8 +9,37 @@ interface Props {
   compact?: boolean
 }
 
+/** Lap-progress line + start/finish flash, keyed on laps parity so each
+ *  completed lap restarts the CSS animations without remounting the row. */
+function lapAnimation(d: DriverRow, crossed: boolean): CSSProperties {
+  if (d.in_pit || d.finished || !d.last_lap_ms) return {}
+  const variant = d.laps % 2 === 0 ? 'a' : 'b'
+  const animations = [`lap-progress-${variant} ${d.last_lap_ms}ms linear forwards`]
+  if (crossed) animations.push(`lap-flash-${variant} 1.2s ease-out`)
+  return {
+    backgroundImage: 'linear-gradient(var(--color-race-blue), var(--color-race-blue))',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'left bottom',
+    backgroundSize: '0% 2px',
+    animation: animations.join(', '),
+  }
+}
+
 export function TimingTable({ snapshot, highlightKart, compact = false }: Props) {
   const { drivers, session_best_kart } = snapshot
+
+  // Karts whose lap count just increased flash briefly (start/finish crossing).
+  // The ref survives re-renders so rows don't all flash on first paint.
+  const prevLaps = useRef<Map<string, number>>(new Map())
+  const crossed = new Set<string>()
+  for (const d of drivers) {
+    const prev = prevLaps.current.get(d.kart_no)
+    if (prev !== undefined && d.laps > prev) crossed.add(d.kart_no)
+  }
+  useEffect(() => {
+    prevLaps.current = new Map(drivers.map((d) => [d.kart_no, d.laps]))
+  }, [drivers])
+
   if (drivers.length === 0) {
     return (
       <div className="p-10 text-center text-ink-500">
@@ -40,6 +71,7 @@ export function TimingTable({ snapshot, highlightKart, compact = false }: Props)
             return (
               <tr
                 key={d.kart_no}
+                style={lapAnimation(d, crossed.has(d.kart_no))}
                 className={`border-b border-pit-800 ${
                   own ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60' : ''
                 } ${d.finished ? 'opacity-60' : ''}`}
