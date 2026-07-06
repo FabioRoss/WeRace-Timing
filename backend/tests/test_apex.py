@@ -188,10 +188,10 @@ def test_unknown_commands_ignored():
 
 # ---------------------------------------------------------------- live capture
 
-def replay_cremona() -> ApexGrid:
-    """Replay the real Cremona capture (mid-session join, no grid frame)."""
+def replay_fixture(name: str) -> ApexGrid:
+    """Replay a real capture (mid-session join, no grid frame)."""
     grid = ApexGrid()
-    with (FIXTURES / "cremona.ndjson").open(encoding="utf-8") as fh:
+    with (FIXTURES / name).open(encoding="utf-8") as fh:
         for line in fh:
             rec = json.loads(line)
             for cmd in rec["payload"].replace("\r", "").split("\n"):
@@ -199,6 +199,10 @@ def replay_cremona() -> ApexGrid:
                 if cmd:
                     grid.apply(cmd)
     return grid
+
+
+def replay_cremona() -> ApexGrid:
+    return replay_fixture("cremona.ndjson")
 
 
 def test_cremona_replay_decodes_laps_and_positions():
@@ -244,3 +248,51 @@ def test_cremona_replay_ranking_order():
     grid = replay_cremona()
     order = [d.kart_no for d in grid.standings()]
     assert order.index("71") < order.index("62") < order.index("86")
+
+
+# ------------------------------------------------- practice session capture
+
+def test_practice_replay_positions_are_consistent():
+    grid = replay_fixture("cremona_practice.ndjson")
+    rows = grid.standings()
+    positions = [d.position for d in rows]
+    assert positions == sorted(positions)
+    assert len(set(positions)) == len(positions), "positions must be unique"
+    assert rows[0].kart_no == "59"
+    assert rows[0].best_lap_ms == 94288          # 1:34.288
+
+
+def test_practice_replay_best_lap_monotonic_for_positioned():
+    """This session ranks by best lap; server-positioned rows must reflect it."""
+    grid = replay_fixture("cremona_practice.ndjson")
+    positioned = [
+        d for d in grid.standings()
+        if grid.row_pos.get(int(d.kart_no)) and d.best_lap_ms
+    ]
+    bests = [d.best_lap_ms for d in positioned]
+    assert len(bests) > 20
+    assert bests == sorted(bests), "positioned karts out of best-lap order"
+
+
+def test_practice_replay_unpositioned_sorted_by_best():
+    grid = replay_fixture("cremona_practice.ndjson")
+    rows = grid.standings()
+    known = max(grid.row_pos.values())
+    tail = [d for d in rows if d.position > known]
+    tail_bests = [d.best_lap_ms for d in tail if d.best_lap_ms]
+    assert tail_bests == sorted(tail_bests)
+
+
+def test_headerless_practice_orders_by_best_lap():
+    """No positions at all (fresh mid-session join) -> fastest kart first."""
+    grid = ApexGrid()
+    grid.apply("r5c9|tn|1:02.000")
+    grid.apply("r5c10|ib|1:01.000")
+    grid.apply("r5c13|in|10")
+    grid.apply("r7c9|tn|59.000")
+    grid.apply("r7c10|ib|58.500")
+    grid.apply("r7c13|in|12")
+    grid.apply("r9c13|in|3")                     # no best lap yet
+    rows = grid.standings()
+    assert [d.kart_no for d in rows] == ["7", "5", "9"]
+    assert [d.position for d in rows] == [1, 2, 3]

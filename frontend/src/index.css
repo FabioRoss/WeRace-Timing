@@ -50,3 +50,26 @@ body {
   50% { opacity: 0.55; }
 }
 .msg-flash { animation: flash-msg 1.2s ease-in-out infinite; }
+
+/* Lap progress line (Apex-style): a 2px line along the row bottom that fills
+   over ~one lap and resets at each start/finish crossing. Two identical
+   keyframe pairs so switching the name (on laps parity) restarts the
+   animation without remounting the row. */
+@keyframes lap-progress-a {
+  from { background-size: 0% 2px; }
+  to { background-size: 100% 2px; }
+}
+@keyframes lap-progress-b {
+  from { background-size: 0% 2px; }
+  to { background-size: 100% 2px; }
+}
+
+/* Brief row highlight when a kart crosses the start/finish line */
+@keyframes lap-flash-a {
+  0% { background-color: rgba(57, 135, 229, 0.30); }
+  100% { background-color: transparent; }
+}
+@keyframes lap-flash-b {
+  0% { background-color: rgba(57, 135, 229, 0.30); }
+  100% { background-color: transparent; }
+}
