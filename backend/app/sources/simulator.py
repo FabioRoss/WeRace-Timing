@@ -81,6 +81,7 @@ class SimulatorSource(BaseSource):
         speed = max(self.config.speed or 1.0, 0.1)
         self.status.connected = True
         self.status.error = ""
+        self.first_attempt.set()
 
         try:
             while elapsed < self.RACE_SECONDS:

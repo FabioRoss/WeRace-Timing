@@ -44,6 +44,7 @@ class ReplaySource(BaseSource):
         speed = max(self.config.speed or 1.0, 0.1)
         self.status.connected = True
         self.status.error = ""
+        self.first_attempt.set()
         self.status.label = self.status.label or f"Replay {path.name}"
         try:
             prev_ts = None

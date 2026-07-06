@@ -36,15 +36,21 @@ export function useJsonSocket<T>(path: string, onMessage: (msg: T) => void) {
           /* non-JSON frame — ignore */
         }
       }
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         setStatus('closed')
         if (!closed) {
           const delay = Math.min(1000 * 2 ** retry, 15000)
           retry += 1
+          console.warn(
+            `[ws] ${path} closed (code ${ev.code}), reconnecting in ${delay}ms`,
+          )
           reconnectTimer = setTimeout(connect, delay)
         }
       }
-      ws.onerror = () => ws?.close()
+      ws.onerror = () => {
+        console.error(`[ws] ${path} socket error`)
+        ws?.close()
+      }
     }
 
     connect()

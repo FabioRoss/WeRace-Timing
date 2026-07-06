@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import time
 from typing import Awaitable, Callable
 
@@ -16,6 +17,12 @@ OnData = Callable[[RaceInfo | None, list[DriverRow] | None], Awaitable[None]]
 OnFrame = Callable[[str], None]
 
 
+def _is_tls_error(exc: BaseException) -> bool:
+    """True when a wss:// handshake died at the TLS layer (the port likely
+    speaks plain ws, e.g. Apex Timing's per-track ports)."""
+    return isinstance(exc, (ssl.SSLError, ConnectionResetError))
+
+
 class BaseSource:
     """A timing feed for one event slot. Subclasses decode frames."""
 
@@ -24,20 +31,33 @@ class BaseSource:
         self.on_data = on_data
         self.on_frame = on_frame  # recorder hook, receives every raw frame
         self.status = SourceStatus(kind=config.kind, label=config.label, url=config.url)
+        # Set once the first connect attempt has succeeded or failed, so the
+        # connect endpoint can report a real outcome instead of "scheduled".
+        self.first_attempt = asyncio.Event()
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
-        self._task = asyncio.create_task(self._run(), name=f"source-{self.config.kind}")
+        self._task = asyncio.create_task(self._run_guard(), name=f"source-{self.config.kind}")
+
+    async def _run_guard(self) -> None:
+        try:
+            await self._run()
+        finally:
+            self.first_attempt.set()
 
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
             try:
-                await self._task
-            except (asyncio.CancelledError, Exception):
+                # Bounded: a source stuck in a close handshake must not stall
+                # the disconnect endpoint.
+                await asyncio.wait_for(self._task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                 pass
             self._task = None
         self.status.connected = False
+        self.status.error = ""
+        log.info("source %s stopped", self.config.label or self.config.url)
 
     async def _run(self) -> None:
         raise NotImplementedError
@@ -67,19 +87,23 @@ class WebSocketSource(BaseSource):
 
     async def _run(self) -> None:
         backoff = 1.0
+        url = self.config.url
         while True:
+            fell_back = False
             try:
                 async with websockets.connect(
-                    self.config.url,
+                    url,
                     additional_headers=self._headers(),
                     open_timeout=15,
+                    close_timeout=5,
                     ping_interval=20,
                     ping_timeout=20,
                     max_size=4 * 1024 * 1024,
                 ) as ws:
-                    log.info("connected to %s", self.config.url)
+                    log.info("connected to %s", url)
                     self.status.connected = True
                     self.status.error = ""
+                    self.first_attempt.set()
                     backoff = 1.0
                     heartbeat = None
                     if self.HEARTBEAT:
@@ -101,8 +125,22 @@ class WebSocketSource(BaseSource):
                 raise
             except Exception as exc:
                 self.status.error = f"{type(exc).__name__}: {exc}"
-                log.warning("source %s disconnected: %s", self.config.url, self.status.error)
+                log.warning("source %s disconnected: %s", url, self.status.error)
+                # Some upstream servers (Apex Timing) speak plain ws on their
+                # timing ports; if TLS itself fails, retry once without it and
+                # keep the downgraded scheme for later reconnects.
+                if url.startswith("wss://") and _is_tls_error(exc):
+                    url = "ws://" + url[len("wss://"):]
+                    self.status.url = url
+                    log.warning(
+                        "source %s: TLS handshake failed, retrying as %s",
+                        self.config.url, url,
+                    )
+                    fell_back = True
             self.status.connected = False
+            if fell_back:
+                continue
+            self.first_attempt.set()
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30.0)
 

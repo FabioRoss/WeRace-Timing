@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
@@ -6,7 +6,8 @@ import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { SafewordGate } from '../components/SafewordGate'
-import type { RaceMessage } from '../lib/types'
+import { ToastStack, useToasts } from '../components/Toasts'
+import type { RaceMessage, SourceStatus } from '../lib/types'
 
 interface CatalogEntry {
   kind: 'mywer' | 'apex' | 'simulator' | 'replay'
@@ -36,6 +37,7 @@ function RaceControlInner() {
   const [replayFile, setReplayFile] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const { toasts, push, dismiss } = useToasts()
 
   // Messaging
   const [target, setTarget] = useState<'all' | 'select'>('all')
@@ -59,13 +61,47 @@ function RaceControlInner() {
   useEffect(() => { void loadCatalog() }, [loadCatalog])
 
   const source = snapshot?.source
+
+  // Surface each distinct timing-source error once (the source retries with
+  // backoff, so the same error would otherwise repeat every broadcast).
+  const lastErrorRef = useRef('')
+  const reportSourceError = useCallback((label: string, err: string) => {
+    if (err === lastErrorRef.current) return
+    lastErrorRef.current = err
+    console.error(`[timing source] ${label}: ${err}`)
+    push('error', `${label}: ${err}`)
+  }, [push])
+
+  // Watch source-status transitions pushed over the live websocket.
+  const prevSourceRef = useRef<SourceStatus | undefined>(undefined)
+  useEffect(() => {
+    const prev = prevSourceRef.current
+    prevSourceRef.current = source
+    if (!source) return
+    if (source.error) {
+      reportSourceError(source.label || source.url || source.kind, source.error)
+    }
+    if (source.connected && !prev?.connected) {
+      lastErrorRef.current = ''
+      console.info(`[timing source] connected to ${source.label || source.url}`)
+      if (prev) push('success', `Connected to ${source.label || source.url}`)
+    }
+    if (prev?.connected && !source.connected && !source.error) {
+      console.info('[timing source] disconnected')
+      push('info', 'Timing source disconnected')
+    }
+  }, [source, push, reportSourceError])
+
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true)
     setError('')
     try {
       await fn()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[race control] action failed:', e)
+      push('error', msg)
+      setError(msg)
     } finally {
       setBusy(false)
     }
@@ -82,7 +118,18 @@ function RaceControlInner() {
       if (!entry) throw new Error('Pick a source first')
       config = entry
     }
-    await api(`/e/${slot}/api/admin/connect`, { body: config, safeword: true })
+    lastErrorRef.current = ''
+    const r = await api<{ ok: boolean; source: SourceStatus }>(
+      `/e/${slot}/api/admin/connect`, { body: config, safeword: true },
+    )
+    // The backend waits for the first connect attempt, so this is a real outcome.
+    if (r.source?.error && !r.source.connected) {
+      reportSourceError(r.source.label || r.source.url, r.source.error)
+      setError(`Connect failed: ${r.source.error}`)
+    } else if (!r.source?.connected) {
+      console.warn('[timing source] no response yet, still trying:', r.source?.url)
+      push('info', 'No response from the timing server yet — still trying in the background')
+    }
   })
 
   const disconnect = () => act(() =>
@@ -134,6 +181,7 @@ function RaceControlInner() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
+      <ToastStack toasts={toasts} dismiss={dismiss} />
       <PageHeader
         title={`Race Control — Event ${slot}`}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
