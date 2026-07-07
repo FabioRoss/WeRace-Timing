@@ -34,6 +34,9 @@ class BaseSource:
         # Set once the first connect attempt has succeeded or failed, so the
         # connect endpoint can report a real outcome instead of "scheduled".
         self.first_attempt = asyncio.Event()
+        # Diagnostic: the first raw frames after connect (truncated), exposed
+        # via the admin status endpoint to debug upstream init sequences.
+        self.first_frames: list[str] = []
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -69,6 +72,8 @@ class BaseSource:
     def _record(self, text: str) -> None:
         self.status.frames_received += 1
         self.status.last_frame_ts = time.time()
+        if len(self.first_frames) < 25:
+            self.first_frames.append(text[:200])
         if self.on_frame:
             self.on_frame(text)
 

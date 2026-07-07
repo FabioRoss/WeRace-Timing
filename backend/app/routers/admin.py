@@ -37,6 +37,9 @@ def status(slot: int) -> dict:
     return {
         "slot": slot,
         "source": event.source_status().model_dump(),
+        # Diagnostic: the first raw frames after connect, to inspect what the
+        # upstream actually sends (init/grid sequences).
+        "first_frames": event.source.first_frames if event.source else [],
         "clients": event.hub.counts(),
         "messages": [m.model_dump() for m in event.messages[-50:]],
         "karts": event.state.kart_numbers(),

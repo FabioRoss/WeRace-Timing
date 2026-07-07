@@ -25,6 +25,8 @@ class EventState:
         # Fallback stint tracking when the source has no since-pit field
         self._pit_counts: dict[str, int] = {}
         self._stint_started: dict[str, float] = {}
+        self._lap_pits: dict[str, int] = {}      # pits count at the last lap record
+        self._cross_ts: dict[str, float] = {}    # wall time of the last crossing
 
     def reset(self) -> None:
         self.__init__(self.slot)
@@ -48,17 +50,33 @@ class EventState:
         history = self.lap_history.setdefault(row.kart_no, [])
         last_recorded = history[-1].lap_no if history else 0
         if row.laps > last_recorded and row.last_lap_ms:
+            pitted = (
+                row.pits > self._lap_pits.get(row.kart_no, row.pits)
+                or row.in_pit
+            )
+            self._lap_pits[row.kart_no] = row.pits
+            self._cross_ts[row.kart_no] = now
             history.append(
                 LapRecord(
                     kart_no=row.kart_no,
                     lap_no=row.laps,
                     lap_ms=row.last_lap_ms,
                     position=row.position,
+                    pit=pitted,
                     ts=now,
                 )
             )
             if len(history) > MAX_LAPS_PER_KART:
                 del history[0]
+        # Progress fallback for sources without sector events (simulator,
+        # mywer): anchor a plain 0->1 bar at the last observed crossing.
+        if row.prog_ts is None and not row.in_pit:
+            cross = self._cross_ts.get(row.kart_no)
+            if cross is not None and row.last_lap_ms:
+                row.prog_ts = cross
+                row.prog_from = 0.0
+                row.prog_to = 1.0
+                row.prog_ms = row.last_lap_ms
 
     def _track_stint(self, row: DriverRow, now: float) -> None:
         prev_pits = self._pit_counts.get(row.kart_no)
@@ -147,7 +165,7 @@ class EventState:
         selected = karts or self.kart_numbers()
         return {
             kart: [
-                {"lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position}
+                {"lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position, "pit": rec.pit}
                 for rec in self.lap_history.get(kart, [])[-last_n:]
             ]
             for kart in selected

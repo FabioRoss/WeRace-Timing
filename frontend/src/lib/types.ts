@@ -5,6 +5,7 @@ export interface RaceInfo {
   track_name: string
   event_name: string
   run_type: string
+  session_kind: 'unknown' | 'race' | 'timed'
   flag: Flag
   race_time: string
   time_to_go: string
@@ -20,6 +21,10 @@ export interface DriverRow {
   last_lap_ms: number | null
   best_lap_ms: number | null
   best_lap_no: number | null
+  s1_ms: number | null
+  s2_ms: number | null
+  s3_ms: number | null
+  speed: string
   gap_ahead: string
   gap_leader: string
   laps: number
@@ -28,7 +33,14 @@ export interface DriverRow {
   total_pit_ms: number | null
   stint_time: string
   in_pit: boolean
+  pit_state: '' | 'in' | 'out'
   finished: boolean
+  // Progress anchor: at prog_ts (epoch s) the kart was at lap fraction
+  // prog_from, expected to reach prog_to after prog_ms milliseconds.
+  prog_ts: number | null
+  prog_from: number
+  prog_to: number
+  prog_ms: number | null
 }
 
 export interface SourceStatus {
@@ -109,4 +121,5 @@ export interface LapPoint {
   lap: number
   ms: number
   pos: number
+  pit: boolean
 }

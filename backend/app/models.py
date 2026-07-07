@@ -21,6 +21,9 @@ class RaceInfo(BaseModel):
     track_name: str = ""
     event_name: str = ""
     run_type: str = ""              # e.g. Q / F / free text from the source
+    # race = ranked by laps/track position; timed = ranked by best lap
+    # (practice/qualifying); unknown until the source can tell.
+    session_kind: Literal["unknown", "race", "timed"] = "unknown"
     flag: Flag = Flag.NONE
     race_time: str = ""             # elapsed, source formatted "HH:MM:SS"
     time_to_go: str = ""            # remaining, source formatted "HH:MM:SS"
@@ -36,6 +39,10 @@ class DriverRow(BaseModel):
     last_lap_ms: int | None = None
     best_lap_ms: int | None = None
     best_lap_no: int | None = None
+    s1_ms: int | None = None        # current-lap sector times
+    s2_ms: int | None = None
+    s3_ms: int | None = None
+    speed: str = ""                 # speed-trap reading (source formatted)
     gap_ahead: str = ""             # gap to the kart in front (source formatted)
     gap_leader: str = ""            # gap/difference to the leader
     laps: int = 0
@@ -44,7 +51,14 @@ class DriverRow(BaseModel):
     total_pit_ms: int | None = None
     stint_time: str = ""            # time since last pit if the source provides it
     in_pit: bool = False
+    pit_state: Literal["", "in", "out"] = ""   # in = in pit lane, out = out-lap
     finished: bool = False
+    # Lap-progress anchor: at prog_ts (wall time) the kart was at lap fraction
+    # prog_from, expected to reach prog_to after prog_ms (Apex sector events).
+    prog_ts: float | None = None
+    prog_from: float = 0.0
+    prog_to: float = 1.0
+    prog_ms: int | None = None
 
 
 class LapRecord(BaseModel):
@@ -52,6 +66,7 @@ class LapRecord(BaseModel):
     lap_no: int
     lap_ms: int
     position: int
+    pit: bool = False               # kart visited the pit lane during this lap
     ts: float = Field(default_factory=time.time)
 
 
@@ -97,6 +112,9 @@ class SourceConfig(BaseModel):
     # For mywer/apex: full wss URL (catalog entries pre-fill this).
     url: str = ""
     origin: str = ""                # Origin header override (catalog pre-fills)
+    # Public live-timing page; fetched once at connect to bootstrap the grid
+    # (kart numbers / team names / column headers) when the ws doesn't send it.
+    page: str = ""
     # For replay: recording filename inside recordings dir.
     file: str = ""
     speed: float = 1.0              # replay speed multiplier

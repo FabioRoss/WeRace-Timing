@@ -44,12 +44,17 @@ export function GeneralDashboard() {
         </div>
       </div>
       <main className="flex-1 px-4 pb-8">
-        <div className="mb-2 flex justify-end">
-          <OrderToggle mode={orderMode} onChange={setOrderMode} />
-        </div>
+        {race?.session_kind === 'race' && (
+          <div className="mb-2 flex justify-end">
+            <OrderToggle mode={orderMode} onChange={setOrderMode} />
+          </div>
+        )}
         <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
           {snapshot ? (
-            <TimingTable snapshot={snapshot} orderMode={orderMode} />
+            <TimingTable
+              snapshot={snapshot}
+              orderMode={race?.session_kind === 'race' ? orderMode : 'race'}
+            />
           ) : (
             <div className="p-10 text-center text-ink-500">Connecting…</div>
           )}

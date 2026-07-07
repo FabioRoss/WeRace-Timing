@@ -8,6 +8,14 @@ export function fmtLap(ms: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(frac).padStart(3, '0')}`
 }
 
+/** Milliseconds -> "SS.mmm" sector time (falls back to lap format >60s). */
+export function fmtSector(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return '\u2014'
+  if (ms >= 60000) return fmtLap(ms)
+  const s = Math.floor(ms / 1000)
+  return `${s}.${String(ms % 1000).padStart(3, '0')}`
+}
+
 /** Seconds -> "H:MM:SS" or "MM:SS" stint/clock display. */
 export function fmtClock(seconds: number | null | undefined): string {
   if (seconds == null || seconds < 0) return '--:--'

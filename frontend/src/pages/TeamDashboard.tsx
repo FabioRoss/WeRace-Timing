@@ -248,11 +248,18 @@ export function TeamDashboard() {
 
           {/* Full standings */}
           <div className="lg:col-span-3 rounded-xl bg-pit-900 ring-1 ring-pit-800">
-            <div className="flex justify-end px-3 pt-3">
-              <OrderToggle mode={orderMode} onChange={setOrderMode} />
-            </div>
+            {snapshot?.race.session_kind === 'race' && (
+              <div className="flex justify-end px-3 pt-3">
+                <OrderToggle mode={orderMode} onChange={setOrderMode} />
+              </div>
+            )}
             {snapshot && (
-              <TimingTable snapshot={snapshot} highlightKart={kart} compact orderMode={orderMode} />
+              <TimingTable
+                snapshot={snapshot}
+                highlightKart={kart}
+                compact
+                orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
+              />
             )}
           </div>
         </div>
