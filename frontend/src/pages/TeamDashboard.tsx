@@ -6,6 +6,7 @@ import { useLive } from '../lib/useLive'
 import type { LapPoint, RaceMessage } from '../lib/types'
 import { fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
+import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { GapEvolutionChart, LapTimeChart, type ChartSeries } from '../components/LapCharts'
@@ -26,6 +27,7 @@ export function TeamDashboard() {
   const [text, setText] = useState('')
   const [priority, setPriority] = useState<'info' | 'warning' | 'urgent'>('info')
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [orderMode, setOrderMode] = useOrderMode()
 
   const kart = info?.found ? info.kart_no! : undefined
 
@@ -157,8 +159,8 @@ export function TeamDashboard() {
             <h3 className="label-race mb-3">Driver dashboard access</h3>
             <div className="flex items-center gap-4">
               {info?.driver_url && (
-                <div className="rounded bg-white p-2">
-                  <QRCodeSVG value={info.driver_url} size={96} />
+                <div className="shrink-0 rounded bg-white p-2">
+                  <QRCodeSVG value={info.driver_url} size={96} className="h-auto max-w-full" />
                 </div>
               )}
               <div className="min-w-0 flex-1 space-y-2">
@@ -190,13 +192,13 @@ export function TeamDashboard() {
                   </button>
                 ))}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   maxLength={300}
                   placeholder="Type a message…"
-                  className="flex-1 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
+                  className="min-w-0 flex-1 basis-48 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
                 />
                 <select
                   value={priority}
@@ -246,7 +248,12 @@ export function TeamDashboard() {
 
           {/* Full standings */}
           <div className="lg:col-span-3 rounded-xl bg-pit-900 ring-1 ring-pit-800">
-            {snapshot && <TimingTable snapshot={snapshot} highlightKart={kart} compact />}
+            <div className="flex justify-end px-3 pt-3">
+              <OrderToggle mode={orderMode} onChange={setOrderMode} />
+            </div>
+            {snapshot && (
+              <TimingTable snapshot={snapshot} highlightKart={kart} compact orderMode={orderMode} />
+            )}
           </div>
         </div>
       )}

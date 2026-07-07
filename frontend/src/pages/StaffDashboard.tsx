@@ -101,10 +101,10 @@ function StaffInner() {
 
 function QrBlock({ label, url }: { label: string; url: string }) {
   return (
-    <div className="text-center">
+    <div className="min-w-0 text-center">
       <div className="label-race mb-2 print:text-black">{label}</div>
-      <div className="inline-block rounded bg-white p-2">
-        <QRCodeSVG value={url} size={120} />
+      <div className="inline-block max-w-full rounded bg-white p-2">
+        <QRCodeSVG value={url} size={120} className="h-auto w-full max-w-[120px]" />
       </div>
       <button
         type="button"
