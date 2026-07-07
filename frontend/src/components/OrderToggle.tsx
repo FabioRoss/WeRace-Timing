@@ -34,8 +34,8 @@ export function OrderToggle({ mode, onChange }: {
   return (
     <div className="flex items-center gap-1.5">
       <span className="label-race mr-1">Order</span>
-      {seg('race', 'Race')}
-      {seg('laptime', 'Lap times')}
+      {seg('race', 'Default')}
+      {seg('laptime', 'Best lap')}
     </div>
   )
 }

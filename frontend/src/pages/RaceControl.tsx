@@ -365,11 +365,17 @@ function RaceControlInner() {
 
         {/* Standings */}
         <div className="lg:col-span-3 rounded-xl bg-pit-900 ring-1 ring-pit-800">
-          <div className="flex justify-end px-3 pt-3">
-            <OrderToggle mode={orderMode} onChange={setOrderMode} />
-          </div>
+          {snapshot?.race.session_kind === 'race' && (
+            <div className="flex justify-end px-3 pt-3">
+              <OrderToggle mode={orderMode} onChange={setOrderMode} />
+            </div>
+          )}
           {snapshot ? (
-            <TimingTable snapshot={snapshot} compact orderMode={orderMode} />
+            <TimingTable
+              snapshot={snapshot}
+              compact
+              orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
+            />
           ) : (
             <div className="p-10 text-center text-ink-500">Connecting…</div>
           )}

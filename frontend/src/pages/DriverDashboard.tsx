@@ -33,6 +33,21 @@ export function DriverDashboard() {
     return () => clearInterval(t)
   }, [])
 
+  // Glow briefly when the driver crosses the start/finish line
+  const prevLap = useRef<number | undefined>(undefined)
+  const [glow, setGlow] = useState(false)
+  useEffect(() => {
+    const laps = view?.laps
+    if (laps == null) return
+    const prev = prevLap.current
+    prevLap.current = laps
+    if (prev !== undefined && laps > prev && !view?.in_pit) {
+      setGlow(true)
+      const t = setTimeout(() => setGlow(false), 1500)
+      return () => clearTimeout(t)
+    }
+  }, [view?.laps, view?.in_pit])
+
   const stale = status !== 'open' || (lastSeen > 0 && now - lastSeen > 10000)
   const accent = flagAccent(view?.flag ?? 'none')
 
@@ -62,7 +77,7 @@ export function DriverDashboard() {
   }
 
   return (
-    <Shell accent={accent} onTap={requestFullscreen}>
+    <Shell accent={accent} onTap={requestFullscreen} glow={glow}>
       <MessageOverlay message={message} onDismiss={() => setMessage(null)} />
 
       {/* Top strip: session + flag + position */}
@@ -138,14 +153,15 @@ export function DriverDashboard() {
   )
 }
 
-function Shell({ children, accent, onTap }: {
+function Shell({ children, accent, onTap, glow = false }: {
   children: React.ReactNode
   accent: string
   onTap: () => void
+  glow?: boolean
 }) {
   return (
     <div
-      className="flex h-dvh select-none flex-col overflow-hidden bg-pit-950"
+      className={`flex h-dvh select-none flex-col overflow-hidden bg-pit-950 ${glow ? 'lap-glow' : ''}`}
       style={{ borderTop: `6px solid ${accent}`, borderBottom: `6px solid ${accent}` }}
       onClick={onTap}
     >

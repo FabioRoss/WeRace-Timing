@@ -7,7 +7,7 @@ APEX_ORIGIN_ALT = "https://apex-timing.com"
 MYWER_ORIGIN = "https://stg.mk.time2race.it"
 
 
-def _apex(label: str, port: int, origin: str = APEX_ORIGIN) -> SourceConfig:
+def _apex(label: str, port: int, origin: str = APEX_ORIGIN, page: str = "") -> SourceConfig:
     # The live feed is served from live-data.apex-timing.com (wss works there);
     # www.apex-timing.com resets the TLS handshake on these ports.
     return SourceConfig(
@@ -15,6 +15,7 @@ def _apex(label: str, port: int, origin: str = APEX_ORIGIN) -> SourceConfig:
         label=label,
         url=f"wss://live-data.apex-timing.com:{port}/",
         origin=origin,
+        page=page,
     )
 
 
@@ -28,7 +29,10 @@ def _mywer(label: str, path: str) -> SourceConfig:
 
 
 TRACK_CATALOG: list[SourceConfig] = [
-    _apex("Cremona (Apex)", 7203),
+    _apex(
+        "Cremona (Apex)", 7203,
+        page="https://www.apex-timing.com/live-timing/cremona-circuit/index.html",
+    ),
     _apex("Pomposa (Apex)", 8293),
     _apex("South Garda (Apex)", 7443),
     _apex("LS Timing (Apex)", 9583, origin=APEX_ORIGIN_ALT),
