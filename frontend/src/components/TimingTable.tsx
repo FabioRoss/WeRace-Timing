@@ -25,7 +25,7 @@ function progressPct(d: DriverRow, serverNow: number): number {
   return Math.min(Math.max(p, 0), 1) * 100
 }
 
-function barStyle(pct: number): CSSProperties {
+function barStyle(pct: number, smooth: boolean): CSSProperties {
   if (pct <= 0) return {}
   return {
     // Only the leading ~100px of the line is visible (fade tail)
@@ -34,6 +34,9 @@ function barStyle(pct: number): CSSProperties {
     backgroundRepeat: 'no-repeat',
     backgroundPosition: 'left bottom',
     backgroundSize: `${pct}% 2px`,
+    // The 300ms tick sets waypoints; the linear transition glides between
+    // them so the bar moves fluidly. Resets (new lap) jump instantly.
+    transition: smooth ? 'background-size 320ms linear' : 'none',
   }
 }
 
@@ -48,6 +51,10 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
     const t = setInterval(() => setTick((v) => v + 1), 300)
     return () => clearInterval(t)
   }, [])
+
+  // Last rendered bar width per kart: moving forward glides via transition,
+  // moving backward (lap reset) snaps instantly.
+  const prevPctRef = useRef<Map<string, number>>(new Map())
 
   // prog_ts is server wall time; track client-server clock offset
   const skewRef = useRef(0)
@@ -140,10 +147,12 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
             const hasSessionBest = d.kart_no === session_best_kart && d.best_lap_ms != null
             const showBar = !byLapTime && !d.in_pit && !d.finished
             const pct = showBar ? progressPct(d, serverNow) : 0
+            const smooth = pct >= (prevPctRef.current.get(d.kart_no) ?? 0)
+            prevPctRef.current.set(d.kart_no, pct)
             return (
               <tr
                 key={d.kart_no}
-                style={barStyle(pct)}
+                style={barStyle(pct, smooth)}
                 onClick={() => setDetailKart(d.kart_no)}
                 className={`cursor-pointer border-b border-pit-800 ${
                   flashing.has(d.kart_no) ? 'lap-glow' : ''
