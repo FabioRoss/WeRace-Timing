@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { DriverDetail } from './DriverDetail'
 import type { OrderMode } from './OrderToggle'
-import type { DriverRow, Snapshot } from '../lib/types'
+import { TrackRing } from './TrackRing'
+import { lapFraction, useServerNow } from '../lib/lapProgress'
+import type { Snapshot } from '../lib/types'
 import { fmtGap, fmtLap, fmtSector } from '../lib/format'
 
 interface Props {
@@ -10,19 +12,6 @@ interface Props {
   highlightKart?: string
   compact?: boolean
   orderMode?: OrderMode
-}
-
-/** Apex-style lap progress: interpolate between the last timing event
- *  (crossing / sector) and the next expected one. `serverNow` is the client
- *  clock corrected onto the server's, since prog_ts is server wall time. */
-function progressPct(d: DriverRow, serverNow: number): number {
-  if (d.prog_ts == null) return 0
-  let p = d.prog_from
-  if (d.prog_ms) {
-    const t = ((serverNow - d.prog_ts) * 1000) / d.prog_ms
-    p = d.prog_from + (d.prog_to - d.prog_from) * Math.min(Math.max(t, 0), 1)
-  }
-  return Math.min(Math.max(p, 0), 1) * 100
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -45,25 +34,12 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
   const byLapTime = orderMode === 'laptime'
   const [detailKart, setDetailKart] = useState<string | null>(null)
 
-  // ~3 fps tick drives the progress bars (no CSS animation restarts involved)
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const t = setInterval(() => setTick((v) => v + 1), 300)
-    return () => clearInterval(t)
-  }, [])
+  // ~3 fps waypoints for the progress bars; CSS transitions glide between them
+  const serverNow = useServerNow(snapshot)
 
   // Last rendered bar width per kart: moving forward glides via transition,
   // moving backward (lap reset) snaps instantly.
   const prevPctRef = useRef<Map<string, number>>(new Map())
-
-  // prog_ts is server wall time; track client-server clock offset
-  const skewRef = useRef(0)
-  useEffect(() => {
-    if (snapshot.updated_at > 0) {
-      skewRef.current = Date.now() / 1000 - snapshot.updated_at
-    }
-  }, [snapshot.updated_at])
-  const serverNow = Date.now() / 1000 - skewRef.current
 
   // Glow on start/finish crossings: a new lap anchor (prog_from === 0 with a
   // fresh prog_ts) marks a crossing; karts without progress data fall back to
@@ -111,7 +87,11 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
   const side = 'hidden sm:table-cell'   // columns dropped on portrait phones
   const wide = 'hidden lg:table-cell'   // sector columns: desktop only
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="border-b border-pit-800 px-3 py-3">
+        <TrackRing snapshot={snapshot} highlightKart={highlightKart} />
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-xs sm:text-sm timing">
         <thead>
           <tr className="label-race border-b border-pit-700 text-left">
@@ -146,7 +126,7 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
             const own = highlightKart != null && d.kart_no === highlightKart
             const hasSessionBest = d.kart_no === session_best_kart && d.best_lap_ms != null
             const showBar = !byLapTime && !d.in_pit && !d.finished
-            const pct = showBar ? progressPct(d, serverNow) : 0
+            const pct = showBar ? (lapFraction(d, serverNow) ?? 0) * 100 : 0
             const smooth = pct >= (prevPctRef.current.get(d.kart_no) ?? 0)
             prevPctRef.current.set(d.kart_no, pct)
             return (
@@ -212,6 +192,7 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
           })}
         </tbody>
       </table>
+      </div>
       {detailKart && (
         <DriverDetail
           snapshot={snapshot}
