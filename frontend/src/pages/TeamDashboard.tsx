@@ -6,6 +6,7 @@ import { useLive } from '../lib/useLive'
 import type { LapPoint, RaceMessage } from '../lib/types'
 import { fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
@@ -28,6 +29,7 @@ export function TeamDashboard() {
   const [priority, setPriority] = useState<'info' | 'warning' | 'urgent'>('info')
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [orderMode, setOrderMode] = useOrderMode()
+  const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   const kart = info?.found ? info.kart_no! : undefined
 
@@ -123,7 +125,9 @@ export function TeamDashboard() {
           <>
             <div className="hidden text-right sm:block">
               <div className="label-race">Remaining</div>
-              <div className="timing font-bold">{race?.time_to_go || '--:--'}</div>
+              <div className="timing font-bold">
+                {race ? fmtRemaining(race, serverNow) : '--:--'}
+              </div>
             </div>
             <FlagBanner flag={race?.flag ?? 'none'} compact />
             <ConnectionDot status={status} />

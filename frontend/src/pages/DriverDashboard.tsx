@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import type { DriverEvent, DriverView, RaceMessage } from '../lib/types'
 import { useJsonSocket } from '../lib/ws'
 import { fmtClock, fmtGap, fmtLap } from '../lib/format'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { MessageOverlay } from '../components/MessageOverlay'
 import { flagAccent } from '../components/FlagBanner'
 
@@ -50,6 +51,8 @@ export function DriverDashboard() {
 
   const stale = status !== 'open' || (lastSeen > 0 && now - lastSeen > 10000)
   const accent = flagAccent(view?.flag ?? 'none')
+  const serverNow = useServerNow(view?.updated_at ?? 0, 1000)
+  const remaining = view ? fmtRemaining(view, serverNow) : '--:--'
 
   const requestFullscreen = () => {
     const el = document.documentElement
@@ -85,7 +88,7 @@ export function DriverDashboard() {
         <div>
           <div className="label-race">Remaining</div>
           <div className="timing text-4xl font-extrabold leading-none sm:text-5xl">
-            {view?.time_to_go || '--:--'}
+            {remaining}
           </div>
         </div>
         <div className="flex items-center">

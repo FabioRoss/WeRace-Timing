@@ -262,6 +262,10 @@ class ApexGrid:
             if self._count_down:
                 self.race.time_to_go = clock
                 self.race.race_time = ""
+                # countdown anchor so dashboards can tick the clock smoothly
+                self.race.togo_ms = ms
+                self.race.togo_ts = time.time()
+                self.race.counting = ms > 0
             else:
                 self.race.race_time = clock
             self.dirty = True

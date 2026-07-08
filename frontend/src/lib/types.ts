@@ -9,6 +9,11 @@ export interface RaceInfo {
   flag: Flag
   race_time: string
   time_to_go: string
+  // Countdown anchor: togo_ms remaining at server time togo_ts; tick down
+  // locally while counting, re-sync on every snapshot.
+  togo_ms: number | null
+  togo_ts: number | null
+  counting: boolean
   time_of_day: string
   ended: boolean
 }
@@ -88,6 +93,9 @@ export interface DriverView {
   finished?: boolean
   flag: Flag
   time_to_go: string
+  togo_ms?: number | null
+  togo_ts?: number | null
+  counting?: boolean
   race_time?: string
   run_type?: string
   ended?: boolean

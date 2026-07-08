@@ -5,6 +5,7 @@ import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
@@ -40,6 +41,7 @@ function RaceControlInner() {
   const [error, setError] = useState('')
   const { toasts, push, dismiss } = useToasts()
   const [orderMode, setOrderMode] = useOrderMode()
+  const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   // Messaging
   const [target, setTarget] = useState<'all' | 'select'>('all')
@@ -191,7 +193,9 @@ function RaceControlInner() {
           <>
             <div className="hidden text-right sm:block">
               <div className="label-race">Remaining</div>
-              <div className="timing font-bold">{race?.time_to_go || '--:--'}</div>
+              <div className="timing font-bold">
+                {race ? fmtRemaining(race, serverNow) : '--:--'}
+              </div>
             </div>
             <FlagBanner flag={race?.flag ?? 'none'} compact />
             <ConnectionDot status={status} />

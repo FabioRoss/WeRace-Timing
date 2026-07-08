@@ -26,7 +26,12 @@ class RaceInfo(BaseModel):
     session_kind: Literal["unknown", "race", "timed"] = "unknown"
     flag: Flag = Flag.NONE
     race_time: str = ""             # elapsed, source formatted "HH:MM:SS"
-    time_to_go: str = ""            # remaining, source formatted "HH:MM:SS"
+    time_to_go: str = ""            # remaining, source formatted (or "N laps")
+    # Countdown anchor: togo_ms remaining at server wall time togo_ts; clients
+    # tick it down locally while `counting` and re-sync on every update.
+    togo_ms: int | None = None
+    togo_ts: float | None = None
+    counting: bool = False
     time_of_day: str = ""
     ended: bool = False
 

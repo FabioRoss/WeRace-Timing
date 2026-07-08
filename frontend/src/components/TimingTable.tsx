@@ -35,7 +35,7 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
   const [detailKart, setDetailKart] = useState<string | null>(null)
 
   // ~3 fps waypoints for the progress bars; CSS transitions glide between them
-  const serverNow = useServerNow(snapshot)
+  const serverNow = useServerNow(snapshot.updated_at)
 
   // Last rendered bar width per kart: moving forward glides via transition,
   // moving backward (lap reset) snaps instantly.

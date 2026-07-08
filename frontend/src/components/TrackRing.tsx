@@ -48,7 +48,7 @@ export function TrackRing({ snapshot, highlightKart }: {
   snapshot: Snapshot
   highlightKart?: string
 }) {
-  const serverNow = useServerNow(snapshot)
+  const serverNow = useServerNow(snapshot.updated_at)
   const prevFrac = useRef<Map<string, number>>(new Map())
   const { drivers } = snapshot
   if (drivers.length === 0) return null
