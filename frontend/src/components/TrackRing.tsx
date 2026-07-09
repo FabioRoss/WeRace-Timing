@@ -107,8 +107,9 @@ export function TrackRing({
 
     let fill: string
     if (reference) {
-      // team view: colors relative to the followed kart
+      // team view: colors relative to the followed kart (leader stays purple)
       if (d.kart_no === reference.kart_no) fill = 'var(--color-race-green)'
+      else if (d.kart_no === leader.kart_no) fill = 'var(--color-race-purple)'
       else if (d.laps > reference.laps) fill = 'var(--color-race-red)'
       else if (d.laps < reference.laps) fill = 'var(--color-race-blue)'
       else fill = 'var(--color-pit-600)'
@@ -284,6 +285,10 @@ export function TrackRing({
             <span>
               <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-green align-middle" />
               you
+            </span>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-purple align-middle" />
+              leader
             </span>
             <span>
               <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-red align-middle" />
