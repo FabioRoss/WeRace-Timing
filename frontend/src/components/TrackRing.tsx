@@ -72,13 +72,20 @@ export function TrackRing({
   const reference = relativeTo ? drivers.find((d) => d.kart_no === relativeTo) : undefined
   const sectors = sectorFractions(drivers)
 
+  // Some feeds (MyWeR) only flag the pit after the kart exits, leaving it
+  // frozen at the line. A kart whose progress anchor is long exhausted is
+  // most likely sitting in the pit (or stopped) — show it as such.
+  const likelyPitted = (d: DriverRow) =>
+    d.prog_ts != null && !!d.prog_ms &&
+    (serverNow - d.prog_ts) * 1000 > d.prog_ms * 1.5
+
   // Leader on top; then karts by reverse position so front-runners overlap
   // backmarkers, not the other way around.
   const ordered = [...drivers].sort((a, b) => b.position - a.position)
-  const pitKarts = ordered.filter((d) => d.in_pit)
+  const pitKarts = ordered.filter((d) => d.in_pit || likelyPitted(d))
 
   const karts = ordered.map((d) => {
-    const inPit = d.in_pit
+    const inPit = d.in_pit || likelyPitted(d)
     let frac = lapFraction(d, serverNow)
     if (frac == null && !inPit) return null
 
@@ -169,7 +176,8 @@ export function TrackRing({
   // gets longer (lost track position); "+NL" counts full laps the field
   // completes before the rejoin (in-lap + stationary time).
   const mod1 = (v: number) => ((v % 1) + 1) % 1
-  if (reference?.in_pit) {
+  const refPitted = reference != null && (reference.in_pit || likelyPitted(reference))
+  if (refPitted && reference) {
     if (pitEnterRef.current?.kart !== reference.kart_no) {
       pitEnterRef.current = { kart: reference.kart_no, ts: serverNow }
     }
@@ -179,7 +187,7 @@ export function TrackRing({
   let pitMarker: { frac: number; lost: number } | null = null
   if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
     const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
-    if (reference.in_pit) {
+    if (refPitted) {
       // Stationary in the pit: the exit moment approaches as time passes, so
       // the marker advances at exactly field pace and stays a valid forecast
       // (continuous with the pre-stop marker: entry is at the line).
@@ -318,7 +326,7 @@ export function TrackRing({
         )}
         <span>
           <span className="mr-1 inline-block h-2 w-2 rounded-full bg-pit-600 align-middle opacity-45" />
-          in pit
+          in pit / stopped
         </span>
       </div>
     </div>
