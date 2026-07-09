@@ -286,7 +286,9 @@ export function TeamDashboard() {
                   onChange={(e) => setPitSec(parseFloat(e.target.value) || 0)}
                   className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600"
                 />
-                <span className="text-xs text-ink-500">→ rejoin marker on the ring</span>
+                <span className="text-xs text-ink-500">
+                  karts near the marker now = your traffic at pit exit
+                </span>
               </div>
               {selKart && snapshot && (() => {
                 const sel = snapshot.drivers.find((d) => d.kart_no === selKart)

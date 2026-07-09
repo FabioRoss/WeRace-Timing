@@ -114,6 +114,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   changes or a quorum of karts' lap counts regress (new session at the venue).
 - **Flag override**: EventState.flag_override (set via POST /api/admin/flag) replaces
   race.flag in snapshots/driver views; None mirrors the feed. RC has the button row.
+- **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
+  start/finish line) while the field keeps lapping, so the marker sits at
+  (ownFraction − pitTime/pace) mod 1 — the karts near it NOW are the traffic at
+  pit exit. It moves backward as the stop lengthens; never model a stop as
+  "driving forward for T seconds".
 - **session_kind** gates the order toggle and ring "lapped" coloring:
   race | timed | unknown, from titles/runtype/duralaps or the inversion heuristic.
 

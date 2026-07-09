@@ -157,13 +157,21 @@ export function TrackRing({
     )
   })
 
-  // Pit-stop rejoin marker: where the followed kart comes back on track
-  // after a stop of pitPlan.seconds, in expected-lap-time terms.
+  // Pit-stop rejoin marker. During a stop the driver stands still at the pit
+  // (entry/exit by the start/finish line) while the field keeps lapping, so
+  // the marker shows where the rejoin traffic is on the ring RIGHT NOW:
+  // rivals currently at (refFrac - T/pace) mod 1 will be at the pit exit when
+  // the driver comes out. It moves BACKWARD through the field as the stop
+  // gets longer (lost track position); "+NL" counts full laps the field
+  // completes before the rejoin (in-lap + stationary time).
   let pitMarker: { frac: number; lost: number } | null = null
   if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
     const refFrac = lapFraction(reference, serverNow) ?? 0
-    const total = refFrac + (pitPlan.seconds * 1000) / pitPlan.paceMs
-    pitMarker = { frac: total % 1, lost: Math.floor(total) }
+    const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
+    pitMarker = {
+      frac: (((refFrac - stopLaps) % 1) + 1) % 1,
+      lost: Math.floor((1 - refFrac) + stopLaps),
+    }
   }
 
   const [sfx0, sfy0] = pt(0, R - 9)
