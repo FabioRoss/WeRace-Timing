@@ -61,6 +61,7 @@ export function TrackRing({
 }) {
   const serverNow = useServerNow(snapshot.updated_at)
   const prevFrac = useRef<Map<string, number>>(new Map())
+  const prevMarkerFrac = useRef<number | null>(null)
   const { drivers } = snapshot
   if (drivers.length === 0) return null
 
@@ -219,30 +220,33 @@ export function TrackRing({
           <rect x={0} y={4.5} width={4} height={4.5} fill="var(--color-pit-950)" />
         </g>
         {pitMarker && (() => {
-          const [mx0, my0] = pt(pitMarker.frac, R - 18)
-          const [mx1, my1] = pt(pitMarker.frac, R + 10)
           const [gx, gy] = pt(pitMarker.frac, R)
-          const [lx, ly] = pt(pitMarker.frac, R + 26)
+          // glide like the karts; snap on large jumps (input changes, wrap)
+          const prev = prevMarkerFrac.current
+          prevMarkerFrac.current = pitMarker.frac
+          const dist = prev == null ? 1 : Math.abs(pitMarker.frac - prev)
+          const jump = prev == null || Math.min(dist, 1 - dist) > 0.15
           return (
-            <g>
-              <line
-                x1={mx0} y1={my0} x2={mx1} y2={my1}
-                stroke="var(--color-race-green)" strokeWidth={2} strokeDasharray="3 3"
-              />
+            <g
+              style={{
+                transform: `translate(${gx.toFixed(1)}px, ${gy.toFixed(1)}px)`,
+                transition: jump ? 'none' : 'transform 320ms linear',
+              }}
+            >
               <circle
-                cx={gx} cy={gy} r={KART_R}
+                r={KART_R}
                 fill="none" stroke="var(--color-race-green)"
                 strokeWidth={2} strokeDasharray="3 3"
               />
               <text
-                x={gx} y={gy} textAnchor="middle" dominantBaseline="central"
+                textAnchor="middle" dominantBaseline="central"
                 fontSize={7.5} fontWeight={700} fill="var(--color-race-green)"
               >
                 OUT
               </text>
               {pitMarker.lost >= 1 && (
                 <text
-                  x={lx} y={ly} textAnchor="middle" dominantBaseline="central"
+                  y={-KART_R - 8} textAnchor="middle" dominantBaseline="central"
                   fontSize={10} fontWeight={700} fill="var(--color-race-green)"
                 >
                   +{pitMarker.lost}L
