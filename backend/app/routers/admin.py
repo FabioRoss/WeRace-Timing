@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..config import get_settings
-from ..models import SourceConfig
+from ..models import Flag, SourceConfig
 from ..security import check_safeword, make_token
 from ..tracks import TRACK_CATALOG
 from .public import get_event
@@ -37,6 +39,7 @@ def status(slot: int) -> dict:
     return {
         "slot": slot,
         "source": event.source_status().model_dump(),
+        "flag_override": event.state.flag_override,
         # Diagnostic: the first raw frames after connect, to inspect what the
         # upstream actually sends (init/grid sequences).
         "first_frames": event.source.first_frames if event.source else [],
@@ -85,6 +88,27 @@ def reset(slot: int) -> dict:
     event = get_event(slot)
     event.reset()
     return {"ok": True}
+
+
+class FlagOverride(BaseModel):
+    flag: str | None = None         # flag value, or null/"" to follow the feed
+
+
+@router.post("/e/{slot}/api/admin/flag")
+async def flag_override(slot: int, body: FlagOverride) -> dict:
+    """Force the session flag on all dashboards (organizers without access to
+    the track system); clear to mirror the timing feed again."""
+    event = get_event(slot)
+    if body.flag:
+        try:
+            event.state.flag_override = Flag(body.flag)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"unknown flag: {body.flag}")
+    else:
+        event.state.flag_override = None
+    event.state.updated_at = time.time()
+    await event.broadcast_now()
+    return {"ok": True, "flag_override": event.state.flag_override}
 
 
 class AdminMessage(BaseModel):

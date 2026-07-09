@@ -66,6 +66,7 @@ export interface Snapshot {
   race: RaceInfo
   drivers: DriverRow[]
   source: SourceStatus
+  flag_override: Flag | null
   session_best_ms: number | null
   session_best_kart: string
   updated_at: number
@@ -130,4 +131,5 @@ export interface LapPoint {
   ms: number
   pos: number
   pit: boolean
+  ts: number          // wall time of the crossing (epoch seconds)
 }

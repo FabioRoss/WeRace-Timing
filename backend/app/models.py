@@ -104,6 +104,8 @@ class EventSnapshot(BaseModel):
     race: RaceInfo = RaceInfo()
     drivers: list[DriverRow] = []
     source: SourceStatus = SourceStatus()
+    # Active race-control flag override (None = mirroring the feed)
+    flag_override: Flag | None = None
     session_best_ms: int | None = None
     session_best_kart: str = ""
     updated_at: float = 0.0

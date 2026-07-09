@@ -179,7 +179,7 @@ class Event:
             "type": "driver",
             "slot": self.slot,
             "found": False,
-            "flag": self.state.race.flag,
+            "flag": self.state.flag_override or self.state.race.flag,
             "time_to_go": self.state.race.time_to_go,
             "updated_at": self.state.updated_at,
         }

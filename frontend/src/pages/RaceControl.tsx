@@ -282,6 +282,37 @@ function RaceControlInner() {
               <p className="text-xs text-ink-500">Writing {source.recording_file}</p>
             )}
             {error && <p className="text-sm text-race-red">{error}</p>}
+
+            {/* Session flag override: for organizers without access to the
+                track system; "Track" mirrors the timing feed. */}
+            <h3 className="label-race pt-2">Session flag</h3>
+            <div className="flex flex-wrap gap-2">
+              {([
+                ['', 'Track', 'bg-pit-600'],
+                ['green', 'Green', 'bg-race-green text-pit-950'],
+                ['yellow', 'Yellow', 'bg-race-yellow text-pit-950'],
+                ['red', 'Red', 'bg-race-red'],
+                ['finish', 'Finish', 'bg-ink-100 text-pit-950'],
+              ] as const).map(([value, label, activeCls]) => {
+                const active = (snapshot?.flag_override ?? '') === value
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => act(() =>
+                      api(`/e/${slot}/api/admin/flag`, {
+                        body: { flag: value || null }, safeword: true,
+                      }))}
+                    className={`rounded px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-40 ${
+                      active ? activeCls : 'bg-pit-700 hover:bg-pit-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 
