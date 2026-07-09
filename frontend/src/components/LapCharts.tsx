@@ -136,33 +136,36 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
   )
 }
 
-/** Time behind the leader at each completed lap (+ = behind), from the wall
- *  time of the crossings — immune to histories starting on different laps. */
+/** Time behind the reference kart at each completed lap (+ = behind), from
+ *  the wall time of the crossings — immune to histories starting on
+ *  different laps. Reference = the leader series, or the own kart when it IS
+ *  the leader (so the leading team sees the gap to its followers). */
 export function GapEvolutionChart({ series }: { series: ChartSeries[] }) {
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
+  const reference = series.find((s) => s.role === 'leader') ?? series.find((s) => s.role === 'own')
   const rows = useMemo(() => {
-    const leader = series.find((s) => s.role === 'leader')
-    if (!leader) return []
-    const leaderTs = new Map(leader.points.map((p) => [p.lap, p.ts]))
-    const others = series.filter((s) => s.role !== 'leader')
+    if (!reference) return []
+    const refTs = new Map(reference.points.map((p) => [p.lap, p.ts]))
+    const others = series.filter((s) => s.key !== reference.key)
     const byLap = new Map<number, Record<string, number | null>>()
     for (const s of others) {
       for (const p of s.points) {
-        const ref = leaderTs.get(p.lap)
+        const ref = refTs.get(p.lap)
         if (ref == null || !p.ts) continue
         const row = byLap.get(p.lap) ?? { lap: p.lap }
-        row[s.key] = Math.round((p.ts - ref) * 10) / 10   // s, + = behind leader
+        row[s.key] = Math.round((p.ts - ref) * 10) / 10   // s, + = behind reference
         byLap.set(p.lap, row)
       }
     }
     return [...byLap.values()].sort((a, b) => (a.lap as number) - (b.lap as number))
-  }, [series])
+  }, [series, reference])
 
+  const ownIsRef = reference?.role === 'own'
   if (rows.length < 2) {
-    return <ChartEmpty title="Gap to leader" note="Needs shared laps with the leader." />
+    return <ChartEmpty title="Gap to leader" note="Needs shared laps between karts." />
   }
   return (
-    <ChartFrame title="Gap to leader (s, + = behind)">
+    <ChartFrame title={ownIsRef ? 'Gap to you (s, + = behind)' : 'Gap to leader (s, + = behind)'}>
       <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
         <CartesianGrid stroke={GRID_INK} vertical={false} />
         <XAxis dataKey="lap" stroke={AXIS_INK} tick={{ fill: AXIS_INK, fontSize: 11 }} tickLine={false} />
@@ -177,7 +180,7 @@ export function GapEvolutionChart({ series }: { series: ChartSeries[] }) {
           onClick={onLegendClick}
           formatter={legendFormatter}
         />
-        {series.filter((s) => s.role !== 'leader').map((s) => (
+        {series.filter((s) => s.key !== reference?.key).map((s) => (
           <Line
             key={s.key}
             dataKey={s.key}

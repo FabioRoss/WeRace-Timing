@@ -332,8 +332,10 @@ export function TeamDashboard() {
                 )
               })()}
             </div>
-            <LapTimeChart series={series} />
-            <GapEvolutionChart series={series} />
+            <div className="grid content-start gap-4 lg:col-span-2">
+              <LapTimeChart series={series} />
+              <GapEvolutionChart series={series} />
+            </div>
           </div>
 
           {/* Full standings */}
