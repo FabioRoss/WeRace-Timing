@@ -85,9 +85,9 @@ export function DriverDashboard() {
 
       {/* Top strip: session + flag + position */}
       <div className="flex items-stretch justify-between gap-3 px-4 pt-2">
-        <div>
+        <div className="min-w-0">
           <div className="label-race">Remaining</div>
-          <div className="timing text-4xl font-extrabold leading-none sm:text-5xl">
+          <div className="timing truncate text-3xl font-extrabold leading-none sm:text-4xl">
             {remaining}
           </div>
         </div>
@@ -106,13 +106,13 @@ export function DriverDashboard() {
             </span>
           )}
         </div>
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           <div className="label-race">Position</div>
           <div className="leading-none">
-            <span className="timing text-5xl font-extrabold sm:text-6xl">
+            <span className="timing text-4xl font-extrabold sm:text-5xl">
               {view?.position || '–'}
             </span>
-            <span className="timing text-2xl text-ink-500">/{view?.total_karts || '–'}</span>
+            <span className="timing text-xl text-ink-500">/{view?.total_karts || '–'}</span>
           </div>
         </div>
       </div>
@@ -124,9 +124,9 @@ export function DriverDashboard() {
           value={view?.position === 1 ? 'LEADER' : fmtGap(view?.gap_ahead)}
           tone="text-race-green"
         />
-        <div className="text-center">
+        <div className="min-w-0 text-center">
           <div className="label-race">Last lap</div>
-          <div className="timing text-6xl font-extrabold leading-tight sm:text-7xl">
+          <div className="timing truncate text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
             {fmtLap(view?.last_lap_ms)}
           </div>
           <div className="mt-1 text-sm text-ink-500 timing">
@@ -181,9 +181,9 @@ function GapCell({ label, value, tone, right = false }: {
   right?: boolean
 }) {
   return (
-    <div className={right ? 'text-right' : ''}>
+    <div className={`min-w-0 ${right ? 'text-right' : ''}`}>
       <div className="label-race">{label}</div>
-      <div className={`timing text-5xl font-extrabold leading-tight sm:text-6xl ${tone}`}>
+      <div className={`timing truncate text-3xl font-extrabold leading-tight sm:text-4xl ${tone}`}>
         {value}
       </div>
     </div>
