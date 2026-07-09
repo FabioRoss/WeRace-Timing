@@ -62,6 +62,8 @@ export function TrackRing({
   const serverNow = useServerNow(snapshot.updated_at)
   const prevFrac = useRef<Map<string, number>>(new Map())
   const prevMarkerFrac = useRef<number | null>(null)
+  // When the followed kart entered the pit (server clock), for the forecast
+  const pitEnterRef = useRef<{ kart: string; ts: number } | null>(null)
   const { drivers } = snapshot
   if (drivers.length === 0) return null
 
@@ -165,13 +167,32 @@ export function TrackRing({
   // the driver comes out. It moves BACKWARD through the field as the stop
   // gets longer (lost track position); "+NL" counts full laps the field
   // completes before the rejoin (in-lap + stationary time).
+  const mod1 = (v: number) => ((v % 1) + 1) % 1
+  if (reference?.in_pit) {
+    if (pitEnterRef.current?.kart !== reference.kart_no) {
+      pitEnterRef.current = { kart: reference.kart_no, ts: serverNow }
+    }
+  } else {
+    pitEnterRef.current = null
+  }
   let pitMarker: { frac: number; lost: number } | null = null
   if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
-    const refFrac = lapFraction(reference, serverNow) ?? 0
     const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
-    pitMarker = {
-      frac: (((refFrac - stopLaps) % 1) + 1) % 1,
-      lost: Math.floor((1 - refFrac) + stopLaps),
+    if (reference.in_pit) {
+      // Stationary in the pit: the exit moment approaches as time passes, so
+      // the marker advances at exactly field pace and stays a valid forecast
+      // (continuous with the pre-stop marker: entry is at the line).
+      const elapsed = pitEnterRef.current ? serverNow - pitEnterRef.current.ts : 0
+      pitMarker = {
+        frac: mod1((elapsed * 1000) / pitPlan.paceMs - stopLaps),
+        lost: Math.floor((Math.max(pitPlan.seconds - elapsed, 0) * 1000) / pitPlan.paceMs),
+      }
+    } else {
+      const refFrac = lapFraction(reference, serverNow) ?? 0
+      pitMarker = {
+        frac: mod1(refFrac - stopLaps),
+        lost: Math.floor((1 - refFrac) + stopLaps),
+      }
     }
   }
 
