@@ -106,3 +106,22 @@ def test_state_drops_duplicate_kart_rows():
     assert sorted(karts) == ["33", "7"]
     kept = next(d for d in state.drivers if d.kart_no == "33")
     assert kept.position == 4                     # best-positioned entry kept
+
+
+def test_out_lap_uses_previous_clean_lap_as_pace_reference():
+    state = EventState(1)
+    mk = lambda laps, ms, pits=0: DriverRow(
+        kart_no="7", position=1, laps=laps, last_lap_ms=ms, pits=pits,
+    )
+    state.update(RaceInfo(), [mk(1, 95000)])
+    state.update(RaceInfo(), [mk(2, 95400)])
+    # pit lap: lap time includes the stop
+    state.update(RaceInfo(), [mk(3, 150000, pits=1)])
+    row = mk(3, 150000, pits=1)
+    state.update(RaceInfo(), [row])
+    # fallback anchor must use the last clean lap + 1s, not the inflated lap
+    assert row.prog_ms == 96400
+    # next clean lap goes back to the real time
+    row2 = mk(4, 96000, pits=1)
+    state.update(RaceInfo(), [row2])
+    assert row2.prog_ms == 96000

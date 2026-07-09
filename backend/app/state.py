@@ -33,6 +33,8 @@ class EventState:
         self._stint_started: dict[str, float] = {}
         self._lap_pits: dict[str, int] = {}      # pits count at the last lap record
         self._cross_ts: dict[str, float] = {}    # wall time of the last crossing
+        self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
+        self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
 
     def reset(self) -> None:
         self.__init__(self.slot)
@@ -90,6 +92,8 @@ class EventState:
         self.lap_history.clear()
         self._lap_pits.clear()
         self._cross_ts.clear()
+        self._cross_ms.clear()
+        self._clean_lap_ms.clear()
         self._pit_counts.clear()
         self._stint_started.clear()
         self.session_best_ms = None
@@ -105,6 +109,15 @@ class EventState:
             )
             self._lap_pits[row.kart_no] = row.pits
             self._cross_ts[row.kart_no] = now
+            if not pitted:
+                self._clean_lap_ms[row.kart_no] = row.last_lap_ms
+            # Expected duration of the lap that just started: a pit-inflated
+            # lap time would make the progress bar/ring crawl falsely, so use
+            # the previous clean lap (+1s for the out-lap) instead.
+            if pitted and row.kart_no in self._clean_lap_ms:
+                self._cross_ms[row.kart_no] = self._clean_lap_ms[row.kart_no] + 1000
+            else:
+                self._cross_ms[row.kart_no] = row.last_lap_ms
             history.append(
                 LapRecord(
                     kart_no=row.kart_no,
@@ -121,11 +134,12 @@ class EventState:
         # mywer): anchor a plain 0->1 bar at the last observed crossing.
         if row.prog_ts is None and not row.in_pit:
             cross = self._cross_ts.get(row.kart_no)
-            if cross is not None and row.last_lap_ms:
+            expected = self._cross_ms.get(row.kart_no) or row.last_lap_ms
+            if cross is not None and expected:
                 row.prog_ts = cross
                 row.prog_from = 0.0
                 row.prog_to = 1.0
-                row.prog_ms = row.last_lap_ms
+                row.prog_ms = expected
 
     def _track_stint(self, row: DriverRow, now: float) -> None:
         prev_pits = self._pit_counts.get(row.kart_no)
