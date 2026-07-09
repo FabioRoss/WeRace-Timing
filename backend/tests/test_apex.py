@@ -296,3 +296,21 @@ def test_headerless_practice_orders_by_best_lap():
     rows = grid.standings()
     assert [d.kart_no for d in rows] == ["7", "5", "9"]
     assert [d.position for d in rows] == [1, 2, 3]
+
+
+def test_repeated_grid_html_does_not_duplicate_rows():
+    """Grid/page HTML can contain the table twice (desktop + mobile copies)."""
+    html = (
+        '<table><tr data-id="r0"><td data-id="r0c1" data-type="rk">Pos</td>'
+        '<td data-id="r0c2" data-type="no">No</td></tr>'
+        '<tr data-id="r1"><td data-id="r1c1">1</td><td data-id="r1c2">607</td></tr>'
+        '<tr data-id="r2"><td data-id="r2c1">2</td><td data-id="r2c2">318</td></tr></table>'
+        '<table><tr data-id="r0"><td data-id="r0c1" data-type="rk">Pos</td></tr>'
+        '<tr data-id="r1"><td data-id="r1c1">1</td></tr>'
+        '<tr data-id="r2"><td data-id="r2c1">2</td></tr></table>'
+    )
+    grid = ApexGrid()
+    grid.apply("grid|" + html)
+    assert grid.row_order == sorted(set(grid.row_order))
+    karts = [d.kart_no for d in grid.standings()]
+    assert karts == ["607", "318"]

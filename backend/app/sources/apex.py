@@ -127,7 +127,9 @@ class _GridHTMLParser(HTMLParser):
         if tag == "tr":
             rid = a.get("data-id") or a.get("id") or ""
             m = ROW_ID.match(rid)
-            if m:
+            # Pages/grid frames can contain the table more than once (desktop +
+            # mobile copies) — never record the same row twice.
+            if m and int(m.group(1)) not in self.row_order:
                 self.row_order.append(int(m.group(1)))
         elif tag in ("td", "th"):
             cid = a.get("data-id") or a.get("id") or ""
@@ -367,7 +369,7 @@ class ApexGrid:
         parser.close()
         self.cells.clear()
         self._reset_row_state()
-        self.row_order = parser.row_order
+        self.row_order = list(dict.fromkeys(parser.row_order))
         for cid, cell in parser.cells.items():
             m = CELL_ID.match(cid)
             if m:

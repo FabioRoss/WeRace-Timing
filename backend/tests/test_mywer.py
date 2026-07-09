@@ -198,3 +198,44 @@ def test_rozzano_fixture_replay():
     # final frame: timed session ended, garbage 23:xx clock clamped
     assert race.time_to_go == "00:00"
     assert race.togo_ms == 0
+
+
+# ----------------------------------------------- multi-driver entry collapse
+
+def test_duplicate_racenos_collapse_to_current_entry():
+    """Team sessions list one entry per registered DRIVER: same raceno,
+    different id/drv. Only the kart's current state must survive."""
+    payload = {"data": {"drivers": [
+        {   # stale entry: previous driver, no position, fewer laps
+            "id": 1, "drv": 0, "raceno": "33", "fullname": "Driver A",
+            "position": 0, "laps": 10, "time": 1000,
+            "lasttime": "00:00:52.000000", "besttime": "00:00:51.000000",
+        },
+        {   # current entry
+            "id": 2, "drv": 1, "raceno": "33", "fullname": "Driver B",
+            "position": 4, "laps": 25, "time": 2000,
+            "lasttime": "00:00:50.100000", "besttime": "00:00:49.900000",
+        },
+        {   # another kart, single driver
+            "id": 3, "drv": 0, "raceno": "7", "fullname": "Solo",
+            "position": 1, "laps": 26, "time": 2000,
+            "lasttime": "00:00:49.000000", "besttime": "00:00:48.500000",
+        },
+    ]}}
+    _, drivers = decode_mywer(json.dumps(payload))
+    karts = [d.kart_no for d in drivers]
+    assert sorted(karts) == ["33", "7"]          # no duplicates
+    row33 = next(d for d in drivers if d.kart_no == "33")
+    assert row33.name == "Driver B"
+    assert row33.position == 4
+    assert row33.laps == 25
+
+
+def test_duplicate_racenos_tiebreak_by_time():
+    payload = {"data": {"drivers": [
+        {"id": 1, "raceno": "9", "fullname": "Old", "position": 2, "laps": 5, "time": 100},
+        {"id": 2, "raceno": "9", "fullname": "New", "position": 2, "laps": 5, "time": 200},
+    ]}}
+    _, drivers = decode_mywer(json.dumps(payload))
+    assert len(drivers) == 1
+    assert drivers[0].name == "New"

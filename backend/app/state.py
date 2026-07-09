@@ -47,6 +47,23 @@ class EventState:
             self.race = race
         if drivers is not None:
             drivers = sorted(drivers, key=lambda d: d.position if d.position > 0 else 999)
+            # Safety net: never let duplicate kart numbers reach the dashboards
+            # (keep the best-positioned row per kart).
+            seen: set[str] = set()
+            unique: list[DriverRow] = []
+            dropped: set[str] = set()
+            for row in drivers:
+                if row.kart_no in seen:
+                    dropped.add(row.kart_no)
+                    continue
+                seen.add(row.kart_no)
+                unique.append(row)
+            if dropped:
+                log.warning(
+                    "slot %d: dropped duplicate driver rows for karts %s",
+                    self.slot, sorted(dropped),
+                )
+            drivers = unique
             if self._laps_regressed(drivers):
                 self._reset_session_state("lap counts regressed")
             for row in drivers:

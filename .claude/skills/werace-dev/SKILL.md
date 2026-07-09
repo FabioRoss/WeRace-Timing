@@ -76,6 +76,8 @@ Line format `<target>|<class>|<value>`; newline-separated inside ws frames.
   UNVERIFIED — check first_frames at the next live session.
 - Sessions ranked by best lap (practice/quali) show zero best-lap inversions in
   positioned order — that's the session_kind heuristic.
+- Grid/page HTML can contain the timing table MORE THAN ONCE (desktop + mobile
+  copies) — `_GridHTMLParser` must dedupe row ids or every kart duplicates.
 
 ### MyWeR / time2race (`rozzano.ndjson`)
 
@@ -90,6 +92,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   `end` finished. Flags: G/Y/R/F/C/W/S.
 - Feed updates the clock every ~20s → the frontend ticks it locally from the
   RaceInfo countdown anchor (togo_ms/togo_ts/counting) and re-syncs per snapshot.
+- **The drivers array is per DRIVER, not per kart** (own id + `drv` index): team
+  sessions repeat the same raceno once per registered driver. MyWerDecoder collapses
+  to one row per kart (positioned > laps > newest time); EventState also drops any
+  duplicate kart_no as a safety net.
 
 ## Key mechanisms
 

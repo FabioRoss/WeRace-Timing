@@ -18,6 +18,10 @@ Verified against a live Rozzano capture (tests/fixtures/rozzano.ndjson):
   wraps to 23:59:xx after expiry — clamp to zero.
 - Driver "pit" flags an in-pit kart; interm[0].t1..t3 carry sector times when
   the venue is configured for them.
+- The "drivers" array is per DRIVER, not per kart (each entry has its own id
+  and a "drv" index): team/endurance sessions list the same raceno once per
+  registered driver. Entries must be collapsed to one row per kart, keeping
+  the freshest (positioned, most laps, newest time).
 
 Lap/pit times come as "HH:MM:SS.ffffff" with all-zeros meaning "no time".
 """
@@ -69,12 +73,33 @@ class MyWerDecoder:
 
         drivers: list[DriverRow] | None = None
         if "drivers" in data:
-            drivers = []
+            # One entry per registered DRIVER; collapse to one row per kart.
+            by_kart: dict[str, dict] = {}
             for d in data["drivers"] or []:
+                kart = str(d.get("raceno") or "").strip()
+                if not kart:
+                    continue
+                current = by_kart.get(kart)
+                if current is None or self._fresher(d, current):
+                    by_kart[kart] = d
+            drivers = []
+            for d in by_kart.values():
                 row = self._build_driver(d)
                 if row is not None:
                     drivers.append(row)
         return race, drivers
+
+    @staticmethod
+    def _fresher(a: dict, b: dict) -> bool:
+        """Which of two entries for the same kart reflects its current state:
+        positioned beats unpositioned, then more laps, then the newest time."""
+        a_pos, b_pos = int(a.get("position") or 0) > 0, int(b.get("position") or 0) > 0
+        if a_pos != b_pos:
+            return a_pos
+        a_laps, b_laps = int(a.get("laps") or 0), int(b.get("laps") or 0)
+        if a_laps != b_laps:
+            return a_laps > b_laps
+        return (a.get("time") or 0) > (b.get("time") or 0)
 
     def _build_race(self) -> RaceInfo:
         r = self._race

@@ -93,3 +93,16 @@ def test_laps_api_includes_ts():
         body = client.get("/e/1/api/laps?karts=7").json()
         assert body["laps"]["7"][0]["ts"] > 0
         event.reset()
+
+
+def test_state_drops_duplicate_kart_rows():
+    state = EventState(1)
+    state.update(RaceInfo(), [
+        DriverRow(kart_no="33", position=4, laps=25, last_lap_ms=50100),
+        DriverRow(kart_no="33", position=0, laps=10, last_lap_ms=52000),
+        DriverRow(kart_no="7", position=1, laps=26, last_lap_ms=49000),
+    ])
+    karts = [d.kart_no for d in state.drivers]
+    assert sorted(karts) == ["33", "7"]
+    kept = next(d for d in state.drivers if d.kart_no == "33")
+    assert kept.position == 4                     # best-positioned entry kept
