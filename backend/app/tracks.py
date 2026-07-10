@@ -29,6 +29,9 @@ def _mywer(label: str, path: str) -> SourceConfig:
 
 
 TRACK_CATALOG: list[SourceConfig] = [
+    _mywer("Rozzano (MyWeR)", "/live/37/ranking/"),
+    _mywer("Christel (MyWeR)", "/live/42/ranking/"),
+    _mywer("Extremakart (MyWeR)", "/live/47/ranking/"),
     _apex(
         "Cremona (Apex)", 7203,
         page="https://www.apex-timing.com/live-timing/cremona-circuit/index.html",
@@ -40,11 +43,10 @@ TRACK_CATALOG: list[SourceConfig] = [
     _apex("RGMMC 2 (Apex)", 7063),
     _apex("Ultratiming (Apex)", 7343),
     _apex("Ultratiming 2 (Apex)", 7273),
-    _mywer("Rozzano (MyWeR)", "/live/37/ranking/"),
-    _mywer("Christel (MyWeR)", "/live/42/ranking/"),
-    _mywer("Extremakart (MyWeR)", "/live/47/ranking/"),
     _mywer("La Quercia 58 (MyWeR)", "/live/26/ranking/"),
     _mywer("Gulli Barcellona (MyWeR)", "/live/38/ranking/?user_id=3"),
     _mywer("GH Moto (MyWeR)", "/live/41/ranking/"),
+    _mywer("Misano (MyWeR)", "/live/34/ranking/"),
+    _mywer("Alpe Adria (MyWeR)", "/live/25/ranking/"),
     SourceConfig(kind="simulator", label="Simulator (demo race)"),
 ]
