@@ -37,6 +37,7 @@ export interface DriverRow {
   last_pit_ms: number | null
   total_pit_ms: number | null
   stint_time: string
+  stint_seconds: number | null
   in_pit: boolean
   pit_state: '' | 'in' | 'out'
   finished: boolean

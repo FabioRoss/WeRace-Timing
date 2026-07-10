@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
 import type { LapPoint, RaceMessage } from '../lib/types'
-import { fmtGap, fmtLap } from '../lib/format'
+import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
 import { fmtRemaining, lapFraction, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
@@ -169,7 +169,7 @@ export function TeamDashboard() {
               <Stat label="Best lap" value={fmtLap(own?.best_lap_ms)} />
               <Stat label="Gap to leader" value={own?.position === 1 ? 'LEADER' : fmtGap(own?.gap_leader)} />
               <Stat label="Interval ahead" value={own?.position === 1 ? '—' : fmtGap(own?.gap_ahead)} />
-              <Stat label="Stint" value={own?.stint_time || '--:--'} />
+              <Stat label="Stint" value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
               <Stat label="Laps" value={String(own?.laps ?? '–')} />
               <Stat label="Pit stops" value={String(own?.pits ?? '–')} />
             </div>
