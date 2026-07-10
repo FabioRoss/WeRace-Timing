@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
-import type { LapPoint, RaceMessage } from '../lib/types'
+import type { DriverRow, LapPoint, RaceMessage } from '../lib/types'
 import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
@@ -330,26 +330,43 @@ export function TeamDashboard() {
                   tap karts to compare (up to 3)
                 </span>
               </div>
-              {selKarts.length > 0 && snapshot && (
-                <ul className="mt-3 space-y-1 rounded-lg bg-pit-850 p-3 text-xs">
-                  {[kart, ...selKarts].filter((k): k is string => Boolean(k)).map((k) => {
-                    const d = snapshot.drivers.find((x) => x.kart_no === k)
-                    if (!d) return null
-                    const color = k === kart ? 'var(--color-race-green)' : compareColors[k]
-                    return (
-                      <li key={k} className="flex items-center gap-2">
-                        <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
-                        <span className="w-24 truncate font-bold">#{d.kart_no} {d.name}</span>
-                        <span className="text-ink-300">last {fmtLap(d.last_lap_ms)}</span>
-                        <span className="text-ink-300">best {fmtLap(d.best_lap_ms)}</span>
-                        {k !== kart && (
-                          <button type="button" onClick={() => toggleKart(k)} className="ml-auto text-ink-500 hover:text-ink-300">✕</button>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+              {selKarts.length > 0 && snapshot && (() => {
+                const rows = [kart, ...selKarts]
+                  .map((k) => snapshot.drivers.find((d) => d.kart_no === k))
+                  .filter((d): d is DriverRow => Boolean(d))
+                const fastestLast = Math.min(...rows.map((d) => d.last_lap_ms || Infinity))
+                const fastestBest = Math.min(...rows.map((d) => d.best_lap_ms || Infinity))
+                return (
+                  <div className="mt-3 grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-x-2 gap-y-1.5 rounded-lg bg-pit-850 p-3 text-xs">
+                    {rows.map((d) => {
+                      const color = d.kart_no === kart ? 'var(--color-race-green)' : compareColors[d.kart_no]
+                      const bestLast = !!d.last_lap_ms && d.last_lap_ms === fastestLast
+                      const bestBest = !!d.best_lap_ms && d.best_lap_ms === fastestBest
+                      return (
+                        <Fragment key={d.kart_no}>
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                          <span className="min-w-0 truncate">
+                            <span className="font-bold">#{d.kart_no}</span> {d.name}
+                          </span>
+                          <span className="flex items-center gap-1 whitespace-nowrap timing">
+                            <ClockIcon />
+                            <span className={bestLast ? 'font-bold text-ink-100' : 'text-ink-300'}>{fmtLap(d.last_lap_ms)}</span>
+                          </span>
+                          <span className="flex items-center gap-1 whitespace-nowrap timing">
+                            <BestIcon />
+                            <span className={bestBest ? 'font-bold text-race-purple' : 'text-ink-300'}>{fmtLap(d.best_lap_ms)}</span>
+                          </span>
+                          {d.kart_no === kart ? (
+                            <span />
+                          ) : (
+                            <button type="button" onClick={() => toggleKart(d.kart_no)} className="text-ink-500 hover:text-ink-300">✕</button>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
             <div className="grid content-start gap-4 lg:col-span-2">
               <LapTimeChart series={lapSeries} />
@@ -386,5 +403,28 @@ function Stat({ label, value, big = false }: { label: string; value: string; big
       <div className="label-race">{label}</div>
       <div className={`timing font-bold ${big ? 'text-3xl text-race-blue' : 'text-xl'}`}>{value}</div>
     </div>
+  )
+}
+
+/** Last-lap marker */
+function ClockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ink-500">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
+/** Best-lap marker: arrow to the top */
+function BestIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-race-purple">
+      <path d="M5 4h14" />
+      <path d="M12 20V9" />
+      <path d="M7 13l5-5 5 5" />
+    </svg>
   )
 }
