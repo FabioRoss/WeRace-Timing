@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import type { LapPoint, Snapshot } from '../lib/types'
 import { fmtClock, fmtLap } from '../lib/format'
-import { LapTimeChart } from './LapCharts'
+import { LapTimeChart, SERIES_COLORS } from './LapCharts'
 
 interface Props {
   snapshot: Snapshot
@@ -42,9 +42,10 @@ export function DriverDetail({ snapshot, kart, onClose }: Props) {
   const series = useMemo(
     () => [{
       key: kart,
-      role: 'own' as const,
+      color: SERIES_COLORS.own,
       label: `#${kart}`,
       points: (laps ?? []).filter((p) => !p.pit),
+      width: 3,
     }],
     [laps, kart],
   )
