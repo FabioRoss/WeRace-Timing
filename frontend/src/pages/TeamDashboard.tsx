@@ -119,7 +119,7 @@ export function TeamDashboard() {
   // Pit-stop planner + ring kart selection
   const [pitSec, setPitSecState] = useState<number>(() => {
     const v = parseFloat(localStorage.getItem('wrb_pit_sec') ?? '')
-    return Number.isFinite(v) && v > 0 ? v : 40
+    return Number.isFinite(v) && v > 0 ? v : 60
   })
   const setPitSec = (v: number) => {
     setPitSecState(v)

@@ -184,8 +184,12 @@ export function TrackRing({
   } else {
     pitEnterRef.current = null
   }
+  // The rejoin forecast is meaningless once the session is stopped.
+  const stopped =
+    snapshot.race.ended ||
+    ['stopped', 'red', 'finish'].includes(snapshot.race.flag)
   let pitMarker: { frac: number; lost: number } | null = null
-  if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
+  if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0 && !stopped) {
     const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
     if (refPitted) {
       // Stationary in the pit: the exit moment approaches as time passes, so
