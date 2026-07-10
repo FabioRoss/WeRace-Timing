@@ -43,27 +43,49 @@ function sectorFractions(drivers: DriverRow[]): [number, number] | null {
 
 /** F1-style track-position ring: the lap as a circle with the start/finish
  *  line at 12 o'clock, sector boundaries at time-proportional positions, and
- *  every kart as a numbered dot moving smoothly around it. */
-export function TrackRing({ snapshot, highlightKart }: {
+ *  every kart as a numbered dot moving smoothly around it.
+ *
+ *  With `relativeTo` (team dashboard) karts are colored relative to that
+ *  kart: red = more laps completed, blue = fewer. `pitPlan` draws a rejoin
+ *  marker: where `relativeTo` would come back on track after a pit stop of
+ *  the given length (rolls over whole laps for long stops). */
+export function TrackRing({
+  snapshot, highlightKart, relativeTo, pitPlan, selectedKart, onSelectKart,
+}: {
   snapshot: Snapshot
   highlightKart?: string
+  relativeTo?: string
+  pitPlan?: { seconds: number; paceMs: number | null }
+  selectedKart?: string | null
+  onSelectKart?: (kart: string) => void
 }) {
-  const serverNow = useServerNow(snapshot)
+  const serverNow = useServerNow(snapshot.updated_at)
   const prevFrac = useRef<Map<string, number>>(new Map())
+  const prevMarkerFrac = useRef<number | null>(null)
+  // When the followed kart entered the pit (server clock), for the forecast
+  const pitEnterRef = useRef<{ kart: string; ts: number } | null>(null)
   const { drivers } = snapshot
   if (drivers.length === 0) return null
 
   const isRace = snapshot.race.session_kind === 'race'
   const leader = drivers.find((d) => d.position === 1) ?? drivers[0]
+  const reference = relativeTo ? drivers.find((d) => d.kart_no === relativeTo) : undefined
   const sectors = sectorFractions(drivers)
+
+  // Some feeds (MyWeR) only flag the pit after the kart exits, leaving it
+  // frozen at the line. A kart whose progress anchor is long exhausted is
+  // most likely sitting in the pit (or stopped) — show it as such.
+  const likelyPitted = (d: DriverRow) =>
+    d.prog_ts != null && !!d.prog_ms &&
+    (serverNow - d.prog_ts) * 1000 > d.prog_ms * 1.5
 
   // Leader on top; then karts by reverse position so front-runners overlap
   // backmarkers, not the other way around.
   const ordered = [...drivers].sort((a, b) => b.position - a.position)
-  const pitKarts = ordered.filter((d) => d.in_pit)
+  const pitKarts = ordered.filter((d) => d.in_pit || likelyPitted(d))
 
   const karts = ordered.map((d) => {
-    const inPit = d.in_pit
+    const inPit = d.in_pit || likelyPitted(d)
     let frac = lapFraction(d, serverNow)
     if (frac == null && !inPit) return null
 
@@ -90,28 +112,47 @@ export function TrackRing({ snapshot, highlightKart }: {
       wasPit !== (key === -1) ||
       Math.min(dist, 1 - dist) > 0.15
 
-    const isLeader = d.kart_no === leader.kart_no
-    const lapped = isRace && !isLeader && d.laps < leader.laps
-    const fill = isLeader
-      ? 'var(--color-race-purple)'
-      : lapped
-        ? 'var(--color-race-blue)'
-        : 'var(--color-pit-600)'
+    let fill: string
+    if (reference) {
+      // team view: colors relative to the followed kart (leader stays purple)
+      if (d.kart_no === reference.kart_no) fill = 'var(--color-race-green)'
+      else if (d.kart_no === leader.kart_no) fill = 'var(--color-race-purple)'
+      else if (d.laps > reference.laps) fill = 'var(--color-race-red)'
+      else if (d.laps < reference.laps) fill = 'var(--color-race-blue)'
+      else fill = 'var(--color-pit-600)'
+    } else {
+      const isLeader = d.kart_no === leader.kart_no
+      const lapped = isRace && !isLeader && d.laps < leader.laps
+      fill = isLeader
+        ? 'var(--color-race-purple)'
+        : lapped
+          ? 'var(--color-race-blue)'
+          : 'var(--color-pit-600)'
+    }
     const own = highlightKart != null && d.kart_no === highlightKart
+    const selected = selectedKart != null && d.kart_no === selectedKart
     return (
       <g
         key={d.kart_no}
+        onClick={onSelectKart ? () => onSelectKart(d.kart_no) : undefined}
         style={{
           transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`,
           transition: jump ? 'none' : 'transform 320ms linear',
           opacity: inPit ? 0.45 : 1,
+          cursor: onSelectKart ? 'pointer' : undefined,
         }}
       >
         <circle
           r={KART_R}
           fill={fill}
-          stroke={own ? 'var(--color-race-green)' : 'var(--color-pit-950)'}
-          strokeWidth={own ? 2.5 : 1.5}
+          stroke={
+            selected
+              ? 'var(--color-race-yellow)'
+              : own && !reference
+                ? 'var(--color-race-green)'
+                : 'var(--color-pit-950)'
+          }
+          strokeWidth={selected || (own && !reference) ? 2.5 : 1.5}
         />
         <text
           textAnchor="middle"
@@ -126,6 +167,43 @@ export function TrackRing({ snapshot, highlightKart }: {
       </g>
     )
   })
+
+  // Pit-stop rejoin marker. During a stop the driver stands still at the pit
+  // (entry/exit by the start/finish line) while the field keeps lapping, so
+  // the marker shows where the rejoin traffic is on the ring RIGHT NOW:
+  // rivals currently at (refFrac - T/pace) mod 1 will be at the pit exit when
+  // the driver comes out. It moves BACKWARD through the field as the stop
+  // gets longer (lost track position); "+NL" counts full laps the field
+  // completes before the rejoin (in-lap + stationary time).
+  const mod1 = (v: number) => ((v % 1) + 1) % 1
+  const refPitted = reference != null && (reference.in_pit || likelyPitted(reference))
+  if (refPitted && reference) {
+    if (pitEnterRef.current?.kart !== reference.kart_no) {
+      pitEnterRef.current = { kart: reference.kart_no, ts: serverNow }
+    }
+  } else {
+    pitEnterRef.current = null
+  }
+  let pitMarker: { frac: number; lost: number } | null = null
+  if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
+    const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
+    if (refPitted) {
+      // Stationary in the pit: the exit moment approaches as time passes, so
+      // the marker advances at exactly field pace and stays a valid forecast
+      // (continuous with the pre-stop marker: entry is at the line).
+      const elapsed = pitEnterRef.current ? serverNow - pitEnterRef.current.ts : 0
+      pitMarker = {
+        frac: mod1((elapsed * 1000) / pitPlan.paceMs - stopLaps),
+        lost: Math.floor((Math.max(pitPlan.seconds - elapsed, 0) * 1000) / pitPlan.paceMs),
+      }
+    } else {
+      const refFrac = lapFraction(reference, serverNow) ?? 0
+      pitMarker = {
+        frac: mod1(refFrac - stopLaps),
+        lost: Math.floor((1 - refFrac) + stopLaps),
+      }
+    }
+  }
 
   const [sfx0, sfy0] = pt(0, R - 9)
   const label = (frac: number, text: string) => {
@@ -171,22 +249,84 @@ export function TrackRing({ snapshot, highlightKart }: {
           <rect x={-4} y={0} width={4} height={4.5} fill="var(--color-pit-950)" />
           <rect x={0} y={4.5} width={4} height={4.5} fill="var(--color-pit-950)" />
         </g>
+        {pitMarker && (() => {
+          const [gx, gy] = pt(pitMarker.frac, R)
+          // glide like the karts; snap on large jumps (input changes, wrap)
+          const prev = prevMarkerFrac.current
+          prevMarkerFrac.current = pitMarker.frac
+          const dist = prev == null ? 1 : Math.abs(pitMarker.frac - prev)
+          const jump = prev == null || Math.min(dist, 1 - dist) > 0.15
+          return (
+            <g
+              style={{
+                transform: `translate(${gx.toFixed(1)}px, ${gy.toFixed(1)}px)`,
+                transition: jump ? 'none' : 'transform 320ms linear',
+              }}
+            >
+              <circle
+                r={KART_R}
+                fill="none" stroke="var(--color-race-green)"
+                strokeWidth={2} strokeDasharray="3 3"
+              />
+              <text
+                textAnchor="middle" dominantBaseline="central"
+                fontSize={7.5} fontWeight={700} fill="var(--color-race-green)"
+              >
+                OUT
+              </text>
+              {pitMarker.lost >= 1 && (
+                <text
+                  y={-KART_R - 8} textAnchor="middle" dominantBaseline="central"
+                  fontSize={10} fontWeight={700} fill="var(--color-race-green)"
+                >
+                  +{pitMarker.lost}L
+                </text>
+              )}
+            </g>
+          )
+        })()}
         {karts}
       </svg>
-      <div className="flex justify-center gap-4 text-[0.65rem] text-ink-500">
-        <span>
-          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-purple align-middle" />
-          leader
-        </span>
-        {isRace && (
-          <span>
-            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-blue align-middle" />
-            lapped
-          </span>
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[0.65rem] text-ink-500">
+        {reference ? (
+          <>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-green align-middle" />
+              you
+            </span>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-purple align-middle" />
+              leader
+            </span>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-red align-middle" />
+              +laps vs you
+            </span>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-blue align-middle" />
+              −laps vs you
+            </span>
+            {pitMarker && (
+              <span className="text-race-green">⬡ pit rejoin</span>
+            )}
+          </>
+        ) : (
+          <>
+            <span>
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-purple align-middle" />
+              leader
+            </span>
+            {isRace && (
+              <span>
+                <span className="mr-1 inline-block h-2 w-2 rounded-full bg-race-blue align-middle" />
+                lapped
+              </span>
+            )}
+          </>
         )}
         <span>
           <span className="mr-1 inline-block h-2 w-2 rounded-full bg-pit-600 align-middle opacity-45" />
-          in pit
+          in pit / stopped
         </span>
       </div>
     </div>

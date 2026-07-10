@@ -6,8 +6,10 @@ import { useLive } from '../lib/useLive'
 import type { LapPoint, RaceMessage } from '../lib/types'
 import { fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
+import { fmtRemaining, lapFraction, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
+import { TrackRing } from '../components/TrackRing'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { GapEvolutionChart, LapTimeChart, type ChartSeries } from '../components/LapCharts'
 
@@ -28,6 +30,7 @@ export function TeamDashboard() {
   const [priority, setPriority] = useState<'info' | 'warning' | 'urgent'>('info')
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [orderMode, setOrderMode] = useOrderMode()
+  const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   const kart = info?.found ? info.kart_no! : undefined
 
@@ -112,6 +115,22 @@ export function TeamDashboard() {
   }
 
   const own = snapshot?.drivers.find((d) => d.kart_no === kart)
+
+  // Pit-stop planner + ring kart selection
+  const [pitSec, setPitSecState] = useState<number>(() => {
+    const v = parseFloat(localStorage.getItem('wrb_pit_sec') ?? '')
+    return Number.isFinite(v) && v > 0 ? v : 40
+  })
+  const setPitSec = (v: number) => {
+    setPitSecState(v)
+    localStorage.setItem('wrb_pit_sec', String(v))
+  }
+  const [selKart, setSelKart] = useState<string | null>(null)
+  const paceMs = useMemo(() => {
+    const pts = (kart ? laps[kart] : undefined)?.filter((p) => !p.pit && p.ms > 0) ?? []
+    if (pts.length >= 3) return pts.reduce((sum, p) => sum + p.ms, 0) / pts.length
+    return own?.last_lap_ms ?? own?.best_lap_ms ?? null
+  }, [laps, kart, own])
   const race = snapshot?.race
 
   return (
@@ -123,7 +142,9 @@ export function TeamDashboard() {
           <>
             <div className="hidden text-right sm:block">
               <div className="label-race">Remaining</div>
-              <div className="timing font-bold">{race?.time_to_go || '--:--'}</div>
+              <div className="timing font-bold">
+                {race ? fmtRemaining(race, serverNow) : '--:--'}
+              </div>
             </div>
             <FlagBanner flag={race?.flag ?? 'none'} compact />
             <ConnectionDot status={status} />
@@ -240,10 +261,81 @@ export function TeamDashboard() {
             </ul>
           </div>
 
-          {/* Analysis charts */}
-          <div className="lg:col-span-3 grid gap-4 lg:grid-cols-2">
-            <LapTimeChart series={series} />
-            <GapEvolutionChart series={series} />
+          {/* Analysis: track position ring + charts */}
+          <div className="lg:col-span-3 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+              <h3 className="label-race mb-3">Track position</h3>
+              {snapshot && (
+                <TrackRing
+                  snapshot={snapshot}
+                  highlightKart={kart}
+                  relativeTo={kart}
+                  pitPlan={{ seconds: pitSec, paceMs }}
+                  selectedKart={selKart}
+                  onSelectKart={(k) => setSelKart(k === selKart ? null : k)}
+                />
+              )}
+              <div className="mt-3 flex items-center gap-2 text-sm">
+                <label className="label-race" htmlFor="pit-sec">Pit stop (s)</label>
+                <input
+                  id="pit-sec"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={pitSec}
+                  onChange={(e) => setPitSec(parseFloat(e.target.value) || 0)}
+                  className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600"
+                />
+                <span className="text-xs text-ink-500">
+                  karts near the marker now = your traffic at pit exit
+                </span>
+              </div>
+              {selKart && snapshot && (() => {
+                const sel = snapshot.drivers.find((d) => d.kart_no === selKart)
+                if (!sel) return null
+                const dLaps = own ? sel.laps - own.laps : null
+                const sFrac = lapFraction(sel, serverNow)
+                const oFrac = own ? lapFraction(own, serverNow) : null
+                let onTrack: string | null = null
+                if (sFrac != null && oFrac != null && paceMs) {
+                  let diff = sFrac - oFrac
+                  if (diff > 0.5) diff -= 1
+                  if (diff < -0.5) diff += 1
+                  const sec = (diff * paceMs) / 1000
+                  onTrack = `${sec >= 0 ? '+' : ''}${sec.toFixed(1)}s ${sec >= 0 ? 'ahead of' : 'behind'} you on track`
+                }
+                return (
+                  <div className="mt-3 rounded-lg bg-pit-850 p-3 text-sm">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="font-bold">#{sel.kart_no} {sel.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelKart(null)}
+                        className="text-ink-500 hover:text-ink-300"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <ul className="space-y-0.5 text-xs text-ink-300">
+                      <li>
+                        P{sel.position} · {sel.laps} laps
+                        {dLaps != null && ` (${dLaps >= 0 ? '+' : ''}${dLaps} vs you)`}
+                        {sel.in_pit && ' · IN PIT'}
+                      </li>
+                      <li>last {fmtLap(sel.last_lap_ms)} · best {fmtLap(sel.best_lap_ms)}</li>
+                      {own && (
+                        <li>you: last {fmtLap(own.last_lap_ms)} · best {fmtLap(own.best_lap_ms)}</li>
+                      )}
+                      {onTrack && <li className="pt-1 font-bold text-ink-100">{onTrack}</li>}
+                    </ul>
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="grid content-start gap-4 lg:col-span-2">
+              <LapTimeChart series={series} />
+              <GapEvolutionChart series={series} />
+            </div>
           </div>
 
           {/* Full standings */}
@@ -258,6 +350,7 @@ export function TeamDashboard() {
                 snapshot={snapshot}
                 highlightKart={kart}
                 compact
+                ring={false}
                 orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
               />
             )}

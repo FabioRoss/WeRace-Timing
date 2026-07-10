@@ -5,6 +5,7 @@ import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
@@ -40,6 +41,7 @@ function RaceControlInner() {
   const [error, setError] = useState('')
   const { toasts, push, dismiss } = useToasts()
   const [orderMode, setOrderMode] = useOrderMode()
+  const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   // Messaging
   const [target, setTarget] = useState<'all' | 'select'>('all')
@@ -191,7 +193,9 @@ function RaceControlInner() {
           <>
             <div className="hidden text-right sm:block">
               <div className="label-race">Remaining</div>
-              <div className="timing font-bold">{race?.time_to_go || '--:--'}</div>
+              <div className="timing font-bold">
+                {race ? fmtRemaining(race, serverNow) : '--:--'}
+              </div>
             </div>
             <FlagBanner flag={race?.flag ?? 'none'} compact />
             <ConnectionDot status={status} />
@@ -278,6 +282,37 @@ function RaceControlInner() {
               <p className="text-xs text-ink-500">Writing {source.recording_file}</p>
             )}
             {error && <p className="text-sm text-race-red">{error}</p>}
+
+            {/* Session flag override: for organizers without access to the
+                track system; "Track" mirrors the timing feed. */}
+            <h3 className="label-race pt-2">Session flag</h3>
+            <div className="flex flex-wrap gap-2">
+              {([
+                ['', 'Track', 'bg-pit-600'],
+                ['green', 'Green', 'bg-race-green text-pit-950'],
+                ['yellow', 'Yellow', 'bg-race-yellow text-pit-950'],
+                ['red', 'Red', 'bg-race-red'],
+                ['finish', 'Finish', 'bg-ink-100 text-pit-950'],
+              ] as const).map(([value, label, activeCls]) => {
+                const active = (snapshot?.flag_override ?? '') === value
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => act(() =>
+                      api(`/e/${slot}/api/admin/flag`, {
+                        body: { flag: value || null }, safeword: true,
+                      }))}
+                    className={`rounded px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-40 ${
+                      active ? activeCls : 'bg-pit-700 hover:bg-pit-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 

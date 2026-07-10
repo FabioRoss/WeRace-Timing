@@ -12,6 +12,7 @@ interface Props {
   highlightKart?: string
   compact?: boolean
   orderMode?: OrderMode
+  ring?: boolean          // false when the page mounts its own TrackRing
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -29,13 +30,13 @@ function barStyle(pct: number, smooth: boolean): CSSProperties {
   }
 }
 
-export function TimingTable({ snapshot, highlightKart, compact = false, orderMode = 'race' }: Props) {
+export function TimingTable({ snapshot, highlightKart, compact = false, orderMode = 'race', ring = true }: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
   const [detailKart, setDetailKart] = useState<string | null>(null)
 
   // ~3 fps waypoints for the progress bars; CSS transitions glide between them
-  const serverNow = useServerNow(snapshot)
+  const serverNow = useServerNow(snapshot.updated_at)
 
   // Last rendered bar width per kart: moving forward glides via transition,
   // moving backward (lap reset) snaps instantly.
@@ -88,9 +89,11 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
   const wide = 'hidden lg:table-cell'   // sector columns: desktop only
   return (
     <div>
-      <div className="border-b border-pit-800 px-3 py-3">
-        <TrackRing snapshot={snapshot} highlightKart={highlightKart} />
-      </div>
+      {ring && (
+        <div className="border-b border-pit-800 px-3 py-3">
+          <TrackRing snapshot={snapshot} highlightKart={highlightKart} />
+        </div>
+      )}
       <div className="overflow-x-auto">
       <table className="w-full text-xs sm:text-sm timing">
         <thead>

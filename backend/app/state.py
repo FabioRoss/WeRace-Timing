@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 
-from .models import DriverRow, EventSnapshot, LapRecord, RaceInfo, SourceStatus
+from .models import DriverRow, EventSnapshot, Flag, LapRecord, RaceInfo, SourceStatus
+
+log = logging.getLogger(__name__)
 
 MAX_LAPS_PER_KART = 2000
 
@@ -21,12 +24,17 @@ class EventState:
         self.lap_history: dict[str, list[LapRecord]] = {}
         self.session_best_ms: int | None = None
         self.session_best_kart: str = ""
+        # Race-control flag override (organizers without track-system access);
+        # None = mirror the timing feed's flag.
+        self.flag_override: Flag | None = None
         self.updated_at: float = 0.0
         # Fallback stint tracking when the source has no since-pit field
         self._pit_counts: dict[str, int] = {}
         self._stint_started: dict[str, float] = {}
         self._lap_pits: dict[str, int] = {}      # pits count at the last lap record
         self._cross_ts: dict[str, float] = {}    # wall time of the last crossing
+        self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
+        self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
 
     def reset(self) -> None:
         self.__init__(self.slot)
@@ -36,15 +44,60 @@ class EventState:
     def update(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> None:
         now = time.time()
         if race is not None:
+            if self._session_changed(race):
+                self._reset_session_state("session name changed")
             self.race = race
         if drivers is not None:
             drivers = sorted(drivers, key=lambda d: d.position if d.position > 0 else 999)
+            # Safety net: never let duplicate kart numbers reach the dashboards
+            # (keep the best-positioned row per kart).
+            seen: set[str] = set()
+            unique: list[DriverRow] = []
+            dropped: set[str] = set()
+            for row in drivers:
+                if row.kart_no in seen:
+                    dropped.add(row.kart_no)
+                    continue
+                seen.add(row.kart_no)
+                unique.append(row)
+            if dropped:
+                log.warning(
+                    "slot %d: dropped duplicate driver rows for karts %s",
+                    self.slot, sorted(dropped),
+                )
+            drivers = unique
+            if self._laps_regressed(drivers):
+                self._reset_session_state("lap counts regressed")
             for row in drivers:
                 self._track_laps(row, now)
                 self._track_stint(row, now)
             self.drivers = drivers
             self._update_session_best()
         self.updated_at = now
+
+    def _session_changed(self, race: RaceInfo) -> bool:
+        old, new = self.race.run_type, race.run_type
+        return bool(old and new and old != new and self.drivers)
+
+    def _laps_regressed(self, drivers: list[DriverRow]) -> bool:
+        """A new session resets lap counts; require a quorum of regressing
+        karts so a single glitched row can't wipe the history."""
+        prev = {d.kart_no: d.laps for d in self.drivers}
+        common = [d for d in drivers if d.kart_no in prev]
+        regressed = sum(1 for d in common if d.laps < prev[d.kart_no])
+        return regressed >= 2 and regressed * 2 >= len(common)
+
+    def _reset_session_state(self, reason: str) -> None:
+        log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
+        self.lap_history.clear()
+        self._lap_pits.clear()
+        self._cross_ts.clear()
+        self._cross_ms.clear()
+        self._clean_lap_ms.clear()
+        self._pit_counts.clear()
+        self._stint_started.clear()
+        self.session_best_ms = None
+        self.session_best_kart = ""
 
     def _track_laps(self, row: DriverRow, now: float) -> None:
         history = self.lap_history.setdefault(row.kart_no, [])
@@ -56,6 +109,15 @@ class EventState:
             )
             self._lap_pits[row.kart_no] = row.pits
             self._cross_ts[row.kart_no] = now
+            if not pitted:
+                self._clean_lap_ms[row.kart_no] = row.last_lap_ms
+            # Expected duration of the lap that just started: a pit-inflated
+            # lap time would make the progress bar/ring crawl falsely, so use
+            # the previous clean lap (+1s for the out-lap) instead.
+            if pitted and row.kart_no in self._clean_lap_ms:
+                self._cross_ms[row.kart_no] = self._clean_lap_ms[row.kart_no] + 1000
+            else:
+                self._cross_ms[row.kart_no] = row.last_lap_ms
             history.append(
                 LapRecord(
                     kart_no=row.kart_no,
@@ -72,11 +134,12 @@ class EventState:
         # mywer): anchor a plain 0->1 bar at the last observed crossing.
         if row.prog_ts is None and not row.in_pit:
             cross = self._cross_ts.get(row.kart_no)
-            if cross is not None and row.last_lap_ms:
+            expected = self._cross_ms.get(row.kart_no) or row.last_lap_ms
+            if cross is not None and expected:
                 row.prog_ts = cross
                 row.prog_from = 0.0
                 row.prog_to = 1.0
-                row.prog_ms = row.last_lap_ms
+                row.prog_ms = expected
 
     def _track_stint(self, row: DriverRow, now: float) -> None:
         prev_pits = self._pit_counts.get(row.kart_no)
@@ -94,12 +157,18 @@ class EventState:
 
     # ----------------------------------------------------------------- output
 
+    def effective_race(self) -> RaceInfo:
+        if self.flag_override is None:
+            return self.race
+        return self.race.model_copy(update={"flag": self.flag_override})
+
     def snapshot(self, source: SourceStatus) -> EventSnapshot:
         return EventSnapshot(
             slot=self.slot,
-            race=self.race,
+            race=self.effective_race(),
             drivers=self.drivers,
             source=source,
+            flag_override=self.flag_override,
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
             updated_at=self.updated_at,
@@ -151,8 +220,11 @@ class EventState:
             "stint_seconds": stint_seconds,
             "in_pit": row.in_pit if row else False,
             "finished": row.finished if row else False,
-            "flag": self.race.flag,
+            "flag": self.flag_override or self.race.flag,
             "time_to_go": self.race.time_to_go,
+            "togo_ms": self.race.togo_ms,
+            "togo_ts": self.race.togo_ts,
+            "counting": self.race.counting,
             "race_time": self.race.race_time,
             "run_type": self.race.run_type,
             "ended": self.race.ended,
@@ -165,7 +237,10 @@ class EventState:
         selected = karts or self.kart_numbers()
         return {
             kart: [
-                {"lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position, "pit": rec.pit}
+                {
+                    "lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position,
+                    "pit": rec.pit, "ts": rec.ts,
+                }
                 for rec in self.lap_history.get(kart, [])[-last_n:]
             ]
             for kart in selected

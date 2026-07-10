@@ -5,11 +5,13 @@ import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { fmtLap } from '../lib/format'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 
 export function GeneralDashboard() {
   const { slot = '1' } = useParams()
   const { snapshot, status } = useLive(slot)
   const [orderMode, setOrderMode] = useOrderMode()
+  const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   const race = snapshot?.race
   return (
@@ -22,7 +24,9 @@ export function GeneralDashboard() {
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
         <div className="rounded-lg bg-pit-850 p-3">
           <div className="label-race">Time remaining</div>
-          <div className="timing text-2xl font-bold">{race?.time_to_go || '--:--'}</div>
+          <div className="timing text-2xl font-bold">
+            {race ? fmtRemaining(race, serverNow) : '--:--'}
+          </div>
         </div>
         <div className="rounded-lg bg-pit-850 p-3">
           <div className="label-race">Race time</div>
