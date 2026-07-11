@@ -223,3 +223,49 @@ def test_settings_endpoint():
         get_manager().get(1).reset()
         get_manager().get(1).state.recompute_positions = False
         get_manager().get(1).state.auto_pitlane = True
+
+
+# ---------------------------------------------- inferred pits (no gates)
+
+def test_infers_pit_from_long_lap_without_gates(monkeypatch):
+    import app.state as state_mod
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock["t"])
+    state = EventState(1)
+    state.auto_pitlane = False
+    mk = lambda laps, ms: DriverRow(kart_no="7", position=1, laps=laps, last_lap_ms=ms)
+    for lap, ms in [(1, 40000), (2, 40500), (3, 40200)]:
+        clock["t"] += 40
+        state.update(RaceInfo(), [mk(lap, ms)])
+    assert state.drivers[0].pits == 0
+    # a 120s lap = a pit stop the feed never reported
+    clock["t"] += 120
+    state.update(RaceInfo(), [mk(4, 120000)])
+    row = state.drivers[0]
+    assert row.pits == 1
+    assert state.lap_history["7"][-1].pit is True
+    # stint reset by the inferred pit
+    assert row.stint_seconds == 0
+
+
+def test_infers_currently_in_pit_when_overdue(monkeypatch):
+    import app.state as state_mod
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock["t"])
+    state = EventState(1)
+    state.auto_pitlane = False
+    mk = lambda laps: DriverRow(kart_no="7", position=1, laps=laps, last_lap_ms=40000)
+    clock["t"] += 40; state.update(RaceInfo(), [mk(1)])
+    clock["t"] += 40; state.update(RaceInfo(), [mk(2)])   # clean pace ~40s
+    # no new crossing for way longer than a lap -> in pit
+    clock["t"] += 90
+    state.update(RaceInfo(), [mk(2)])
+    row = state.drivers[0]
+    assert row.in_pit and row.pit_state == "in"
+    assert row.pit_since_ts is not None
+
+
+def test_gated_venue_keeps_feed_pits():
+    state = EventState(1)               # auto_pitlane True (default)
+    state.update(RaceInfo(), [DriverRow(kart_no="7", position=1, laps=5, last_lap_ms=200000, pits=2)])
+    assert state.drivers[0].pits == 2   # feed value untouched, no inference

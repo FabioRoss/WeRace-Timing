@@ -95,6 +95,8 @@ class EventState:
                 drivers = self._recompute_order(drivers)
             for row in drivers:
                 self._track_laps(row, now)
+                if not self.auto_pitlane:
+                    self._infer_pit(row, now)
                 self._track_stint(row, now)
             self.drivers = drivers
             self._update_session_best()
@@ -142,6 +144,7 @@ class EventState:
         self._clean_lap_ms.clear()
         self._pit_counts.clear()
         self._stint_started.clear()
+        self._auto_pits.clear()
         self.session_best_ms = None
         self.session_best_kart = ""
 
@@ -153,6 +156,13 @@ class EventState:
                 row.pits > self._lap_pits.get(row.kart_no, row.pits)
                 or row.in_pit
             )
+            # No pit-lane gates: a lap far longer than the kart's clean pace is
+            # a pit stop the feed never reported — count it ourselves.
+            if not self.auto_pitlane:
+                clean = self._clean_lap_ms.get(row.kart_no)
+                if clean and row.last_lap_ms > max(clean * 1.6, clean + 20000):
+                    pitted = True
+                    self._auto_pits[row.kart_no] = self._auto_pits.get(row.kart_no, 0) + 1
             self._lap_pits[row.kart_no] = row.pits
             self._cross_ts[row.kart_no] = now
             if not pitted:
@@ -176,6 +186,9 @@ class EventState:
             )
             if len(history) > MAX_LAPS_PER_KART:
                 del history[0]
+        # No pit-lane gates: expose our inferred pit count continuously.
+        if not self.auto_pitlane:
+            row.pits = self._auto_pits.get(row.kart_no, 0)
         # Progress fallback for sources without sector events (simulator,
         # mywer): anchor a plain 0->1 bar at the last observed crossing.
         if row.prog_ts is None and not row.in_pit:
@@ -186,6 +199,17 @@ class EventState:
                 row.prog_from = 0.0
                 row.prog_to = 1.0
                 row.prog_ms = expected
+
+    def _infer_pit(self, row: DriverRow, now: float) -> None:
+        """No pit-lane gates: a kart whose expected crossing is long overdue is
+        sitting in the pit. Flag it and record when the stop really began (the
+        missed crossing) so the rejoin forecast keeps that stationary time."""
+        cross = self._cross_ts.get(row.kart_no)
+        expected = self._cross_ms.get(row.kart_no)
+        if cross and expected and not row.finished and (now - cross) > 1.5 * expected / 1000:
+            row.in_pit = True
+            row.pit_state = "in"
+            row.pit_since_ts = cross + expected / 1000
 
     def _track_stint(self, row: DriverRow, now: float) -> None:
         prev_pits = self._pit_counts.get(row.kart_no)
