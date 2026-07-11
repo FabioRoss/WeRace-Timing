@@ -44,7 +44,7 @@ export function DriverDetail({ snapshot, kart, onClose }: Props) {
       key: kart,
       color: SERIES_COLORS.own,
       label: `#${kart}`,
-      points: (laps ?? []).filter((p) => !p.pit),
+      points: laps ?? [],
       width: 3,
     }],
     [laps, kart],
