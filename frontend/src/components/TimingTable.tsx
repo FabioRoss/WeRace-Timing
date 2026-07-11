@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { DriverDetail } from './DriverDetail'
+import { SERIES_COLORS } from './LapCharts'
 import type { OrderMode } from './OrderToggle'
 import { TrackRing } from './TrackRing'
 import { lapFraction, useServerNow } from '../lib/lapProgress'
@@ -13,6 +14,11 @@ interface Props {
   compact?: boolean
   orderMode?: OrderMode
   ring?: boolean          // false when the page mounts its own TrackRing
+  // Team dashboard: a leading checkbox column to add karts to the chart compare
+  selectable?: boolean
+  selectedKarts?: string[]
+  compareColors?: Record<string, string>
+  onToggleKart?: (kart: string) => void
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -30,7 +36,10 @@ function barStyle(pct: number, smooth: boolean): CSSProperties {
   }
 }
 
-export function TimingTable({ snapshot, highlightKart, compact = false, orderMode = 'race', ring = true }: Props) {
+export function TimingTable({
+  snapshot, highlightKart, compact = false, orderMode = 'race', ring = true,
+  selectable = false, selectedKarts, compareColors, onToggleKart,
+}: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
   const [detailKart, setDetailKart] = useState<string | null>(null)
@@ -98,6 +107,11 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
       <table className="w-full text-xs sm:text-sm timing">
         <thead>
           <tr className="label-race border-b border-pit-700 text-left">
+            {selectable && (
+              <th className={pad} title="Add to comparison charts">
+                <ChartColIcon />
+              </th>
+            )}
             <th className={pad}>
               <span className="sm:hidden">P</span>
               <span className="hidden sm:inline">Pos</span>
@@ -143,6 +157,29 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
                   own ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60' : ''
                 } ${d.finished ? 'opacity-60' : ''}`}
               >
+                {selectable && (
+                  <td className={pad} onClick={(e) => e.stopPropagation()}>
+                    {own ? (
+                      <span
+                        className="inline-block h-3.5 w-3.5 rounded-sm align-middle"
+                        style={{ background: SERIES_COLORS.own }}
+                        title="your kart (always shown)"
+                      />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={selectedKarts?.includes(d.kart_no) ?? false}
+                        onChange={() => onToggleKart?.(d.kart_no)}
+                        className="h-3.5 w-3.5 cursor-pointer align-middle"
+                        style={
+                          selectedKarts?.includes(d.kart_no) && compareColors?.[d.kart_no]
+                            ? { accentColor: compareColors[d.kart_no] }
+                            : undefined
+                        }
+                      />
+                    )}
+                  </td>
+                )}
                 <td className={`${pad} font-bold`}>{rank}</td>
                 <td className={pad}>
                   <span className="inline-block min-w-7 rounded bg-pit-700 px-1 py-0.5 text-center font-bold sm:min-w-9 sm:px-1.5">
@@ -204,5 +241,16 @@ export function TimingTable({ snapshot, highlightKart, compact = false, orderMod
         />
       )}
     </div>
+  )
+}
+
+/** Chart-compare column header icon */
+function ChartColIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-ink-500">
+      <path d="M3 3v18h18" />
+      <path d="M7 14l4-4 3 3 5-6" />
+    </svg>
   )
 }

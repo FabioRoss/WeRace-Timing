@@ -392,6 +392,10 @@ export function TeamDashboard() {
                 compact
                 ring={false}
                 orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
+                selectable
+                selectedKarts={selKarts}
+                compareColors={compareColors}
+                onToggleKart={toggleKart}
               />
             )}
           </div>
