@@ -11,6 +11,20 @@ log = logging.getLogger(__name__)
 MAX_LAPS_PER_KART = 2000
 
 
+def _classify_gap(d: DriverRow, ref: DriverRow | None) -> str:
+    """Gap string of `d` relative to `ref` from laps + cumulative time:
+    same lap -> "S.mmm" seconds behind; laps down -> "+N L"."""
+    if ref is None or ref is d:
+        return ""
+    laps_down = ref.laps - d.laps
+    if laps_down > 0:
+        return f"+{laps_down} L"
+    if d.total_time_ms is not None and ref.total_time_ms is not None:
+        delta = (d.total_time_ms - ref.total_time_ms) / 1000
+        return f"{delta:.3f}" if delta >= 0 else ""
+    return ""
+
+
 class EventState:
     """Normalized live state for one event slot.
 
@@ -28,6 +42,10 @@ class EventState:
         # Race-control flag override (organizers without track-system access);
         # None = mirror the timing feed's flag.
         self.flag_override: Flag | None = None
+        # Race-control settings: recompute standings from laps/totaltime, and
+        # whether the venue has automatic pit-lane gates (else pits are inferred).
+        self.recompute_positions: bool = False
+        self.auto_pitlane: bool = True
         self.updated_at: float = 0.0
         # Fallback stint tracking when the source has no since-pit field
         self._pit_counts: dict[str, int] = {}
@@ -36,9 +54,13 @@ class EventState:
         self._cross_ts: dict[str, float] = {}    # wall time of the last crossing
         self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
         self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
+        self._auto_pits: dict[str, int] = {}     # inferred pit-stop count (no gates)
 
     def reset(self) -> None:
+        # Preserve race-control settings across a data reset.
+        settings = (self.recompute_positions, self.auto_pitlane)
         self.__init__(self.slot)
+        self.recompute_positions, self.auto_pitlane = settings
 
     # ------------------------------------------------------------------ input
 
@@ -69,12 +91,35 @@ class EventState:
             drivers = unique
             if self._laps_regressed(drivers):
                 self._reset_session_state("lap counts regressed")
+            if self.recompute_positions:
+                drivers = self._recompute_order(drivers)
             for row in drivers:
                 self._track_laps(row, now)
                 self._track_stint(row, now)
             self.drivers = drivers
             self._update_session_best()
         self.updated_at = now
+
+    def _recompute_order(self, drivers: list[DriverRow]) -> list[DriverRow]:
+        """Some MyWeR uploaders never reorder karts — position stays the start
+        grid and gaps read 0. Rebuild the classification from laps + cumulative
+        time (most laps, then least total time) and derive gaps from it."""
+        ordered = sorted(
+            drivers,
+            key=lambda d: (
+                -d.laps,
+                d.total_time_ms if d.total_time_ms is not None else float("inf"),
+                d.position if d.position > 0 else 999,
+            ),
+        )
+        leader = ordered[0] if ordered else None
+        prev: DriverRow | None = None
+        for rank, d in enumerate(ordered, start=1):
+            d.position = rank
+            d.gap_leader = _classify_gap(d, leader)
+            d.gap_ahead = _classify_gap(d, prev)
+            prev = d
+        return ordered
 
     def _session_changed(self, race: RaceInfo) -> bool:
         old, new = self.race.run_type, race.run_type
@@ -175,6 +220,8 @@ class EventState:
             drivers=self.drivers,
             source=source,
             flag_override=self.flag_override,
+            recompute_positions=self.recompute_positions,
+            auto_pitlane=self.auto_pitlane,
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
             updated_at=self.updated_at,

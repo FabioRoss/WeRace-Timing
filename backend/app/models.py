@@ -50,6 +50,7 @@ class DriverRow(BaseModel):
     speed: str = ""                 # speed-trap reading (source formatted)
     gap_ahead: str = ""             # gap to the kart in front (source formatted)
     gap_leader: str = ""            # gap/difference to the leader
+    total_time_ms: int | None = None  # cumulative running time (for reordering)
     laps: int = 0
     pits: int = 0
     last_pit_ms: int | None = None
@@ -65,6 +66,9 @@ class DriverRow(BaseModel):
     prog_from: float = 0.0
     prog_to: float = 1.0
     prog_ms: int | None = None
+    # Server clock when an inferred pit stop actually began (missed crossing),
+    # so the rejoin forecast keeps the stationary-on-line time.
+    pit_since_ts: float | None = None
 
 
 class LapRecord(BaseModel):
@@ -107,6 +111,9 @@ class EventSnapshot(BaseModel):
     source: SourceStatus = SourceStatus()
     # Active race-control flag override (None = mirroring the feed)
     flag_override: Flag | None = None
+    # Race-control settings that affect how the feed is interpreted
+    recompute_positions: bool = False
+    auto_pitlane: bool = True
     session_best_ms: int | None = None
     session_best_kart: str = ""
     updated_at: float = 0.0

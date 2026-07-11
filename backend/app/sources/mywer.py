@@ -170,6 +170,7 @@ class MyWerDecoder:
             s3_ms=parse_duration_ms(interm.get("t3")),
             gap_ahead=str(d.get("gap") or "").strip(),
             gap_leader=str(d.get("difference") or "").strip(),
+            total_time_ms=parse_duration_ms(d.get("totaltime")),
             laps=int(d.get("laps") or 0),
             pits=int(d.get("nopitstops") or 0),
             last_pit_ms=parse_duration_ms(d.get("lastpittime")),

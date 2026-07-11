@@ -154,3 +154,72 @@ def test_stint_seconds_uses_feed_value_when_present():
         stint_time="00:12:30.000000",
     )])
     assert state.drivers[0].stint_seconds == 750
+
+
+# --------------------------------------------------- recompute positions
+
+from pathlib import Path
+from app.sources.mywer import MyWerDecoder
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _replay_christel_last():
+    dec = MyWerDecoder()
+    race = drivers = None
+    for line in (FIXTURES / "christel.ndjson").open(encoding="utf-8"):
+        import json as _json
+        r, d = dec.decode(_json.loads(line)["payload"])
+        if r is not None: race = r
+        if d is not None: drivers = d
+    return race, drivers
+
+
+def test_recompute_positions_reorders_by_laps_and_time():
+    race, drivers = _replay_christel_last()
+    state = EventState(1)
+    state.recompute_positions = True
+    state.update(race, drivers)
+    out = state.drivers
+    # positions are a clean 1..N with no gaps/dupes
+    assert [d.position for d in out] == list(range(1, len(out) + 1))
+    # leader is the most-laps kart (feed had it mid-grid)
+    leader = out[0]
+    assert leader.laps == max(d.laps for d in out)
+    # order respects (-laps, total_time_ms)
+    keys = [(-d.laps, d.total_time_ms or float("inf")) for d in out]
+    assert keys == sorted(keys)
+    # same-lap gap to leader is a seconds string, not the feed's 0.000
+    same_lap = next((d for d in out[1:] if d.laps == leader.laps), None)
+    if same_lap:
+        assert same_lap.gap_leader and same_lap.gap_leader != "00.000"
+
+
+def test_recompute_disabled_keeps_feed_order():
+    race, drivers = _replay_christel_last()
+    state = EventState(1)                       # recompute off (default)
+    state.update(race, drivers)
+    # feed order preserved (sorted by feed position, as before)
+    feed_positions = [d.position for d in state.drivers]
+    assert feed_positions == sorted(feed_positions)
+
+
+def test_settings_survive_reset():
+    state = EventState(1)
+    state.recompute_positions = True
+    state.auto_pitlane = False
+    state.reset()
+    assert state.recompute_positions is True
+    assert state.auto_pitlane is False
+
+
+def test_settings_endpoint():
+    with TestClient(app) as client:
+        r = client.post("/e/1/api/admin/settings", headers=SAFEWORD,
+                        json={"recompute_positions": True, "auto_pitlane": False})
+        assert r.json() == {"ok": True, "recompute_positions": True, "auto_pitlane": False}
+        status = client.get("/e/1/api/admin/status", headers=SAFEWORD).json()
+        assert status["recompute_positions"] is True and status["auto_pitlane"] is False
+        get_manager().get(1).reset()
+        get_manager().get(1).state.recompute_positions = False
+        get_manager().get(1).state.auto_pitlane = True
