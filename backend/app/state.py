@@ -4,6 +4,7 @@ import logging
 import time
 
 from .models import DriverRow, EventSnapshot, Flag, LapRecord, RaceInfo, SourceStatus
+from .timeparse import parse_duration_ms
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +147,11 @@ class EventState:
         if prev_pits is None or row.pits > prev_pits:
             self._stint_started[row.kart_no] = now
         self._pit_counts[row.kart_no] = row.pits
+        # Normalize stint: use the feed's value when it carries one, else the
+        # time since we first saw the kart / its last pit (feeds like MyWeR send
+        # all-zeros for "sincepit" at some venues).
+        ms = parse_duration_ms(row.stint_time) if row.stint_time else None
+        row.stint_seconds = ms // 1000 if ms else int(now - self._stint_started[row.kart_no])
 
     def _update_session_best(self) -> None:
         best: tuple[int, str] | None = None
@@ -190,15 +196,7 @@ class EventState:
         ahead = self.drivers[idx - 1] if row and idx > 0 else None
         behind = self.drivers[idx + 1] if row and idx + 1 < len(self.drivers) else None
 
-        stint_seconds: int | None = None
-        if row:
-            if row.stint_time:
-                from .timeparse import parse_duration_ms
-
-                ms = parse_duration_ms(row.stint_time)
-                stint_seconds = ms // 1000 if ms else None
-            if stint_seconds is None and row.kart_no in self._stint_started:
-                stint_seconds = int(time.time() - self._stint_started[row.kart_no])
+        stint_seconds = row.stint_seconds if row else None
 
         return {
             "type": "driver",

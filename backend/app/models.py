@@ -55,6 +55,7 @@ class DriverRow(BaseModel):
     last_pit_ms: int | None = None
     total_pit_ms: int | None = None
     stint_time: str = ""            # time since last pit if the source provides it
+    stint_seconds: int | None = None  # normalized stint (feed value or server-tracked)
     in_pit: bool = False
     pit_state: Literal["", "in", "out"] = ""   # in = in pit lane, out = out-lap
     finished: bool = False

@@ -125,3 +125,32 @@ def test_out_lap_uses_previous_clean_lap_as_pace_reference():
     row2 = mk(4, 96000, pits=1)
     state.update(RaceInfo(), [row2])
     assert row2.prog_ms == 96000
+
+
+def test_stint_seconds_falls_back_when_feed_is_zero(monkeypatch):
+    import app.state as state_mod
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock["t"])
+    state = EventState(1)
+    mk = lambda pits, laps: DriverRow(
+        kart_no="7", position=1, laps=laps, last_lap_ms=90000, pits=pits,
+        stint_time="00:00:00.000000",   # MyWeR sends all-zeros at this venue
+    )
+    state.update(RaceInfo(), [mk(0, 1)])
+    assert state.drivers[0].stint_seconds == 0
+    clock["t"] += 45
+    state.update(RaceInfo(), [mk(0, 2)])
+    assert state.drivers[0].stint_seconds == 45         # rises with wall time
+    # a pit stop resets the stint
+    clock["t"] += 30
+    state.update(RaceInfo(), [mk(1, 3)])
+    assert state.drivers[0].stint_seconds == 0
+
+
+def test_stint_seconds_uses_feed_value_when_present():
+    state = EventState(1)
+    state.update(RaceInfo(), [DriverRow(
+        kart_no="7", position=1, laps=5, last_lap_ms=90000,
+        stint_time="00:12:30.000000",
+    )])
+    assert state.drivers[0].stint_seconds == 750

@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
-import type { LapPoint, RaceMessage } from '../lib/types'
-import { fmtGap, fmtLap } from '../lib/format'
+import type { DriverRow, LapPoint, RaceMessage } from '../lib/types'
+import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
-import { fmtRemaining, lapFraction, useServerNow } from '../lib/lapProgress'
+import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { TrackRing } from '../components/TrackRing'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
-import { GapEvolutionChart, LapTimeChart, type ChartSeries } from '../components/LapCharts'
+import { COMPARE_COLORS, GapEvolutionChart, LapTimeChart, SERIES_COLORS, type ChartSeries } from '../components/LapCharts'
 
 interface TeamInfo {
   found: boolean
@@ -63,34 +63,74 @@ export function TeamDashboard() {
     }
   }, [snapshot, kart])
 
-  // Poll lap history for the karts on the charts
+  // Up-to-3 comparison karts selected on the ring; each gets a compare color
+  // shared between the ring and the charts. Own kart is never a selection.
+  const [selKarts, setSelKarts] = useState<string[]>([])
+  const toggleKart = (k: string) => {
+    if (k === kart) return
+    setSelKarts((cur) =>
+      cur.includes(k) ? cur.filter((x) => x !== k) : cur.length >= 3 ? cur : [...cur, k],
+    )
+  }
+  const compareColors = useMemo(
+    () => Object.fromEntries(selKarts.map((k, i) => [k, COMPARE_COLORS[i]])),
+    [selKarts],
+  )
+  const ownIsLeader = !rivals.leader && !!kart          // no leader rival => own is P1
+  const behindKart = rivals.behind?.kart_no
+
+  // Poll lap history: own + leader + car behind + the selected comparisons
+  const fetchKey = [kart, rivals.leader?.kart_no, behindKart, ...selKarts]
+    .filter(Boolean).join(',')
   useEffect(() => {
     if (!kart) return
-    const karts = [kart, rivals.leader?.kart_no, rivals.ahead?.kart_no, rivals.behind?.kart_no]
-      .filter((k): k is string => Boolean(k))
     const fetchLaps = () =>
       api<{ laps: Record<string, LapPoint[]> }>(
-        `/e/${slot}/api/laps?karts=${encodeURIComponent(karts.join(','))}`,
+        `/e/${slot}/api/laps?karts=${encodeURIComponent(fetchKey)}`,
       ).then((r) => setLaps(r.laps)).catch(() => {})
     void fetchLaps()
     const t = setInterval(fetchLaps, 10000)
     return () => clearInterval(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slot, kart, rivals.leader?.kart_no, rivals.ahead?.kart_no, rivals.behind?.kart_no])
+  }, [slot, kart, fetchKey])
 
-  const series: ChartSeries[] = useMemo(() => {
+  // Lap-time chart: the team's own driver plus the selected comparison karts.
+  const lapSeries: ChartSeries[] = useMemo(() => {
     if (!kart) return []
-    const make = (k: string | undefined, role: ChartSeries['role'], label: string) =>
-      k && laps[k]?.length ? [{ key: k, role, label, points: laps[k] }] : []
-    return [
-      ...make(kart, 'own', `#${kart} (you)`),
-      ...make(rivals.leader?.kart_no, 'leader', `#${rivals.leader?.kart_no} P1`),
-      ...(rivals.ahead && rivals.ahead.kart_no !== rivals.leader?.kart_no
-        ? make(rivals.ahead.kart_no, 'ahead', `#${rivals.ahead.kart_no} ahead`)
-        : []),
-      ...make(rivals.behind?.kart_no, 'behind', `#${rivals.behind?.kart_no} behind`),
-    ]
-  }, [kart, laps, rivals])
+    const out: ChartSeries[] = []
+    if (laps[kart]?.length)
+      out.push({ key: kart, color: SERIES_COLORS.own, label: `#${kart} (you)`, points: laps[kart], width: 3 })
+    selKarts.forEach((k, i) => {
+      if (laps[k]?.length) out.push({ key: k, color: COMPARE_COLORS[i], label: `#${k}`, points: laps[k] })
+    })
+    return out
+  }, [kart, laps, selKarts])
+
+  // Gap chart: everyone measured against the leader — or, when the team's own
+  // driver IS the leader, against the own kart so the car behind is shown.
+  const gap = useMemo(() => {
+    if (!kart) return { reference: null, series: [] as ChartSeries[], title: undefined as string | undefined }
+    const refKey = ownIsLeader ? kart : rivals.leader?.kart_no
+    if (!refKey || !laps[refKey]?.length) return { reference: null, series: [], title: undefined }
+    const out: ChartSeries[] = []
+    const primaryKey = ownIsLeader ? behindKart : kart
+    if (primaryKey && primaryKey !== refKey && laps[primaryKey]?.length) {
+      out.push({
+        key: primaryKey,
+        color: SERIES_COLORS.own,
+        label: ownIsLeader ? `#${primaryKey} behind` : `#${kart} (you)`,
+        points: laps[primaryKey],
+        width: 3,
+      })
+    }
+    selKarts.forEach((k, i) => {
+      if (k !== refKey && laps[k]?.length) out.push({ key: k, color: COMPARE_COLORS[i], label: `#${k}`, points: laps[k] })
+    })
+    return {
+      reference: { key: refKey, label: `#${refKey}`, points: laps[refKey] },
+      series: out,
+      title: ownIsLeader ? 'Gap to you (s, + = behind)' : 'Gap to leader (s, + = behind)',
+    }
+  }, [kart, laps, selKarts, ownIsLeader, rivals.leader?.kart_no, behindKart])
 
   const ownMessages = useMemo(() => {
     const initial = info?.messages ?? []
@@ -119,13 +159,12 @@ export function TeamDashboard() {
   // Pit-stop planner + ring kart selection
   const [pitSec, setPitSecState] = useState<number>(() => {
     const v = parseFloat(localStorage.getItem('wrb_pit_sec') ?? '')
-    return Number.isFinite(v) && v > 0 ? v : 40
+    return Number.isFinite(v) && v > 0 ? v : 60
   })
   const setPitSec = (v: number) => {
     setPitSecState(v)
     localStorage.setItem('wrb_pit_sec', String(v))
   }
-  const [selKart, setSelKart] = useState<string | null>(null)
   const paceMs = useMemo(() => {
     const pts = (kart ? laps[kart] : undefined)?.filter((p) => !p.pit && p.ms > 0) ?? []
     if (pts.length >= 3) return pts.reduce((sum, p) => sum + p.ms, 0) / pts.length
@@ -169,7 +208,7 @@ export function TeamDashboard() {
               <Stat label="Best lap" value={fmtLap(own?.best_lap_ms)} />
               <Stat label="Gap to leader" value={own?.position === 1 ? 'LEADER' : fmtGap(own?.gap_leader)} />
               <Stat label="Interval ahead" value={own?.position === 1 ? '—' : fmtGap(own?.gap_ahead)} />
-              <Stat label="Stint" value={own?.stint_time || '--:--'} />
+              <Stat label="Stint" value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
               <Stat label="Laps" value={String(own?.laps ?? '–')} />
               <Stat label="Pit stops" value={String(own?.pits ?? '–')} />
             </div>
@@ -271,8 +310,9 @@ export function TeamDashboard() {
                   highlightKart={kart}
                   relativeTo={kart}
                   pitPlan={{ seconds: pitSec, paceMs }}
-                  selectedKart={selKart}
-                  onSelectKart={(k) => setSelKart(k === selKart ? null : k)}
+                  selectedKarts={selKarts}
+                  compareColors={compareColors}
+                  onSelectKart={toggleKart}
                 />
               )}
               <div className="mt-3 flex items-center gap-2 text-sm">
@@ -287,54 +327,50 @@ export function TeamDashboard() {
                   className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600"
                 />
                 <span className="text-xs text-ink-500">
-                  karts near the marker now = your traffic at pit exit
+                  tap karts to compare (up to 3)
                 </span>
               </div>
-              {selKart && snapshot && (() => {
-                const sel = snapshot.drivers.find((d) => d.kart_no === selKart)
-                if (!sel) return null
-                const dLaps = own ? sel.laps - own.laps : null
-                const sFrac = lapFraction(sel, serverNow)
-                const oFrac = own ? lapFraction(own, serverNow) : null
-                let onTrack: string | null = null
-                if (sFrac != null && oFrac != null && paceMs) {
-                  let diff = sFrac - oFrac
-                  if (diff > 0.5) diff -= 1
-                  if (diff < -0.5) diff += 1
-                  const sec = (diff * paceMs) / 1000
-                  onTrack = `${sec >= 0 ? '+' : ''}${sec.toFixed(1)}s ${sec >= 0 ? 'ahead of' : 'behind'} you on track`
-                }
+              {selKarts.length > 0 && snapshot && (() => {
+                const rows = [kart, ...selKarts]
+                  .map((k) => snapshot.drivers.find((d) => d.kart_no === k))
+                  .filter((d): d is DriverRow => Boolean(d))
+                const fastestLast = Math.min(...rows.map((d) => d.last_lap_ms || Infinity))
+                const fastestBest = Math.min(...rows.map((d) => d.best_lap_ms || Infinity))
                 return (
-                  <div className="mt-3 rounded-lg bg-pit-850 p-3 text-sm">
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="font-bold">#{sel.kart_no} {sel.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setSelKart(null)}
-                        className="text-ink-500 hover:text-ink-300"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <ul className="space-y-0.5 text-xs text-ink-300">
-                      <li>
-                        P{sel.position} · {sel.laps} laps
-                        {dLaps != null && ` (${dLaps >= 0 ? '+' : ''}${dLaps} vs you)`}
-                        {sel.in_pit && ' · IN PIT'}
-                      </li>
-                      <li>last {fmtLap(sel.last_lap_ms)} · best {fmtLap(sel.best_lap_ms)}</li>
-                      {own && (
-                        <li>you: last {fmtLap(own.last_lap_ms)} · best {fmtLap(own.best_lap_ms)}</li>
-                      )}
-                      {onTrack && <li className="pt-1 font-bold text-ink-100">{onTrack}</li>}
-                    </ul>
+                  <div className="mt-3 grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-x-2 gap-y-1.5 rounded-lg bg-pit-850 p-3 text-xs">
+                    {rows.map((d) => {
+                      const color = d.kart_no === kart ? 'var(--color-race-green)' : compareColors[d.kart_no]
+                      const bestLast = !!d.last_lap_ms && d.last_lap_ms === fastestLast
+                      const bestBest = !!d.best_lap_ms && d.best_lap_ms === fastestBest
+                      return (
+                        <Fragment key={d.kart_no}>
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                          <span className="min-w-0 truncate">
+                            <span className="font-bold">#{d.kart_no}</span> {d.name}
+                          </span>
+                          <span className="flex items-center gap-1 whitespace-nowrap timing">
+                            <ClockIcon />
+                            <span className={bestLast ? 'font-bold text-ink-100' : 'text-ink-300'}>{fmtLap(d.last_lap_ms)}</span>
+                          </span>
+                          <span className="flex items-center gap-1 whitespace-nowrap timing">
+                            <BestIcon />
+                            <span className={bestBest ? 'font-bold text-race-purple' : 'text-ink-300'}>{fmtLap(d.best_lap_ms)}</span>
+                          </span>
+                          {d.kart_no === kart ? (
+                            <span />
+                          ) : (
+                            <button type="button" onClick={() => toggleKart(d.kart_no)} className="text-ink-500 hover:text-ink-300">✕</button>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </div>
                 )
               })()}
             </div>
             <div className="grid content-start gap-4 lg:col-span-2">
-              <LapTimeChart series={series} />
-              <GapEvolutionChart series={series} />
+              <LapTimeChart series={lapSeries} />
+              <GapEvolutionChart series={gap.series} reference={gap.reference} title={gap.title} />
             </div>
           </div>
 
@@ -367,5 +403,28 @@ function Stat({ label, value, big = false }: { label: string; value: string; big
       <div className="label-race">{label}</div>
       <div className={`timing font-bold ${big ? 'text-3xl text-race-blue' : 'text-xl'}`}>{value}</div>
     </div>
+  )
+}
+
+/** Last-lap marker */
+function ClockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-ink-500">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
+/** Best-lap marker: arrow to the top */
+function BestIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-race-purple">
+      <path d="M5 4h14" />
+      <path d="M12 20V9" />
+      <path d="M7 13l5-5 5 5" />
+    </svg>
   )
 }

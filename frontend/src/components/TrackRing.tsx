@@ -50,13 +50,14 @@ function sectorFractions(drivers: DriverRow[]): [number, number] | null {
  *  marker: where `relativeTo` would come back on track after a pit stop of
  *  the given length (rolls over whole laps for long stops). */
 export function TrackRing({
-  snapshot, highlightKart, relativeTo, pitPlan, selectedKart, onSelectKart,
+  snapshot, highlightKart, relativeTo, pitPlan, selectedKarts, compareColors, onSelectKart,
 }: {
   snapshot: Snapshot
   highlightKart?: string
   relativeTo?: string
   pitPlan?: { seconds: number; paceMs: number | null }
-  selectedKart?: string | null
+  selectedKarts?: string[]
+  compareColors?: Record<string, string>
   onSelectKart?: (kart: string) => void
 }) {
   const serverNow = useServerNow(snapshot.updated_at)
@@ -79,9 +80,15 @@ export function TrackRing({
     d.prog_ts != null && !!d.prog_ms &&
     (serverNow - d.prog_ts) * 1000 > d.prog_ms * 1.5
 
-  // Leader on top; then karts by reverse position so front-runners overlap
-  // backmarkers, not the other way around.
-  const ordered = [...drivers].sort((a, b) => b.position - a.position)
+  // Draw order = paint order (later = on top). Base is reverse position
+  // (front-runners over backmarkers); then selected comparison karts; then the
+  // followed kart last so it is never hidden under traffic.
+  const isOwn = (d: DriverRow) => d.kart_no === (relativeTo ?? highlightKart)
+  const isSelected = (d: DriverRow) => selectedKarts?.includes(d.kart_no) ?? false
+  const zRank = (d: DriverRow) => (isOwn(d) ? 2 : isSelected(d) ? 1 : 0)
+  const ordered = [...drivers].sort(
+    (a, b) => zRank(a) - zRank(b) || b.position - a.position,
+  )
   const pitKarts = ordered.filter((d) => d.in_pit || likelyPitted(d))
 
   const karts = ordered.map((d) => {
@@ -112,11 +119,16 @@ export function TrackRing({
       wasPit !== (key === -1) ||
       Math.min(dist, 1 - dist) > 0.15
 
+    const own = d.kart_no === (relativeTo ?? highlightKart)
+    const compareColor = compareColors?.[d.kart_no]
     let fill: string
-    if (reference) {
+    if (own) {
+      fill = 'var(--color-race-green)'
+    } else if (compareColor) {
+      fill = compareColor                              // matches the charts
+    } else if (reference) {
       // team view: colors relative to the followed kart (leader stays purple)
-      if (d.kart_no === reference.kart_no) fill = 'var(--color-race-green)'
-      else if (d.kart_no === leader.kart_no) fill = 'var(--color-race-purple)'
+      if (d.kart_no === leader.kart_no) fill = 'var(--color-race-purple)'
       else if (d.laps > reference.laps) fill = 'var(--color-race-red)'
       else if (d.laps < reference.laps) fill = 'var(--color-race-blue)'
       else fill = 'var(--color-pit-600)'
@@ -129,8 +141,7 @@ export function TrackRing({
           ? 'var(--color-race-blue)'
           : 'var(--color-pit-600)'
     }
-    const own = highlightKart != null && d.kart_no === highlightKart
-    const selected = selectedKart != null && d.kart_no === selectedKart
+    const selected = compareColor != null
     return (
       <g
         key={d.kart_no}
@@ -147,12 +158,12 @@ export function TrackRing({
           fill={fill}
           stroke={
             selected
-              ? 'var(--color-race-yellow)'
-              : own && !reference
+              ? 'var(--color-ink-100)'
+              : own
                 ? 'var(--color-race-green)'
                 : 'var(--color-pit-950)'
           }
-          strokeWidth={selected || (own && !reference) ? 2.5 : 1.5}
+          strokeWidth={selected || own ? 2.5 : 1.5}
         />
         <text
           textAnchor="middle"
@@ -184,8 +195,12 @@ export function TrackRing({
   } else {
     pitEnterRef.current = null
   }
+  // The rejoin forecast is meaningless once the session is stopped.
+  const stopped =
+    snapshot.race.ended ||
+    ['stopped', 'red', 'finish'].includes(snapshot.race.flag)
   let pitMarker: { frac: number; lost: number } | null = null
-  if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0) {
+  if (pitPlan && reference && pitPlan.paceMs && pitPlan.seconds > 0 && !stopped) {
     const stopLaps = (pitPlan.seconds * 1000) / pitPlan.paceMs
     if (refPitted) {
       // Stationary in the pit: the exit moment approaches as time passes, so

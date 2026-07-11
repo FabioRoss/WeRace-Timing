@@ -33,19 +33,21 @@ function useHiddenSeries() {
 }
 
 /* Validated against surface #0b0d14 (dataviz six checks: all pass, worst ΔE 41.3).
-   Color follows the entity role, never rank order. */
+   Color follows the entity, never rank order. */
 export const SERIES_COLORS = {
-  own: '#3987e5',      // blue
-  leader: '#c98500',   // yellow
-  ahead: '#199e70',    // aqua
-  behind: '#9085e9',   // violet
+  own: '#2fd058',      // green — matches the followed kart on the ring
 } as const
+
+// Comparison colors for user-selected karts; distinct from the ring's
+// green/purple/red/blue/yellow so selections pop and match across ring + charts.
+export const COMPARE_COLORS = ['#f59e0b', '#06b6d4', '#ec4899'] as const   // amber, cyan, pink
 
 export interface ChartSeries {
   key: string          // kart number
-  role: keyof typeof SERIES_COLORS
+  color: string
   label: string
   points: LapPoint[]
+  width?: number       // stroke width (own kart is drawn thicker)
 }
 
 const AXIS_INK = '#7c86a3'
@@ -124,8 +126,8 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
             dataKey={s.key}
             name={s.label}
             hide={hidden.has(s.key)}
-            stroke={SERIES_COLORS[s.role]}
-            strokeWidth={s.role === 'own' ? 3 : 2}
+            stroke={s.color}
+            strokeWidth={s.width ?? 2}
             dot={false}
             connectNulls
             isAnimationActive={false}
@@ -136,19 +138,22 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
   )
 }
 
-/** Time behind the reference kart at each completed lap (+ = behind), from
- *  the wall time of the crossings — immune to histories starting on
- *  different laps. Reference = the leader series, or the own kart when it IS
- *  the leader (so the leading team sees the gap to its followers). */
-export function GapEvolutionChart({ series }: { series: ChartSeries[] }) {
+/** Time behind an explicit reference kart at each completed lap (+ = behind),
+ *  from the wall time of the crossings — immune to histories starting on
+ *  different laps. The caller picks the reference (leader normally; the own
+ *  kart when it leads, so the leading team sees the car behind it). */
+export function GapEvolutionChart({ series, reference, title = 'Gap to leader (s, + = behind)' }: {
+  series: ChartSeries[]
+  reference: { key: string; label: string; points: LapPoint[] } | null
+  title?: string
+}) {
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
-  const reference = series.find((s) => s.role === 'leader') ?? series.find((s) => s.role === 'own')
   const rows = useMemo(() => {
     if (!reference) return []
     const refTs = new Map(reference.points.map((p) => [p.lap, p.ts]))
-    const others = series.filter((s) => s.key !== reference.key)
     const byLap = new Map<number, Record<string, number | null>>()
-    for (const s of others) {
+    for (const s of series) {
+      if (s.key === reference.key) continue
       for (const p of s.points) {
         const ref = refTs.get(p.lap)
         if (ref == null || !p.ts) continue
@@ -160,12 +165,11 @@ export function GapEvolutionChart({ series }: { series: ChartSeries[] }) {
     return [...byLap.values()].sort((a, b) => (a.lap as number) - (b.lap as number))
   }, [series, reference])
 
-  const ownIsRef = reference?.role === 'own'
   if (rows.length < 2) {
     return <ChartEmpty title="Gap to leader" note="Needs shared laps between karts." />
   }
   return (
-    <ChartFrame title={ownIsRef ? 'Gap to you (s, + = behind)' : 'Gap to leader (s, + = behind)'}>
+    <ChartFrame title={title}>
       <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
         <CartesianGrid stroke={GRID_INK} vertical={false} />
         <XAxis dataKey="lap" stroke={AXIS_INK} tick={{ fill: AXIS_INK, fontSize: 11 }} tickLine={false} />
@@ -186,8 +190,8 @@ export function GapEvolutionChart({ series }: { series: ChartSeries[] }) {
             dataKey={s.key}
             name={s.label}
             hide={hidden.has(s.key)}
-            stroke={SERIES_COLORS[s.role]}
-            strokeWidth={s.role === 'own' ? 3 : 2}
+            stroke={s.color}
+            strokeWidth={s.width ?? 2}
             dot={false}
             connectNulls
             isAnimationActive={false}
