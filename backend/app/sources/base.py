@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 # on_data(race_info_or_None, drivers_or_None) — decoders push normalized updates
 OnData = Callable[[RaceInfo | None, list[DriverRow] | None], Awaitable[None]]
 OnFrame = Callable[[str], None]
+OnReset = Callable[[], None]     # drop accumulated state (replay seek rebuild)
 
 
 def _is_tls_error(exc: BaseException) -> bool:
@@ -26,10 +27,17 @@ def _is_tls_error(exc: BaseException) -> bool:
 class BaseSource:
     """A timing feed for one event slot. Subclasses decode frames."""
 
-    def __init__(self, config: SourceConfig, on_data: OnData, on_frame: OnFrame | None = None) -> None:
+    def __init__(
+        self,
+        config: SourceConfig,
+        on_data: OnData,
+        on_frame: OnFrame | None = None,
+        on_reset: OnReset | None = None,
+    ) -> None:
         self.config = config
         self.on_data = on_data
         self.on_frame = on_frame  # recorder hook, receives every raw frame
+        self.on_reset = on_reset  # clears accumulated state (replay seek only)
         self.status = SourceStatus(kind=config.kind, label=config.label, url=config.url)
         # Set once the first connect attempt has succeeded or failed, so the
         # connect endpoint can report a real outcome instead of "scheduled".

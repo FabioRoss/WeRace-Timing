@@ -99,6 +99,13 @@ class SourceStatus(BaseModel):
     error: str = ""
     recording: bool = False
     recording_file: str = ""
+    # Replay progress (only set while a recording is playing back) so Race
+    # Control can show a seek timeline: current frame index, total frames, and
+    # the recording-time elapsed / duration in seconds.
+    replay_pos: int | None = None
+    replay_count: int | None = None
+    replay_elapsed_s: float | None = None
+    replay_duration_s: float | None = None
 
 
 class EventSnapshot(BaseModel):

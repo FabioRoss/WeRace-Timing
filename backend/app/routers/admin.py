@@ -128,6 +128,22 @@ def recording(slot: int, body: RecordingToggle) -> dict:
     return {"ok": True, "recording": False}
 
 
+class ReplaySeek(BaseModel):
+    fraction: float = Field(ge=0.0, le=1.0)
+
+
+@router.post("/e/{slot}/api/admin/replay/seek")
+def replay_seek(slot: int, body: ReplaySeek) -> dict:
+    """Jump replay playback to a fraction (0..1) of the recording."""
+    from ..sources.replay import ReplaySource
+
+    event = get_event(slot)
+    if not isinstance(event.source, ReplaySource):
+        raise HTTPException(status_code=409, detail="not replaying a recording")
+    event.source.seek(body.fraction)
+    return {"ok": True, "fraction": body.fraction}
+
+
 @router.post("/e/{slot}/api/admin/reset")
 def reset(slot: int) -> dict:
     event = get_event(slot)

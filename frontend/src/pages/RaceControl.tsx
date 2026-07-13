@@ -6,6 +6,7 @@ import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
+import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
@@ -160,6 +161,9 @@ function RaceControlInner() {
     api(`/e/${slot}/api/admin/recording`, {
       body: { enable: !source?.recording }, safeword: true,
     }).then(loadRecordings))
+
+  const seekReplay = (fraction: number) => act(() =>
+    api(`/e/${slot}/api/admin/replay/seek`, { body: { fraction }, safeword: true }))
 
   const deleteRecording = (name: string) => {
     if (!window.confirm(`Delete recording “${name}”? This cannot be undone.`)) return
@@ -326,6 +330,9 @@ function RaceControlInner() {
             </div>
             {source?.recording && (
               <p className="text-xs text-ink-500">Writing {source.recording_file}</p>
+            )}
+            {source?.kind === 'replay' && (source?.replay_count ?? 0) > 0 && (
+              <ReplayTimeline source={source} onSeek={seekReplay} disabled={busy} />
             )}
             {error && <p className="text-sm text-race-red">{error}</p>}
 
@@ -510,6 +517,43 @@ function RaceControlInner() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Seek bar for replay playback: drag to skip anywhere in the recording. */
+function ReplayTimeline({ source, onSeek, disabled }: {
+  source: SourceStatus
+  onSeek: (fraction: number) => void
+  disabled?: boolean
+}) {
+  const count = source.replay_count ?? 0
+  const pos = source.replay_pos ?? 0
+  const [drag, setDrag] = useState<number | null>(null)
+  const liveFrac = count > 1 ? pos / (count - 1) : 0
+  const value = drag ?? liveFrac
+  const duration = source.replay_duration_s ?? 0
+  const elapsed = drag != null ? drag * duration : (source.replay_elapsed_s ?? 0)
+  const commit = () => { if (drag != null) { onSeek(drag); setDrag(null) } }
+  return (
+    <div className="space-y-1">
+      <div className="label-race flex items-center justify-between">
+        <span>Replay timeline</span>
+        <span className="timing">{fmtClock(Math.round(elapsed))} / {fmtClock(Math.round(duration))}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.001}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => setDrag(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        className="w-full accent-race-blue"
+        aria-label="Seek replay position"
+      />
     </div>
   )
 }

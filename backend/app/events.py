@@ -50,7 +50,7 @@ class Event:
         cls = SOURCE_CLASSES.get(config.kind)
         if cls is None:
             raise ValueError(f"unknown source kind: {config.kind}")
-        self.source = cls(config, self._on_data, self._on_frame)
+        self.source = cls(config, self._on_data, self._on_frame, self._reset_state)
         self.source.start()
         # Wait (briefly) for the first connect attempt to succeed or fail so
         # the caller gets a real outcome, not just "task scheduled".
@@ -85,6 +85,11 @@ class Event:
     def _on_frame(self, text: str) -> None:
         if self.recorder.active and text and self.source:
             self.recorder.write(text, {"kind": self.source.config.kind})
+
+    def _reset_state(self) -> None:
+        # A replay seek rebuilds state from the recording's start; drop the
+        # accumulated laps/best/tracking so post-seek history is correct.
+        self.state.reset()
 
     # ------------------------------------------------------------- recording
 

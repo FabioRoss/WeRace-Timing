@@ -61,6 +61,10 @@ export interface SourceStatus {
   error: string
   recording: boolean
   recording_file: string
+  replay_pos: number | null
+  replay_count: number | null
+  replay_elapsed_s: number | null
+  replay_duration_s: number | null
 }
 
 export interface Snapshot {
