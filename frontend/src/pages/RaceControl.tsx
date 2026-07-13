@@ -179,6 +179,15 @@ function RaceControlInner() {
   }
 
   const race = snapshot?.race
+  // The messaging selector lists karts by number (easier to find one to
+  // message) rather than by race order, which shuffles every lap.
+  const messageKarts = useMemo(
+    () => [...(snapshot?.drivers ?? [])].sort(
+      (a, b) => (parseInt(a.kart_no, 10) || 0) - (parseInt(b.kart_no, 10) || 0)
+        || a.kart_no.localeCompare(b.kart_no),
+    ),
+    [snapshot?.drivers],
+  )
   const recentMessages = useMemo(
     () => [...messages].sort((a: RaceMessage, b: RaceMessage) => b.id - a.id).slice(0, 30),
     [messages],
@@ -368,7 +377,7 @@ function RaceControlInner() {
               </button>
               {target === 'select' && (
                 <div className="flex flex-wrap gap-1.5">
-                  {(snapshot?.drivers ?? []).map((d) => (
+                  {messageKarts.map((d) => (
                     <button
                       key={d.kart_no}
                       type="button"
