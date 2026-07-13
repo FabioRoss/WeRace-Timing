@@ -89,6 +89,17 @@ class EventState:
                     self.slot, sorted(dropped),
                 )
             drivers = unique
+            if self._is_partial_refresh(drivers):
+                # MyWeR periodically emits a full-metadata frame carrying only a
+                # stale subset of the field. It must not replace the live
+                # standings (the table would collapse to those few karts for a
+                # frame); the next full frame ~1s later carries everyone.
+                log.debug(
+                    "slot %d: ignoring partial driver refresh (%d of %d karts)",
+                    self.slot, len(drivers), len(self.drivers),
+                )
+                self.updated_at = now
+                return
             if self._laps_regressed(drivers):
                 self._reset_session_state("lap counts regressed")
             if self.recompute_positions:
@@ -126,6 +137,14 @@ class EventState:
     def _session_changed(self, race: RaceInfo) -> bool:
         old, new = self.race.run_type, race.run_type
         return bool(old and new and old != new and self.drivers)
+
+    def _is_partial_refresh(self, drivers: list[DriverRow]) -> bool:
+        """True for a frame that covers far less of the field than we are
+        already tracking — MyWeR's periodic full-metadata refresh ships only a
+        stale two-kart subset. Inert on the first population (nothing tracked)
+        and on genuinely small fields, so a real field shrink still lands."""
+        tracked = len(self.drivers)
+        return tracked >= 4 and len(drivers) * 2 < tracked
 
     def _laps_regressed(self, drivers: list[DriverRow]) -> bool:
         """Detect a genuine session rollover (a fresh session resets every
