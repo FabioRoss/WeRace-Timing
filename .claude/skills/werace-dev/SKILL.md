@@ -19,7 +19,9 @@ backend/app/
                        on it), first_frames diagnostic ring buffer
   sources/apex.py      Apex decoder (see protocol below) — ApexGrid mirrors their grid
   sources/mywer.py     MyWeR decoder — stateful MyWerDecoder merges partial race frames
-  sources/simulator.py Synthetic demo race        sources/replay.py  .ndjson playback
+  sources/simulator.py Synthetic demo race
+  sources/replay.py    .ndjson playback; supports seek() — rebuilds state from the
+                       recording start to the target via on_reset + a fresh decoder
   state.py             EventState: normalized race+drivers, lap history (with pit flags
                        + crossing wall-times), session-best, stint tracking, session-
                        rollover detection, flag_override, progress fallback anchors,
@@ -28,7 +30,8 @@ backend/app/
                        data changes AND source-status changes), recorder
   hub.py               WebSocket fanout (live + per-driver channels)
   routers/admin.py     RC API: connect/disconnect/status (incl. first_frames +
-                       flag_override), recording, reset, message, flag override, links
+                       flag_override), recording, reset, message, flag override, links,
+                       settings, replay/seek, recordings list + delete (path-safe)
   routers/public.py    state, /api/laps (lap history incl. pit + ts), team token API
   routers/live.py      /ws/live and /ws/driver/{token}
   tracks.py            Track catalog (Apex: wss://live-data.apex-timing.com:PORT/,
