@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  CartesianGrid, Line, LineChart, ResponsiveContainer,
+  CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis, Legend,
 } from 'recharts'
 import type { LapPoint } from '../lib/types'
@@ -86,13 +86,25 @@ const tooltipStyle = {
   color: '#f4f6fb',
 } as const
 
-/** Lap-time trend: own kart vs leader / ahead / behind. */
+/** Lap-time trend: own kart vs its selected comparisons. Pit laps are kept
+ *  off the Y-scale (so normal laps stay readable) and drawn as a vertical
+ *  marker at that lap carrying the pit lap time. */
 export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; lastN?: number }) {
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
-  const rows = useMemo(() => {
-    const trimmed = series.map((s) => ({ ...s, points: s.points.slice(-lastN) }))
-    return buildRows(trimmed, (p) => p.ms)
-  }, [series, lastN])
+  const trimmed = useMemo(
+    () => series.map((s) => ({ ...s, points: s.points.slice(-lastN) })),
+    [series, lastN],
+  )
+  const rows = useMemo(
+    () => buildRows(trimmed, (p) => (p.pit ? null : p.ms)),   // pit laps off the scale
+    [trimmed],
+  )
+  const pitMarks = useMemo(
+    () => trimmed.flatMap((s) =>
+      hidden.has(s.key) ? [] : s.points.filter((p) => p.pit).map((p) => ({ key: `${s.key}-${p.lap}`, lap: p.lap, ms: p.ms, color: s.color })),
+    ),
+    [trimmed, hidden],
+  )
 
   if (rows.length < 2) {
     return <ChartEmpty title="Lap times" note="Charts appear after a couple of laps." />
@@ -120,6 +132,15 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
           onClick={onLegendClick}
           formatter={legendFormatter}
         />
+        {pitMarks.map((m) => (
+          <ReferenceLine
+            key={m.key}
+            x={m.lap}
+            stroke={m.color}
+            strokeDasharray="3 3"
+            label={{ value: `pit ${fmtLap(m.ms)}`, position: 'insideTopLeft', fill: m.color, fontSize: 9, angle: -90 }}
+          />
+        ))}
         {series.map((s) => (
           <Line
             key={s.key}

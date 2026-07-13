@@ -208,7 +208,11 @@ export function TeamDashboard() {
               <Stat label="Best lap" value={fmtLap(own?.best_lap_ms)} />
               <Stat label="Gap to leader" value={own?.position === 1 ? 'LEADER' : fmtGap(own?.gap_leader)} />
               <Stat label="Interval ahead" value={own?.position === 1 ? '—' : fmtGap(own?.gap_ahead)} />
-              <Stat label="Stint" value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
+              {snapshot?.auto_pitlane === false && kart ? (
+                <ManualStint slot={slot} kart={kart} serverNow={serverNow} />
+              ) : (
+                <Stat label="Stint" value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
+              )}
               <Stat label="Laps" value={String(own?.laps ?? '–')} />
               <Stat label="Pit stops" value={String(own?.pits ?? '–')} />
             </div>
@@ -388,6 +392,10 @@ export function TeamDashboard() {
                 compact
                 ring={false}
                 orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
+                selectable
+                selectedKarts={selKarts}
+                compareColors={compareColors}
+                onToggleKart={toggleKart}
               />
             )}
           </div>
@@ -402,6 +410,45 @@ function Stat({ label, value, big = false }: { label: string; value: string; big
     <div>
       <div className="label-race">{label}</div>
       <div className={`timing font-bold ${big ? 'text-3xl text-race-blue' : 'text-xl'}`}>{value}</div>
+    </div>
+  )
+}
+
+/** Manual stint timer for venues with no pit-lane gates: the team manager
+ *  starts/stops/resets it and can nudge it if they reacted late. Persisted per
+ *  kart so a page reload keeps counting. */
+interface StintState { running: boolean; anchor: number | null; acc: number }
+
+function ManualStint({ slot, kart, serverNow }: { slot: string; kart: string; serverNow: number }) {
+  const key = `wrb_stint_${slot}_${kart}`
+  const [st, setSt] = useState<StintState>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) ?? '')
+      if (v && typeof v.acc === 'number') return v
+    } catch { /* no saved state */ }
+    return { running: false, anchor: null, acc: 0 }
+  })
+  useEffect(() => { localStorage.setItem(key, JSON.stringify(st)) }, [key, st])
+
+  const elapsed = Math.max(0, st.acc + (st.running && st.anchor ? serverNow - st.anchor : 0))
+  const start = () => setSt((s) => s.running ? s : { running: true, anchor: serverNow, acc: s.acc })
+  const stop = () => setSt((s) => s.running && s.anchor ? { running: false, anchor: null, acc: s.acc + (serverNow - s.anchor) } : s)
+  const reset = () => setSt({ running: false, anchor: null, acc: 0 })
+  const nudge = (d: number) => setSt((s) => ({ ...s, acc: Math.max(0, s.acc + d) }))
+
+  const btn = 'rounded bg-pit-700 px-1.5 py-0.5 text-[0.65rem] font-bold hover:bg-pit-600'
+  return (
+    <div className="col-span-2">
+      <div className="label-race">Stint (manual)</div>
+      <div className="timing text-xl font-bold">{fmtClock(Math.round(elapsed))}</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {st.running
+          ? <button type="button" onClick={stop} className={`${btn} text-race-yellow`}>Stop</button>
+          : <button type="button" onClick={start} className={`${btn} text-race-green`}>Start</button>}
+        <button type="button" onClick={reset} className={btn}>Reset</button>
+        <button type="button" onClick={() => nudge(-30)} className={btn}>−30s</button>
+        <button type="button" onClick={() => nudge(30)} className={btn}>+30s</button>
+      </div>
     </div>
   )
 }

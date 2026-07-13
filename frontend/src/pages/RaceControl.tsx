@@ -39,6 +39,7 @@ function RaceControlInner() {
   const [replayFile, setReplayFile] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [cfgTab, setCfgTab] = useState<'source' | 'config'>('source')
   const { toasts, push, dismiss } = useToasts()
   const [orderMode, setOrderMode] = useOrderMode()
   const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
@@ -206,7 +207,19 @@ function RaceControlInner() {
       <div className="grid gap-4 p-4 lg:grid-cols-3">
         {/* Source control */}
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <h3 className="label-race mb-3">Timing source</h3>
+          <div className="mb-3 flex gap-2">
+            {(['source', 'config'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setCfgTab(t)}
+                className={`label-race rounded px-2 py-1 ${cfgTab === t ? 'bg-pit-700 text-ink-100' : 'text-ink-500 hover:text-ink-300'}`}
+              >
+                {t === 'source' ? 'Timing source' : 'Configuration'}
+              </button>
+            ))}
+          </div>
+          {cfgTab === 'source' && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm">
               <span className={`h-2.5 w-2.5 rounded-full ${source?.connected ? 'bg-race-green' : 'bg-race-red'}`} />
@@ -314,6 +327,26 @@ function RaceControlInner() {
               })}
             </div>
           </div>
+          )}
+
+          {cfgTab === 'config' && (
+            <div className="space-y-3 text-sm">
+              <Toggle
+                label="Recalculate positions"
+                hint="Reorder karts by laps + time when the timing system keeps the start grid and never reorders."
+                checked={!!snapshot?.recompute_positions}
+                disabled={busy}
+                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { recompute_positions: v }, safeword: true }))}
+              />
+              <Toggle
+                label="Automatic pit lane"
+                hint="Off = the track has no pit gates; the app infers pit stops, pit laps and stint time from lap times."
+                checked={snapshot?.auto_pitlane ?? true}
+                disabled={busy}
+                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
+              />
+            </div>
+          )}
         </div>
 
         {/* Driver messaging */}
@@ -417,5 +450,34 @@ function RaceControlInner() {
         </div>
       </div>
     </div>
+  )
+}
+
+function Toggle({ label, hint, checked, disabled, onChange }: {
+  label: string
+  hint: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-start gap-3 rounded-lg bg-pit-850 p-3 text-left disabled:opacity-40"
+    >
+      <span
+        className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors ${
+          checked ? 'bg-race-green' : 'bg-pit-600'
+        }`}
+      >
+        <span className={`h-4 w-4 rounded-full bg-ink-100 transition-transform ${checked ? 'translate-x-4' : ''}`} />
+      </span>
+      <span className="min-w-0">
+        <span className="font-bold">{label}</span>
+        <span className="block text-xs text-ink-500">{hint}</span>
+      </span>
+    </button>
   )
 }

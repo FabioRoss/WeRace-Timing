@@ -205,8 +205,11 @@ export function TrackRing({
     if (refPitted) {
       // Stationary in the pit: the exit moment approaches as time passes, so
       // the marker advances at exactly field pace and stays a valid forecast
-      // (continuous with the pre-stop marker: entry is at the line).
-      const elapsed = pitEnterRef.current ? serverNow - pitEnterRef.current.ts : 0
+      // (continuous with the pre-stop marker: entry is at the line). Prefer the
+      // backend's pit_since_ts (the missed-crossing moment) so the seconds the
+      // kart sat on the start/finish line before we saw the pit are kept.
+      const entryTs = reference.pit_since_ts ?? pitEnterRef.current?.ts ?? serverNow
+      const elapsed = serverNow - entryTs
       pitMarker = {
         frac: mod1((elapsed * 1000) / pitPlan.paceMs - stopLaps),
         lost: Math.floor((Math.max(pitPlan.seconds - elapsed, 0) * 1000) / pitPlan.paceMs),

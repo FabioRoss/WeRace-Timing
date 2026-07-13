@@ -32,6 +32,7 @@ export interface DriverRow {
   speed: string
   gap_ahead: string
   gap_leader: string
+  total_time_ms: number | null
   laps: number
   pits: number
   last_pit_ms: number | null
@@ -47,6 +48,7 @@ export interface DriverRow {
   prog_from: number
   prog_to: number
   prog_ms: number | null
+  pit_since_ts: number | null
 }
 
 export interface SourceStatus {
@@ -68,6 +70,8 @@ export interface Snapshot {
   drivers: DriverRow[]
   source: SourceStatus
   flag_override: Flag | null
+  recompute_positions: boolean
+  auto_pitlane: boolean
   session_best_ms: number | null
   session_best_kart: string
   updated_at: number

@@ -154,3 +154,118 @@ def test_stint_seconds_uses_feed_value_when_present():
         stint_time="00:12:30.000000",
     )])
     assert state.drivers[0].stint_seconds == 750
+
+
+# --------------------------------------------------- recompute positions
+
+from pathlib import Path
+from app.sources.mywer import MyWerDecoder
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _replay_christel_last():
+    dec = MyWerDecoder()
+    race = drivers = None
+    for line in (FIXTURES / "christel.ndjson").open(encoding="utf-8"):
+        import json as _json
+        r, d = dec.decode(_json.loads(line)["payload"])
+        if r is not None: race = r
+        if d is not None: drivers = d
+    return race, drivers
+
+
+def test_recompute_positions_reorders_by_laps_and_time():
+    race, drivers = _replay_christel_last()
+    state = EventState(1)
+    state.recompute_positions = True
+    state.update(race, drivers)
+    out = state.drivers
+    # positions are a clean 1..N with no gaps/dupes
+    assert [d.position for d in out] == list(range(1, len(out) + 1))
+    # leader is the most-laps kart (feed had it mid-grid)
+    leader = out[0]
+    assert leader.laps == max(d.laps for d in out)
+    # order respects (-laps, total_time_ms)
+    keys = [(-d.laps, d.total_time_ms or float("inf")) for d in out]
+    assert keys == sorted(keys)
+    # same-lap gap to leader is a seconds string, not the feed's 0.000
+    same_lap = next((d for d in out[1:] if d.laps == leader.laps), None)
+    if same_lap:
+        assert same_lap.gap_leader and same_lap.gap_leader != "00.000"
+
+
+def test_recompute_disabled_keeps_feed_order():
+    race, drivers = _replay_christel_last()
+    state = EventState(1)                       # recompute off (default)
+    state.update(race, drivers)
+    # feed order preserved (sorted by feed position, as before)
+    feed_positions = [d.position for d in state.drivers]
+    assert feed_positions == sorted(feed_positions)
+
+
+def test_settings_survive_reset():
+    state = EventState(1)
+    state.recompute_positions = True
+    state.auto_pitlane = False
+    state.reset()
+    assert state.recompute_positions is True
+    assert state.auto_pitlane is False
+
+
+def test_settings_endpoint():
+    with TestClient(app) as client:
+        r = client.post("/e/1/api/admin/settings", headers=SAFEWORD,
+                        json={"recompute_positions": True, "auto_pitlane": False})
+        assert r.json() == {"ok": True, "recompute_positions": True, "auto_pitlane": False}
+        status = client.get("/e/1/api/admin/status", headers=SAFEWORD).json()
+        assert status["recompute_positions"] is True and status["auto_pitlane"] is False
+        get_manager().get(1).reset()
+        get_manager().get(1).state.recompute_positions = False
+        get_manager().get(1).state.auto_pitlane = True
+
+
+# ---------------------------------------------- inferred pits (no gates)
+
+def test_infers_pit_from_long_lap_without_gates(monkeypatch):
+    import app.state as state_mod
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock["t"])
+    state = EventState(1)
+    state.auto_pitlane = False
+    mk = lambda laps, ms: DriverRow(kart_no="7", position=1, laps=laps, last_lap_ms=ms)
+    for lap, ms in [(1, 40000), (2, 40500), (3, 40200)]:
+        clock["t"] += 40
+        state.update(RaceInfo(), [mk(lap, ms)])
+    assert state.drivers[0].pits == 0
+    # a 120s lap = a pit stop the feed never reported
+    clock["t"] += 120
+    state.update(RaceInfo(), [mk(4, 120000)])
+    row = state.drivers[0]
+    assert row.pits == 1
+    assert state.lap_history["7"][-1].pit is True
+    # stint reset by the inferred pit
+    assert row.stint_seconds == 0
+
+
+def test_infers_currently_in_pit_when_overdue(monkeypatch):
+    import app.state as state_mod
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock["t"])
+    state = EventState(1)
+    state.auto_pitlane = False
+    mk = lambda laps: DriverRow(kart_no="7", position=1, laps=laps, last_lap_ms=40000)
+    clock["t"] += 40; state.update(RaceInfo(), [mk(1)])
+    clock["t"] += 40; state.update(RaceInfo(), [mk(2)])   # clean pace ~40s
+    # no new crossing for way longer than a lap -> in pit
+    clock["t"] += 90
+    state.update(RaceInfo(), [mk(2)])
+    row = state.drivers[0]
+    assert row.in_pit and row.pit_state == "in"
+    assert row.pit_since_ts is not None
+
+
+def test_gated_venue_keeps_feed_pits():
+    state = EventState(1)               # auto_pitlane True (default)
+    state.update(RaceInfo(), [DriverRow(kart_no="7", position=1, laps=5, last_lap_ms=200000, pits=2)])
+    assert state.drivers[0].pits == 2   # feed value untouched, no inference
