@@ -38,6 +38,44 @@ def test_state_endpoint(client):
 def test_admin_requires_safeword(client):
     assert client.get("/api/admin/tracks").status_code == 401
     assert client.get("/api/admin/tracks", headers={"X-Safeword": "wrong"}).status_code == 401
+
+
+SAFEWORD = {"X-Safeword": "boxbox"}
+
+
+def test_recordings_list_and_delete(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "recordings_dir", tmp_path)
+    (tmp_path / "slot1-20260101-000000-Test.ndjson").write_text('{"ts":1,"payload":"x"}\n')
+
+    listed = client.get("/api/admin/recordings", headers=SAFEWORD).json()["recordings"]
+    assert [r["name"] for r in listed] == ["slot1-20260101-000000-Test.ndjson"]
+    assert listed[0]["size_bytes"] > 0 and listed[0]["modified"] > 0
+
+    # path traversal / non-ndjson are rejected without touching the disk
+    # (a slash-bearing name never even routes to the handler)
+    assert client.delete("/api/admin/recordings/..%2Fsecret.ndjson", headers=SAFEWORD).status_code in (404, 405, 422)
+    assert client.delete("/api/admin/recordings/notes.txt", headers=SAFEWORD).status_code == 422
+    assert client.delete("/api/admin/recordings/missing.ndjson", headers=SAFEWORD).status_code == 404
+
+    r = client.delete("/api/admin/recordings/slot1-20260101-000000-Test.ndjson", headers=SAFEWORD)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert client.get("/api/admin/recordings", headers=SAFEWORD).json()["recordings"] == []
+
+
+def test_recording_in_progress_is_not_deletable(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "recordings_dir", tmp_path)
+    event = get_manager().get(1)
+    event.recorder.directory = tmp_path
+    path = event.recorder.start(1, "live")
+    try:
+        r = client.delete(f"/api/admin/recordings/{path.name}", headers=SAFEWORD)
+        assert r.status_code == 409
+    finally:
+        event.recorder.stop()
     ok = client.get("/api/admin/tracks", headers={"X-Safeword": "boxbox"})
     assert ok.status_code == 200
     assert any(c["kind"] == "simulator" for c in ok.json()["catalog"])

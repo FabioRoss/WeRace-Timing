@@ -20,6 +20,12 @@ interface CatalogEntry {
   speed: number
 }
 
+interface RecordingInfo {
+  name: string
+  size_bytes: number
+  modified: number
+}
+
 export function RaceControl() {
   return (
     <SafewordGate>
@@ -32,7 +38,7 @@ function RaceControlInner() {
   const { slot = '1' } = useParams()
   const { snapshot, messages, status } = useLive(slot)
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
-  const [recordings, setRecordings] = useState<string[]>([])
+  const [recordings, setRecordings] = useState<RecordingInfo[]>([])
   const [selected, setSelected] = useState('')
   const [customUrl, setCustomUrl] = useState('')
   const [customKind, setCustomKind] = useState<'apex' | 'mywer'>('apex')
@@ -53,17 +59,27 @@ function RaceControlInner() {
 
   const loadCatalog = useCallback(async () => {
     try {
-      const r = await api<{ catalog: CatalogEntry[]; recordings: string[] }>(
+      const r = await api<{ catalog: CatalogEntry[] }>(
         '/api/admin/tracks', { safeword: true },
       )
       setCatalog(r.catalog)
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [])
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      const r = await api<{ recordings: RecordingInfo[] }>(
+        '/api/admin/recordings', { safeword: true },
+      )
       setRecordings(r.recordings)
     } catch (e) {
       setError(String(e))
     }
   }, [])
 
-  useEffect(() => { void loadCatalog() }, [loadCatalog])
+  useEffect(() => { void loadCatalog(); void loadRecordings() }, [loadCatalog, loadRecordings])
 
   const source = snapshot?.source
 
@@ -143,7 +159,15 @@ function RaceControlInner() {
   const toggleRecording = () => act(() =>
     api(`/e/${slot}/api/admin/recording`, {
       body: { enable: !source?.recording }, safeword: true,
-    }).then(loadCatalog))
+    }).then(loadRecordings))
+
+  const deleteRecording = (name: string) => {
+    if (!window.confirm(`Delete recording “${name}”? This cannot be undone.`)) return
+    void act(() =>
+      api(`/api/admin/recordings/${encodeURIComponent(name)}`, {
+        method: 'DELETE', safeword: true,
+      }).then(loadRecordings))
+  }
 
   const resetEvent = () => {
     if (window.confirm(`Reset all data for event ${slot}? (standings, laps, messages)`)) {
@@ -277,7 +301,7 @@ function RaceControlInner() {
                 className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
               >
                 <option value="">— pick a recording —</option>
-                {recordings.map((r) => <option key={r} value={r}>{r}</option>)}
+                {recordings.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
               </select>
             )}
             <div className="flex flex-wrap gap-2">
@@ -354,6 +378,34 @@ function RaceControlInner() {
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
               />
+
+              <div className="pt-2">
+                <h3 className="label-race mb-2">Recordings ({recordings.length})</h3>
+                {recordings.length === 0 ? (
+                  <p className="text-xs text-ink-500">No recordings on the server yet.</p>
+                ) : (
+                  <ul className="max-h-56 space-y-1 overflow-y-auto">
+                    {recordings.map((r) => (
+                      <li key={r.name} className="flex items-center gap-2 rounded bg-pit-850 px-2 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-mono text-xs">{r.name}</div>
+                          <div className="text-[0.65rem] text-ink-500">
+                            {fmtSize(r.size_bytes)} · {fmtDate(r.modified)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => deleteRecording(r.name)}
+                          className="rounded bg-pit-700 px-2 py-1 text-xs font-bold uppercase text-race-red hover:bg-pit-600 disabled:opacity-40"
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -460,6 +512,18 @@ function RaceControlInner() {
       </div>
     </div>
   )
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fmtDate(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function Toggle({ label, hint, checked, disabled, onChange }: {
