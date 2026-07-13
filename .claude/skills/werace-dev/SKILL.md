@@ -87,6 +87,17 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
 - Lap-limited sessions: `duralaps>0`, `duratime` zero, `lapstogo` counts down,
   `timetogo` is garbage (23:xx wrap). Treated as races; remaining shown as "N laps".
 - Time-limited: `duratime>0`; `timetogo` valid until it wraps past zero → clamp.
+- `runtype`: race set {R,G,F,E} (E = endurance) → session_kind "race"; timed set
+  {Q,P,W} → "timed"; anything else "unknown" (disables order toggle + lapped coloring).
+  Christel runs by-laps races the software can only express as timed, so an operator
+  program keeps resetting `timetogo` — expect runtype E, duralaps 0, a tiny duratime
+  and a `timetogo` that never truly counts down.
+- **Partial refresh frames (the lap-138 reset bug)**: MyWeR periodically emits a
+  full-metadata frame (`runname/runtype/duralaps` present) carrying only a STALE SUBSET
+  of the field — a couple of karts whose lap counts lag the live count by one. It must
+  neither reset history nor replace standings. `EventState._is_partial_refresh` drops any
+  driver frame covering < half the tracked field; the hardened rollover check ignores it
+  too. Do NOT relax either without a fixture proving a real session change still resets.
 - Driver fields: raceno=kart, fullname, besttime/bestinlap, gap/difference,
   lastpittime/totpittime/sincepit, `pit` (in-pit flag), `interm[0].t1..t3` sectors,
   `end` finished. Flags: G/Y/R/F/C/W/S.
@@ -110,8 +121,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   without one sort after by best lap. `OrderToggle` re-sorts client-side by best lap
   (races only). `EventState.update` re-sorts by DriverRow.position — emit meaningful
   positions from decoders.
-- **Session rollover**: EventState resets lap history/session best when run_type
-  changes or a quorum of karts' lap counts regress (new session at the venue).
+- **Session rollover**: EventState resets lap history/session best when run_type changes
+  or a genuine restart is seen. The restart test (`_laps_regressed`) is deliberately
+  strict — a quorum of the tracked field must be present AND fallen back to the startline
+  (few laps), not a small backward jitter on a subset. This immunity is what stops
+  MyWeR's stale partial-refresh frames (see above) from wiping mid-race history.
 - **Flag override**: EventState.flag_override (set via POST /api/admin/flag) replaces
   race.flag in snapshots/driver views; None mirrors the feed. RC has the button row.
 - **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
@@ -121,6 +135,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   "driving forward for T seconds".
 - **session_kind** gates the order toggle and ring "lapped" coloring:
   race | timed | unknown, from titles/runtype/duralaps or the inversion heuristic.
+- **RC config (per event, survive reconnect/reset)**: `recompute_positions` rebuilds
+  order from laps + total time (uploaders that never reorder — christel), `auto_pitlane`
+  off infers pits/stint from lap times (venues with no pit-lane gates). Recommended for
+  christel/MyWeR by-laps races: recompute ON, auto pit lane OFF.
 
 ## Development workflow
 
