@@ -48,7 +48,7 @@ FLAG_MAP = {
     "S": Flag.STOPPED,
 }
 
-RACE_RUNTYPES = {"R", "G", "F"}          # race / gara / final
+RACE_RUNTYPES = {"R", "G", "F", "E"}     # race / gara / final / endurance
 TIMED_RUNTYPES = {"Q", "P", "W"}         # qualifying / practice / warmup
 
 TWELVE_HOURS_MS = 12 * 3600 * 1000
