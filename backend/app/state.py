@@ -128,12 +128,24 @@ class EventState:
         return bool(old and new and old != new and self.drivers)
 
     def _laps_regressed(self, drivers: list[DriverRow]) -> bool:
-        """A new session resets lap counts; require a quorum of regressing
-        karts so a single glitched row can't wipe the history."""
+        """Detect a genuine session rollover (a fresh session resets every
+        kart's lap count to the startline) without being fooled by two noise
+        sources: a single glitched row, and MyWeR's periodic full-metadata
+        refresh that carries only a stale SUBSET of the field whose lap counts
+        lag by one. Require a quorum of the tracked field to be present AND to
+        have fallen back to the first few laps — not a backward jitter on a
+        couple of karts still deep in the race."""
         prev = {d.kart_no: d.laps for d in self.drivers}
+        if not prev:
+            return False
         common = [d for d in drivers if d.kart_no in prev]
-        regressed = sum(1 for d in common if d.laps < prev[d.kart_no])
-        return regressed >= 2 and regressed * 2 >= len(common)
+        # A subset frame can't declare a rollover for the whole field.
+        if len(common) * 2 < len(prev):
+            return False
+        # A real restart lands back at the startline; a stale high lap count
+        # off by one is not a new session.
+        restarted = sum(1 for d in common if d.laps <= 3 and d.laps < prev[d.kart_no])
+        return restarted >= 2 and restarted * 2 >= len(common)
 
     def _reset_session_state(self, reason: str) -> None:
         log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
