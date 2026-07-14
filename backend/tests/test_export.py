@@ -97,6 +97,22 @@ def test_timesheet_pdf_customization_params(client):
     assert r2.status_code == 200 and r2.content[:5] == b"%PDF-"
 
 
+def test_timesheet_pdf_pit_and_stint_tables(client):
+    event = _seed_with_laps()
+    event.state.auto_pitlane = False  # no gates: inferred pit laps + estimate
+    # a clearly-anomalous lap so a pit is inferred and a stint boundary exists
+    for kart in ("32", "36"):
+        row = event.state.find(kart)
+        row.laps = 11
+        row.last_lap_ms = 95000
+        event.state._track_laps(row, time.time())
+    r = client.get("/e/1/api/export/timesheet.pdf?pits=1&stints=1&pitest=1")
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+    # both tables on their own still produce a valid PDF
+    assert client.get("/e/1/api/export/timesheet.pdf?pits=1").content[:5] == b"%PDF-"
+    assert client.get("/e/1/api/export/timesheet.pdf?stints=1").content[:5] == b"%PDF-"
+
+
 def test_timesheet_pdf_503_when_reportlab_missing(client, monkeypatch):
     # If reportlab is ever absent from the image the endpoint must 503, not
     # crash the app (the app still imports because the dep is guarded).

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import statistics
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Response
@@ -144,6 +145,22 @@ def fmt_total_ms(ms: int | None) -> str:
     return f"{h}:{m:02d}:{s:02d}.{ms % 1000:03d}"
 
 
+def fmt_clock(ms: int | None) -> str:
+    """Milliseconds -> "M:SS" / "H:MM:SS" (stint durations, no sub-second)."""
+    if not ms or ms <= 0:
+        return "—"
+    total = round(ms / 1000)
+    h, m, s = total // 3600, (total % 3600) // 60, total % 60
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def fmt_stop(ms: int | None) -> str:
+    """Milliseconds -> "NN.N s" (pit-stop durations)."""
+    if not ms or ms <= 0:
+        return "—"
+    return f"{ms / 1000:.1f} s"
+
+
 def _classification_table(state: EventState, styles) -> Table:
     """Modern card-style classification. Position is a dark badge, the leader row
     is tinted red, the overall fastest lap is red-bold. No On/Pits columns."""
@@ -280,6 +297,119 @@ def _lap_grid_tables(state: EventState, styles) -> list:
     return out
 
 
+def _summary_style() -> TableStyle:
+    """Shared modern look for the small pit / stint tables: red header, dark
+    kart-badge first column, zebra rows, rounded corners."""
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), RACE_RED),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("BACKGROUND", (0, 1), (0, -1), BADGE_INK),
+        ("TEXTCOLOR", (0, 1), (0, -1), colors.white),
+        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("ROWBACKGROUNDS", (1, 1), (-1, -1), [colors.white, ROW_ALT]),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+    ])
+
+
+def _pit_stops_table(state: EventState, styles, estimate: bool) -> list:
+    """Pit stops per kart: pit # + lap. On gate venues (auto_pitlane) a measured
+    Stop column shows by default; without gates it's optionally an inferred
+    estimate (pit-lap time − the kart's median lap)."""
+    chart = state.lap_chart(last_n=100000)
+    # Use the feed-measured pit history when a gate venue actually reported pits;
+    # otherwise fall back to the inferred pit laps (with an optional estimate).
+    use_feed = state.auto_pitlane and any(state.pit_stops.values())
+    show_stop = use_feed or estimate
+    stop_label = "Stop" if use_feed else "Est. stop"
+
+    data: list[tuple[str, int, int, int | None]] = []
+    for d in state.drivers:
+        k = d.kart_no
+        if use_feed:
+            for i, (lap, ms) in enumerate(state.pit_stops.get(k, []), 1):
+                data.append((k, i, lap, ms))
+        else:
+            recs = chart.get(k, [])
+            times = [r["ms"] for r in recs if r["ms"]]
+            base = statistics.median(times) if len(times) >= 3 else None
+            for i, r in enumerate((r for r in recs if r["pit"]), 1):
+                est = int(r["ms"] - base) if (estimate and base) else None
+                data.append((k, i, r["lap"], est))
+
+    out: list = [Paragraph("Pit stops", styles["SectionHead"])]
+    if not data:
+        out.append(Paragraph("No pit stops recorded.", styles["ReportSmall"]))
+        return out
+
+    header = ["Kart", "Pit", "Lap"] + ([stop_label] if show_stop else [])
+    rows = [header]
+    for k, pit_no, lap, ms in data:
+        row = [f"#{k}", str(pit_no), str(lap)]
+        if show_stop:
+            row.append(fmt_stop(ms) if ms is not None else "—")
+        rows.append(row)
+
+    widths = [26 * mm, 20 * mm, 20 * mm] + ([32 * mm] if show_stop else [])
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    table.hAlign = "LEFT"
+    table.setStyle(_summary_style())
+    out.append(table)
+    if not use_feed and estimate:
+        out.append(Paragraph(
+            "Est. stop = the pit lap's time minus the kart's median lap — inferred from "
+            "lap times, not measured (this venue has no pit-lane timing).",
+            styles["Legend"]))
+    return out
+
+
+def _stint_table(state: EventState, styles) -> list:
+    """Stint durations per kart: a stint is a run of consecutive non-pit laps;
+    the duration is the sum of those laps' times (pit laps excluded)."""
+    chart = state.lap_chart(last_n=100000)
+    data: list[tuple[str, int, int, int, int, int]] = []
+    for d in state.drivers:
+        recs = chart.get(d.kart_no, [])
+        stint_no = 0
+        cur: list[tuple[int, int]] = []
+        # Sentinel pit lap flushes the final stint.
+        for r in list(recs) + [{"pit": True, "lap": 0, "ms": 0}]:
+            if r["pit"]:
+                if cur:
+                    stint_no += 1
+                    dur = sum(m for _, m in cur if m)
+                    data.append((d.kart_no, stint_no, cur[0][0], cur[-1][0], len(cur), dur))
+                    cur = []
+            else:
+                cur.append((r["lap"], r["ms"]))
+
+    out: list = [Paragraph("Stint times", styles["SectionHead"])]
+    if not data:
+        out.append(Paragraph("No stints recorded.", styles["ReportSmall"]))
+        return out
+
+    rows = [["Kart", "Stint", "Laps", "N", "Duration"]]
+    for k, sn, lo, hi, n, dur in data:
+        rows.append([f"#{k}", str(sn), f"{lo}–{hi}", str(n), fmt_clock(dur)])
+    table = Table(rows, colWidths=[26 * mm, 20 * mm, 28 * mm, 16 * mm, 30 * mm], repeatRows=1)
+    table.hAlign = "LEFT"
+    table.setStyle(_summary_style())
+    out.append(table)
+    out.append(Paragraph(
+        "Stint duration = the sum of that stint's racing-lap times (a stint is a run of "
+        "consecutive non-pit laps; pit laps are excluded). On tracks without pit-lane "
+        "timing this is an approximation — the partial lap around a stop isn't counted.",
+        styles["Legend"]))
+    return out
+
+
 def _best_lap_bar(state: EventState) -> Drawing:
     rows = [(d.kart_no, d.best_lap_ms) for d in state.drivers if d.best_lap_ms]
     d = Drawing(CONTENT_W, 180)
@@ -342,6 +472,7 @@ def _pace_trend(state: EventState) -> Drawing:
 
 def build_timesheet_pdf(
     state: EventState, include_charts: bool = False, include_grid: bool = True,
+    include_pits: bool = False, include_stints: bool = False, pit_estimate: bool = False,
     event_name: str = "", session_name: str = "",
 ) -> bytes:
     buf = io.BytesIO()
@@ -411,6 +542,14 @@ def build_timesheet_pdf(
         story.append(Spacer(1, 4 * mm))
         story.append(_pace_trend(state))
 
+    if include_pits:
+        story.append(Spacer(1, 6 * mm))
+        story += _pit_stops_table(state, styles, pit_estimate)
+
+    if include_stints:
+        story.append(Spacer(1, 6 * mm))
+        story += _stint_table(state, styles)
+
     if include_grid:
         story.append(PageBreak())
         story.append(Paragraph("Lap by lap", styles["SectionHead"]))
@@ -432,16 +571,19 @@ def _slug(text: str) -> str:
 @router.get("/e/{slot}/api/export/timesheet.pdf")
 def timesheet_pdf(
     slot: int, charts: bool = False, grid: bool = True,
+    pits: bool = False, stints: bool = False, pitest: bool = False,
     event: str = "", session: str = "",
 ) -> Response:
-    """Downloadable chrono timesheet: modern classification + optional charts +
-    lap-by-lap grid. Built from live state, so generate it before disconnecting
-    the source. `event`/`session` override the names on the sheet + filename."""
+    """Downloadable chrono timesheet: modern classification + optional charts,
+    pit-stops table, stint-times table and lap-by-lap grid. Built from live
+    state, so generate it before disconnecting the source. `event`/`session`
+    override the names on the sheet + filename."""
     if not _REPORTLAB_OK:
         raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
     evt = get_event(slot)
     pdf = build_timesheet_pdf(
         evt.state, include_charts=charts, include_grid=grid,
+        include_pits=pits, include_stints=stints, pit_estimate=pitest,
         event_name=event, session_name=session,
     )
     # Filename: chosen event + session + date (falls back to the feed's names).
