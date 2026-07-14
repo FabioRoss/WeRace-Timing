@@ -35,17 +35,23 @@ export interface StoryModel {
   fastestLap: string
 }
 
-export function buildStoryModel(snapshot: Snapshot | null, topN: number): StoryModel {
+export interface StoryOptions {
+  topN: number
+  title?: string   // overrides the event name; blank falls back to it
+}
+
+export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): StoryModel {
   const drivers = snapshot?.drivers ?? []
-  const rows: StoryRow[] = drivers.slice(0, topN).map((d, i) => ({
+  const rows: StoryRow[] = drivers.slice(0, opts.topN).map((d, i) => ({
     pos: d.position || i + 1,
     kart: d.kart_no,
     name: d.name || `Kart ${d.kart_no}`,
     best: fmtLap(d.best_lap_ms),
-    gap: i === 0 ? 'LEADER' : fmtGap(d.gap_leader),
+    gap: (d.position || i + 1) === 1 ? 'LEADER' : fmtGap(d.gap_leader),
   }))
+  const title = opts.title?.trim() || snapshot?.race.event_name || 'Race Result'
   return {
-    title: snapshot?.race.event_name || 'Race Result',
+    title,
     subtitle: snapshot?.race.track_name || '',
     rows,
     fastestKart: snapshot?.session_best_kart ?? '',
@@ -107,25 +113,34 @@ export function drawStory(
   }
 
   const M = 70 // side margin
+  const maxW = STORY_W - 2 * M
 
-  // ---- Header ----
+  // ---- Header (laid out dynamically so long titles never overlap) ----
   drawChecker(ctx, M, SAFE_TOP, 240, 26, 26)
   ctx.textBaseline = 'alphabetic'
   ctx.fillStyle = RED
   ctx.font = `800 34px ${FONT}`
   ctx.fillText('RACE CLASSIFICATION', M, SAFE_TOP + 78)
 
+  // Title: auto-shrink until it fits in <= 2 lines, then wrap.
+  const { lines, size, lineH } = layoutTitle(ctx, model.title.toUpperCase(), maxW)
   ctx.fillStyle = WHITE
-  ctx.font = `800 64px ${FONT}`
-  wrapText(ctx, model.title.toUpperCase(), M, SAFE_TOP + 150, STORY_W - 2 * M, 66)
+  ctx.font = `800 ${size}px ${FONT}`
+  let ty = SAFE_TOP + 96 + size
+  for (const line of lines) {
+    ctx.fillText(line, M, ty)
+    ty += lineH
+  }
+  let headerBottom = ty - lineH + 12
   if (model.subtitle) {
     ctx.fillStyle = GREY
     ctx.font = `500 38px ${FONT}`
-    ctx.fillText(model.subtitle, M, SAFE_TOP + 210)
+    headerBottom += 44
+    ctx.fillText(model.subtitle, M, headerBottom)
   }
 
   // ---- Standings ----
-  const listTop = SAFE_TOP + 260
+  const listTop = headerBottom + 40
   const listBottom = model.fastestLap ? SAFE_BOTTOM - 150 : SAFE_BOTTOM - 20
   const n = Math.max(model.rows.length, 1)
   const rowH = Math.min(112, (listBottom - listTop) / n)
@@ -142,7 +157,7 @@ export function drawStory(
     ctx.globalAlpha = eased
     ctx.translate(slide, 0)
 
-    const leader = i === 0
+    const leader = row.pos === 1
     roundRect(ctx, M, y, STORY_W - 2 * M, barH, 16)
     ctx.fillStyle = leader ? 'rgba(225, 6, 0, 0.92)' : 'rgba(16, 19, 29, 0.86)'
     ctx.fill()
@@ -205,23 +220,36 @@ export function drawStory(
   ctx.textBaseline = 'alphabetic'
 }
 
-function wrapText(
-  ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lineH: number,
-) {
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const words = text.split(' ')
+  const out: string[] = []
   let line = ''
-  let yy = y
   for (const w of words) {
     const test = line ? `${line} ${w}` : w
     if (ctx.measureText(test).width > maxW && line) {
-      ctx.fillText(line, x, yy)
+      out.push(line)
       line = w
-      yy += lineH
     } else {
       line = test
     }
   }
-  if (line) ctx.fillText(line, x, yy)
+  if (line) out.push(line)
+  return out
+}
+
+/** Pick a title font size that fits the text in at most two lines. */
+function layoutTitle(
+  ctx: CanvasRenderingContext2D, text: string, maxW: number,
+): { lines: string[]; size: number; lineH: number } {
+  for (let size = 64; size >= 40; size -= 4) {
+    ctx.font = `800 ${size}px ${FONT}`
+    const lines = wrapLines(ctx, text, maxW)
+    if (lines.length <= 2 || size === 40) {
+      return { lines: lines.slice(0, 3), size, lineH: Math.round(size * 1.05) }
+    }
+  }
+  ctx.font = `800 40px ${FONT}`
+  return { lines: wrapLines(ctx, text, maxW).slice(0, 3), size: 40, lineH: 42 }
 }
 
 function fitText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {

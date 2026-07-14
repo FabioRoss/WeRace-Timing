@@ -12,6 +12,7 @@ const HOLD_MS = 1600    // pause on the full board at the end
 export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [topN, setTopN] = useState(10)
+  const [title, setTitle] = useState('')
   const [mode, setMode] = useState<Mode>('image')
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
   const [bgName, setBgName] = useState('')
@@ -19,7 +20,10 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const model = useMemo(() => buildStoryModel(snapshot, topN), [snapshot, topN])
+  const model = useMemo(
+    () => buildStoryModel(snapshot, { topN, title }),
+    [snapshot, topN, title],
+  )
   const videoMime = useMemo(() => pickVideoMime(), [])
   const hasData = model.rows.length > 0
 
@@ -130,6 +134,15 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             an animated clip where the positions build up one by one.
           </p>
         </div>
+
+        <Field label="Title">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={snapshot?.race.event_name || 'Race Result'}
+            className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+          />
+        </Field>
 
         <Field label="Positions to show">
           <select
