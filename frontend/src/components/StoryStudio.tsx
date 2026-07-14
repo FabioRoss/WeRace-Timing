@@ -4,6 +4,7 @@ import {
   STORY_W, STORY_H, buildStoryModel, storyPageCount, drawStory, pickVideoMime,
   mimeExtension, downloadBlob, type StoryModel, type StoryStat,
 } from '../lib/story'
+import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
 
 type Mode = 'image' | 'video'
 type VideoScope = 'page' | 'all'
@@ -14,13 +15,14 @@ const HOLD_MS = 1600    // pause on a full page before the clip/page ends
 /** Animate one page's rows revealing in, then hold. Resolves when done. */
 function animatePage(
   ctx: CanvasRenderingContext2D, model: StoryModel, bg: CanvasImageSource | null,
+  accent: string,
 ): Promise<void> {
   return new Promise((resolve) => {
     const total = model.rows.length * REVEAL_MS + HOLD_MS
     const start = performance.now()
     const tick = () => {
       const t = performance.now() - start
-      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg)
+      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg, accent)
       if (t >= total) resolve()
       else requestAnimationFrame(tick)
     }
@@ -34,6 +36,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
   const [stat, setStat] = useState<StoryStat>('best')
+  const [accent, setAccent] = useState(DEFAULT_ACCENT)
   const [mode, setMode] = useState<Mode>('image')
   const [videoScope, setVideoScope] = useState<VideoScope>('page')
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
@@ -58,8 +61,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   // Live preview: fully-revealed still of the current page.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg)
-  }, [model, bg])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
+  }, [model, bg, accent])
 
   const onPickBackground = useCallback(async (file: File | undefined) => {
     setError('')
@@ -80,18 +83,18 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
 
   const restorePreview = useCallback(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg)
-  }, [model, bg])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
+  }, [model, bg, accent])
 
   const downloadPng = useCallback(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
-    drawStory(ctx, model, model.rows.length, bg)
+    drawStory(ctx, model, model.rows.length, bg, accent)
     canvas.toBlob((blob) => {
       if (blob) downloadBlob(blob, `story-p${pageIndex + 1}-${stamp()}.png`)
     }, 'image/png')
-  }, [model, bg, pageIndex])
+  }, [model, bg, accent, pageIndex])
 
   const downloadAllPages = useCallback(async () => {
     const canvas = canvasRef.current
@@ -103,7 +106,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        drawStory(ctx, m, m.rows.length, bg)
+        drawStory(ctx, m, m.rows.length, bg, accent)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
         await new Promise((r) => setTimeout(r, 200))
@@ -113,7 +116,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, title, stat, bg, pageCount, restorePreview])
+  }, [snapshot, perPage, title, stat, bg, accent, pageCount, restorePreview])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -138,7 +141,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        await animatePage(ctx, m, bg)
+        await animatePage(ctx, m, bg, accent)
       }
       recorder.stop()
       await done
@@ -152,7 +155,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, pageIndex, title, stat, bg, videoMime, videoScope, pageCount, restorePreview])
+  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, videoMime, videoScope, pageCount, restorePreview])
 
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
@@ -200,8 +203,9 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             Instagram story
           </h2>
           <p className="mt-1 text-sm text-ink-500">
-            Red / black / white standings card sized for Stories. Post the whole grid across
-            pages, as a still image or an animated clip where positions build up one by one.
+            Black / white standings card sized for Stories with your accent colour. Post the
+            whole grid across pages, as a still image or an animated clip where positions
+            build up one by one.
           </p>
         </div>
 
@@ -212,6 +216,10 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             placeholder={snapshot?.race.event_name || 'Race Result'}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
+        </Field>
+
+        <Field label="Accent colour">
+          <AccentPicker value={accent} onChange={setAccent} />
         </Field>
 
         <Field label="Right column">

@@ -12,12 +12,23 @@ export const STORY_H = 1920
 export const SAFE_TOP = 250
 export const SAFE_BOTTOM = 1660
 
-const RED = '#e10600'
 const BLACK = '#0b0d14'
 const WHITE = '#f4f6fb'
 const GREY = '#b9c0d4'
 const FONT = "'Segoe UI', Inter, system-ui, sans-serif"
 const MONO = "ui-monospace, 'SF Mono', 'Roboto Mono', monospace"
+
+function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.replace('#', '')
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
+  const n = parseInt(h, 16)
+  return Number.isNaN(n) ? [225, 6, 0] : [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/** Text colour that reads on a given accent fill (white on dark, ink on light). */
+function accentTextOn([r, g, b]: [number, number, number]): string {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.6 ? WHITE : BLACK
+}
 
 export type StoryStat = 'best' | 'gap' | 'interval'
 
@@ -118,7 +129,13 @@ export function drawStory(
   model: StoryModel,
   reveal: number,
   background: CanvasImageSource | null,
+  accent: string = '#e10600',
 ) {
+  const [ar, ag, ab] = hexToRgb(accent)
+  const ACCENT = `rgb(${ar}, ${ag}, ${ab})`
+  const ACCENT_TEXT = accentTextOn([ar, ag, ab])
+  // Kart chip on the (accent-filled) leader row: a subtle contrast overlay.
+  const LEADER_CHIP = ACCENT_TEXT === WHITE ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.14)'
   ctx.clearRect(0, 0, STORY_W, STORY_H)
 
   // Base + optional background (cover-fit) + legibility scrim.
@@ -134,10 +151,10 @@ export function drawStory(
     ctx.fillStyle = 'rgba(7, 8, 12, 0.74)'
     ctx.fillRect(0, 0, STORY_W, STORY_H)
   } else {
-    // Subtle red glow top-left when there's no photo behind.
+    // Subtle accent glow top-left when there's no photo behind.
     const grad = ctx.createRadialGradient(180, 340, 60, 180, 340, 900)
-    grad.addColorStop(0, 'rgba(225, 6, 0, 0.22)')
-    grad.addColorStop(1, 'rgba(225, 6, 0, 0)')
+    grad.addColorStop(0, `rgba(${ar}, ${ag}, ${ab}, 0.22)`)
+    grad.addColorStop(1, `rgba(${ar}, ${ag}, ${ab}, 0)`)
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, STORY_W, STORY_H)
   }
@@ -148,7 +165,7 @@ export function drawStory(
   // ---- Header (laid out dynamically so long titles never overlap) ----
   drawChecker(ctx, M, SAFE_TOP, 240, 26, 26)
   ctx.textBaseline = 'alphabetic'
-  ctx.fillStyle = RED
+  ctx.fillStyle = ACCENT
   ctx.font = `800 34px ${FONT}`
   ctx.fillText('RACE CLASSIFICATION', M, SAFE_TOP + 78)
 
@@ -159,9 +176,9 @@ export function drawStory(
     const chipW = tw + 44
     const chipX = STORY_W - M - chipW
     roundRect(ctx, chipX, SAFE_TOP + 50, chipW, 44, 10)
-    ctx.fillStyle = RED
+    ctx.fillStyle = ACCENT
     ctx.fill()
-    ctx.fillStyle = WHITE
+    ctx.fillStyle = ACCENT_TEXT
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(model.pageLabel, chipX + chipW / 2, SAFE_TOP + 73)
@@ -205,33 +222,34 @@ export function drawStory(
     ctx.translate(slide, 0)
 
     const leader = row.pos === 1
+    const nameText = leader ? ACCENT_TEXT : WHITE
     roundRect(ctx, M, y, STORY_W - 2 * M, barH, 16)
-    ctx.fillStyle = leader ? 'rgba(225, 6, 0, 0.92)' : 'rgba(16, 19, 29, 0.86)'
+    ctx.fillStyle = leader ? `rgba(${ar}, ${ag}, ${ab}, 0.92)` : 'rgba(16, 19, 29, 0.86)'
     ctx.fill()
     // Left accent
     roundRect(ctx, M, y, 12, barH, 6)
-    ctx.fillStyle = leader ? WHITE : RED
+    ctx.fillStyle = leader ? ACCENT_TEXT : ACCENT
     ctx.fill()
 
     const cy = y + barH / 2
     ctx.textBaseline = 'middle'
     // Position
-    ctx.fillStyle = WHITE
+    ctx.fillStyle = nameText
     ctx.font = `800 ${Math.round(barH * 0.5)}px ${MONO}`
     ctx.textAlign = 'center'
     ctx.fillText(String(row.pos), M + 70, cy)
     // Kart number chip
     ctx.textAlign = 'left'
-    ctx.fillStyle = leader ? 'rgba(255,255,255,0.25)' : 'rgba(225,6,0,0.22)'
+    ctx.fillStyle = leader ? LEADER_CHIP : `rgba(${ar},${ag},${ab},0.22)`
     roundRect(ctx, M + 120, cy - barH * 0.28, 96, barH * 0.56, 10)
     ctx.fill()
-    ctx.fillStyle = WHITE
+    ctx.fillStyle = nameText
     ctx.font = `700 ${Math.round(barH * 0.3)}px ${MONO}`
     ctx.textAlign = 'center'
     ctx.fillText(row.kart, M + 168, cy)
     // Name
     ctx.textAlign = 'left'
-    ctx.fillStyle = WHITE
+    ctx.fillStyle = nameText
     ctx.font = `700 ${Math.round(barH * 0.34)}px ${FONT}`
     const name = fitText(ctx, row.name.toUpperCase(), 430)
     ctx.fillText(name, M + 240, cy)
@@ -239,15 +257,15 @@ export function drawStory(
     ctx.textAlign = 'right'
     const right = STORY_W - M - 24
     if (row.statCaption) {
-      ctx.fillStyle = leader ? WHITE : GREY
+      ctx.fillStyle = leader ? ACCENT_TEXT : GREY
       ctx.font = `600 ${Math.round(barH * 0.3)}px ${MONO}`
       ctx.fillText(row.statValue, right, cy - barH * 0.16)
-      ctx.fillStyle = leader ? 'rgba(255,255,255,0.85)' : 'rgba(185,192,212,0.7)'
+      ctx.fillStyle = leader ? ACCENT_TEXT : 'rgba(185,192,212,0.7)'
       ctx.font = `500 ${Math.round(barH * 0.2)}px ${FONT}`
       ctx.fillText(row.statCaption, right, cy + barH * 0.24)
     } else {
       // No caption (e.g. LEADER in gap/interval mode): center the value.
-      ctx.fillStyle = leader ? WHITE : GREY
+      ctx.fillStyle = leader ? ACCENT_TEXT : GREY
       ctx.font = `700 ${Math.round(barH * 0.3)}px ${MONO}`
       ctx.fillText(row.statValue, right, cy)
     }
@@ -258,15 +276,15 @@ export function drawStory(
   if (model.fastestLap) {
     const fy = SAFE_BOTTOM - 110
     roundRect(ctx, M, fy, STORY_W - 2 * M, 96, 16)
-    ctx.fillStyle = RED
+    ctx.fillStyle = ACCENT
     ctx.fill()
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.fillStyle = ACCENT_TEXT
     ctx.font = `800 30px ${FONT}`
     ctx.fillText('FASTEST LAP', M + 34, fy + 48)
     ctx.textAlign = 'right'
-    ctx.fillStyle = WHITE
+    ctx.fillStyle = ACCENT_TEXT
     ctx.font = `800 44px ${MONO}`
     ctx.fillText(`#${model.fastestKart}  ${model.fastestLap}`, STORY_W - M - 34, fy + 48)
   }
