@@ -49,6 +49,27 @@ try:
     # A4 portrait (210mm) minus the 12mm document margins on each side.
     CONTENT_W = 186 * mm
 
+    def _accent_kit(hexstr: str) -> dict:
+        """Derive the accent colours used across the sheet from one hex value, so
+        any accent (incl. light ones like yellow/neon-green) stays legible:
+        - accent : the colour itself (fills — header, spine, chart bars)
+        - text   : white or ink, whichever contrasts with the accent (text ON it)
+        - tint   : a near-white wash of the accent (leader-row background)
+        - dark   : a darkened accent that reads on white (coloured text — fastest lap)
+        """
+        try:
+            c = colors.HexColor(hexstr)
+        except Exception:
+            c = colors.HexColor("#e10600")
+        lum = 0.299 * c.red + 0.587 * c.green + 0.114 * c.blue
+        return {
+            "accent": c,
+            "text": colors.white if lum < 0.6 else colors.HexColor("#14161f"),
+            "tint": colors.Color(1 - (1 - c.red) * 0.16, 1 - (1 - c.green) * 0.16,
+                                 1 - (1 - c.blue) * 0.16),
+            "dark": colors.Color(c.red * 0.55, c.green * 0.55, c.blue * 0.55),
+        }
+
     class NumberedCanvas(pdfcanvas.Canvas):
         """Buffers pages so a 'Page N of M' footer can be stamped once the total
         is known (the standard reportlab two-pass recipe)."""
@@ -79,10 +100,11 @@ try:
         """A modern hero band: dark rounded panel with a checker strip, the event
         title and a meta line. Replaces the old plain paragraph header."""
 
-        def __init__(self, title: str, meta: str, height: float = 26 * mm):
+        def __init__(self, title: str, meta: str, accent=RACE_RED, height: float = 26 * mm):
             super().__init__()
             self.title = title
             self.meta = meta
+            self.accent = accent
             self.height = height
             self.width = 0.0
 
@@ -95,8 +117,8 @@ try:
             w, h = self.width, self.height
             c.setFillColor(INK_BLACK)
             c.roundRect(0, 0, w, h, 4 * mm, stroke=0, fill=1)
-            # Red accent spine on the left.
-            c.setFillColor(RACE_RED)
+            # Accent spine on the left.
+            c.setFillColor(self.accent)
             c.roundRect(0, 0, 4 * mm, h, 2 * mm, stroke=0, fill=1)
             c.rect(2 * mm, 0, 2 * mm, h, stroke=0, fill=1)
             # Checker strip near the top.
@@ -164,13 +186,27 @@ def fmt_stop(ms: int | None) -> str:
 
 def _classification_table(state: EventState, styles) -> Table:
     """Modern card-style classification. Position is a dark badge, the leader row
-    is tinted red, the overall fastest lap is red-bold. No On/Pits columns."""
-    header = ["Pos", "Kart", "Driver", "Laps", "Best lap", "Total time", "Gap"]
+    is accent-tinted, the overall fastest lap is accent-bold. The Interval column
+    shows the time to the car directly ahead (derived from cumulative times), so
+    two karts on the same lap — including both lapped — see their real gap, not
+    just '+N L'."""
+    accent, a_text = styles["accent"], styles["accent_text"]
+    a_tint, a_dark = styles["accent_tint"], styles["accent_dark"]
+    header = ["Pos", "Kart", "Driver", "Laps", "Best lap", "Total time", "Gap", "Interval"]
     rows = [header]
     best_row_idx: int | None = None
+    prev = None
     for i, d in enumerate(state.drivers):
         if state.session_best_kart and d.kart_no == state.session_best_kart:
             best_row_idx = i + 1  # +1 for the header row
+        interval = "—"
+        if prev is not None:
+            laps_down = prev.laps - d.laps
+            if laps_down > 0:
+                interval = f"+{laps_down} L"
+            elif d.total_time_ms is not None and prev.total_time_ms is not None:
+                delta = (d.total_time_ms - prev.total_time_ms) / 1000
+                interval = f"{delta:.3f}" if delta >= 0 else "—"
         rows.append([
             str(d.position or i + 1),
             d.kart_no,
@@ -179,25 +215,28 @@ def _classification_table(state: EventState, styles) -> Table:
             fmt_lap_ms(d.best_lap_ms),
             fmt_total_ms(d.total_time_ms),
             d.gap_leader or "—",
+            interval,
         ])
+        prev = d
     table = Table(
         rows,
-        colWidths=[13 * mm, 16 * mm, 63 * mm, 15 * mm, 27 * mm, 33 * mm, 19 * mm],
+        colWidths=[11 * mm, 14 * mm, 52 * mm, 12 * mm, 25 * mm, 30 * mm, 20 * mm, 22 * mm],
         repeatRows=1,
     )
     style = [
-        ("BACKGROUND", (0, 0), (-1, 0), RACE_RED),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), accent),
+        ("TEXTCOLOR", (0, 0), (-1, 0), a_text),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+        ("FONTSIZE", (0, 0), (-1, 0), 8),
         # Position badge column: dark chip, white bold.
         ("BACKGROUND", (0, 1), (0, -1), BADGE_INK),
         ("TEXTCOLOR", (0, 1), (0, -1), colors.white),
         ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (4, 1), (4, -1), "Courier"),
-        ("FONTNAME", (5, 1), (5, -1), "Courier"),
+        # Times/deltas in mono (best, total, gap, interval).
+        ("FONTNAME", (4, 1), (7, -1), "Courier"),
+        ("FONTSIZE", (4, 1), (7, -1), 8),
         ("ALIGN", (0, 0), (1, -1), "CENTER"),
         ("ALIGN", (3, 0), (-1, -1), "CENTER"),
         ("ALIGN", (2, 0), (2, -1), "LEFT"),
@@ -208,12 +247,12 @@ def _classification_table(state: EventState, styles) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("ROUNDEDCORNERS", [5, 5, 5, 5]),
     ]
-    # Leader row tinted red (skip the badge cell so it stays a dark chip).
+    # Leader row accent-tinted (skip the badge cell so it stays a dark chip).
     if len(state.drivers) >= 1:
-        style.append(("BACKGROUND", (1, 1), (-1, 1), RED_TINT))
+        style.append(("BACKGROUND", (1, 1), (-1, 1), a_tint))
         style.append(("FONTNAME", (2, 1), (2, 1), "Helvetica-Bold"))
     if best_row_idx is not None:
-        style.append(("TEXTCOLOR", (4, best_row_idx), (4, best_row_idx), RACE_RED))
+        style.append(("TEXTCOLOR", (4, best_row_idx), (4, best_row_idx), a_dark))
         style.append(("FONTNAME", (4, best_row_idx), (4, best_row_idx), "Courier-Bold"))
     table.setStyle(TableStyle(style))
     return table
@@ -229,8 +268,8 @@ def _lap_grid_tables(state: EventState, styles) -> list:
         return [Paragraph("No lap data recorded yet.", styles["ReportSmall"])]
 
     out: list = [Paragraph(
-        "<font color='#e10600'><b>red</b></font> = fastest lap &nbsp;·&nbsp; "
-        "<font color='#14161f'><b>dark cell</b></font> = pit lap",
+        f"<font color='{styles['accent_dark_hex']}'><b>coloured</b></font> = fastest lap "
+        "&nbsp;·&nbsp; <font color='#14161f'><b>dark cell</b></font> = pit lap",
         styles["Legend"],
     )]
     for block_start in range(0, len(karts), MAX_GRID_KARTS):
@@ -288,7 +327,7 @@ def _lap_grid_tables(state: EventState, styles) -> list:
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
         for ci, lap in best_cells:
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
-            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), RACE_RED))
+            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), styles["accent_dark"]))
         table.setStyle(TableStyle(style))
         out.append(Paragraph(
             f"Karts {', '.join('#' + k for k in block)}", styles["SectionHead"]
@@ -436,7 +475,7 @@ def _pit_and_stint_sections(
     return out
 
 
-def _best_lap_bar(state: EventState) -> Drawing:
+def _best_lap_bar(state: EventState, accent=RACE_RED) -> Drawing:
     rows = [(d.kart_no, d.best_lap_ms) for d in state.drivers if d.best_lap_ms]
     d = Drawing(CONTENT_W, 180)
     d.add(String(0, 165, "Best lap by kart (s)", fontSize=11, fontName="Helvetica-Bold",
@@ -449,7 +488,7 @@ def _best_lap_bar(state: EventState) -> Drawing:
     chart.data = [[ms / 1000 for _, ms in rows]]
     chart.categoryAxis.categoryNames = [f"#{k}" for k, _ in rows]
     chart.categoryAxis.labels.fontSize = 7
-    chart.bars[0].fillColor = RACE_RED
+    chart.bars[0].fillColor = accent
     chart.bars[0].strokeColor = None
     lo = min(ms for _, ms in rows) / 1000
     hi = max(ms for _, ms in rows) / 1000
@@ -461,7 +500,7 @@ def _best_lap_bar(state: EventState) -> Drawing:
     return d
 
 
-def _pace_trend(state: EventState) -> Drawing:
+def _pace_trend(state: EventState, accent=RACE_RED) -> Drawing:
     """Lap-time trend for the top few karts (leaders)."""
     chart_data = state.lap_chart(last_n=100000)
     leaders = [d.kart_no for d in state.drivers[:4] if chart_data.get(d.kart_no)]
@@ -469,7 +508,7 @@ def _pace_trend(state: EventState) -> Drawing:
     d.add(String(0, 185, "Lap-time trend — leaders (s)", fontSize=11,
                  fontName="Helvetica-Bold", fillColor=INK_BLACK))
     series = []
-    palette = [RACE_RED, INK_BLACK, colors.HexColor("#3987e5"), colors.HexColor("#2fb457")]
+    palette = [accent, INK_BLACK, colors.HexColor("#3987e5"), colors.HexColor("#2fb457")]
     for k in leaders:
         pts = [(r["lap"], r["ms"] / 1000) for r in chart_data[k] if not r["pit"]]
         if pts:
@@ -499,7 +538,7 @@ def _pace_trend(state: EventState) -> Drawing:
 def build_timesheet_pdf(
     state: EventState, include_charts: bool = False, include_grid: bool = True,
     include_pits: bool = False, include_stints: bool = False, pit_estimate: bool = False,
-    event_name: str = "", session_name: str = "",
+    event_name: str = "", session_name: str = "", accent: str = "#e10600",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -527,6 +566,14 @@ def build_timesheet_pdf(
             "MiniCap", parent=base["Normal"], fontSize=7.5, textColor=SOFT_GREY,
             fontName="Helvetica-Bold", spaceBefore=1, spaceAfter=1),
     }
+    kit = _accent_kit(accent)
+    dark = kit["dark"]
+    styles["accent"] = kit["accent"]
+    styles["accent_text"] = kit["text"]
+    styles["accent_tint"] = kit["tint"]
+    styles["accent_dark"] = dark
+    styles["accent_dark_hex"] = "#%02x%02x%02x" % (
+        int(dark.red * 255), int(dark.green * 255), int(dark.blue * 255))
 
     race = state.race
     event = event_name.strip() or race.event_name or "Race"
@@ -562,7 +609,7 @@ def build_timesheet_pdf(
         cnv.restoreState()
 
     story: list = [
-        HeaderBand(event, meta),
+        HeaderBand(event, meta, accent=kit["accent"]),
         Spacer(1, 6 * mm),
         Paragraph("Classification", styles["SectionHead"]),
         _classification_table(state, styles),
@@ -575,9 +622,9 @@ def build_timesheet_pdf(
         story.append(PageBreak())
 
     if include_charts:
-        story.append(_best_lap_bar(state))
+        story.append(_best_lap_bar(state, kit["accent"]))
         story.append(Spacer(1, 4 * mm))
-        story.append(_pace_trend(state))
+        story.append(_pace_trend(state, kit["accent"]))
 
     if include_pits or include_stints:
         if include_charts:
@@ -603,22 +650,33 @@ def _slug(text: str) -> str:
     return re.sub(r"\s+", "-", cleaned)[:60].strip("-")
 
 
+def _clean_accent(value: str) -> str:
+    """Accept a #rrggbb / rrggbb / #rgb hex accent; fall back to the brand red."""
+    import re
+
+    v = value.strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{3}", v) or re.fullmatch(r"[0-9a-fA-F]{6}", v):
+        return f"#{v}"
+    return "#e10600"
+
+
 @router.get("/e/{slot}/api/export/timesheet.pdf")
 def timesheet_pdf(
     slot: int, charts: bool = False, grid: bool = True,
     pits: bool = False, stints: bool = False, pitest: bool = False,
-    event: str = "", session: str = "",
+    event: str = "", session: str = "", accent: str = "#e10600",
 ) -> Response:
     """Downloadable chrono timesheet: modern classification + optional charts,
     pit-stops table, stint-times table and lap-by-lap grid. Built from live
     state, so generate it before disconnecting the source. `event`/`session`
-    override the names on the sheet + filename."""
+    override the names on the sheet + filename; `accent` recolours it."""
     if not _REPORTLAB_OK:
         raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
     evt = get_event(slot)
     pdf = build_timesheet_pdf(
         evt.state, include_charts=charts, include_grid=grid,
         include_pits=pits, include_stints=stints, pit_estimate=pitest,
+        accent=_clean_accent(accent),
         event_name=event, session_name=session,
     )
     # Filename: chosen event + session + date (falls back to the feed's names).

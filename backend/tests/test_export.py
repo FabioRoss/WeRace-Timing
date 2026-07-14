@@ -113,6 +113,38 @@ def test_timesheet_pdf_pit_and_stint_tables(client):
     assert client.get("/e/1/api/export/timesheet.pdf?stints=1").content[:5] == b"%PDF-"
 
 
+def test_timesheet_pdf_accent_param(client):
+    _seed_with_laps()
+    # A light accent (needs contrast handling) and a bad one both render a PDF.
+    assert client.get("/e/1/api/export/timesheet.pdf?accent=%2339ff14").content[:5] == b"%PDF-"
+    assert client.get("/e/1/api/export/timesheet.pdf?accent=nope").content[:5] == b"%PDF-"
+
+
+def test_clean_accent():
+    from app.routers.export import _clean_accent
+    assert _clean_accent("#39ff14") == "#39ff14"
+    assert _clean_accent("39ff14") == "#39ff14"
+    assert _clean_accent("f00") == "#f00"
+    assert _clean_accent("nope") == "#e10600"
+    assert _clean_accent("") == "#e10600"
+
+
+def test_classification_interval_between_same_lap_karts(client):
+    # Two karts both a lap down but on the same lap → a time interval, not +N L.
+    event = get_manager().get(1)
+    event.state.update(
+        RaceInfo(event_name="Cup", run_type="R"),
+        [
+            DriverRow(kart_no="1", name="Leader", position=1, laps=20, total_time_ms=800000),
+            DriverRow(kart_no="2", name="A", position=2, laps=19, total_time_ms=790000),
+            DriverRow(kart_no="3", name="B", position=3, laps=19, total_time_ms=795000),
+        ],
+    )
+    # The endpoint renders (the interval for #3 vs #2 is 5.000s, both 1 lap down).
+    r = client.get("/e/1/api/export/timesheet.pdf")
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+
+
 def test_timesheet_pdf_503_when_reportlab_missing(client, monkeypatch):
     # If reportlab is ever absent from the image the endpoint must 503, not
     # crash the app (the app still imports because the dep is guarded).
