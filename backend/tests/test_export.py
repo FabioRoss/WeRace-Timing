@@ -60,3 +60,12 @@ def test_timesheet_pdf_empty_slot_is_valid(client):
 
 def test_timesheet_pdf_unknown_slot_404(client):
     assert client.get("/e/99/api/export/timesheet.pdf").status_code == 404
+
+
+def test_timesheet_pdf_503_when_reportlab_missing(client, monkeypatch):
+    # If reportlab is ever absent from the image the endpoint must 503, not
+    # crash the app (the app still imports because the dep is guarded).
+    from app.routers import export
+    monkeypatch.setattr(export, "_REPORTLAB_OK", False)
+    r = client.get("/e/1/api/export/timesheet.pdf")
+    assert r.status_code == 503

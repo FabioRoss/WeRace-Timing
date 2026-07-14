@@ -3,34 +3,45 @@ from __future__ import annotations
 import io
 from datetime import datetime
 
-from fastapi import APIRouter, Response
-from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import Drawing, String
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.platypus import (
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
+from fastapi import APIRouter, HTTPException, Response
+
+# reportlab is an optional/heavy dependency. Import it defensively (mirroring the
+# lazy `import qrcode` in public.py) so that if it is ever missing from an image
+# the app still boots and only the timesheet endpoint 503s — a missing export
+# dependency must never take the whole server down.
+try:
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.lineplots import LinePlot
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+
+    _REPORTLAB_OK = True
+
+    # Brand palette (mirrors frontend src/index.css) — red / black / white sheet.
+    RACE_RED = colors.HexColor("#e10600")
+    INK_BLACK = colors.HexColor("#0b0d14")
+    GRID_GREY = colors.HexColor("#c9ced9")
+    BAND_GREY = colors.HexColor("#f1f2f6")
+    BEST_YELLOW = colors.HexColor("#ffe27a")
+    PIT_BLUE = colors.HexColor("#dbe6f7")
+except ImportError:  # pragma: no cover - only when the dep is absent
+    _REPORTLAB_OK = False
 
 from ..state import EventState
 from .public import get_event
 
 router = APIRouter()
-
-# Brand palette (mirrors frontend src/index.css) — red / black / white timesheet.
-RACE_RED = colors.HexColor("#e10600")
-INK_BLACK = colors.HexColor("#0b0d14")
-GRID_GREY = colors.HexColor("#c9ced9")
-BAND_GREY = colors.HexColor("#f1f2f6")
-BEST_YELLOW = colors.HexColor("#ffe27a")
-PIT_BLUE = colors.HexColor("#dbe6f7")
 
 # One column per kart in the lap grid gets tight; cap columns per grid block so
 # a big field wraps onto additional pages instead of overflowing the width.
@@ -269,7 +280,6 @@ def build_timesheet_pdf(state: EventState) -> bytes:
     story.append(_best_lap_bar(state))
     story.append(Spacer(1, 4 * mm))
     story.append(_pace_trend(state))
-    from reportlab.platypus import PageBreak
     story.append(PageBreak())
     story.append(Paragraph("Lap-by-lap", styles["SectionHead"]))
     story += _lap_grid_tables(state, styles)
@@ -282,6 +292,8 @@ def build_timesheet_pdf(state: EventState) -> bytes:
 def timesheet_pdf(slot: int) -> Response:
     """Downloadable chrono timesheet: classification + lap-by-lap grid + charts.
     Built from live state, so generate it before disconnecting the source."""
+    if not _REPORTLAB_OK:
+        raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
     event = get_event(slot)
     pdf = build_timesheet_pdf(event.state)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
