@@ -159,12 +159,14 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     present via qrcode). **Light, print-friendly, portrait A4**: a `HeaderBand` Flowable
     (dark rounded panel, red spine, checker), a card-style classification (dark position
     badge, red-tinted leader row, overall fastest lap red — **no On/Pits columns**), and a
-    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = amber
-    cell + `*` marker, not shaded blue**; legend line; `MAX_GRID_KARTS=10` for portrait
-    width). Endpoint query params `charts` (default **off**) and `grid` (default on) gate
-    the two `reportlab.graphics` charts and the grid. Public GET; `Content-Disposition`
-    attachment. Base-14 fonts only render Latin-1 — avoid fancy Unicode glyphs (the ᴾ
-    superscript rendered as tofu; use `*`).
+    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = bold
+    text on a bright amber cell background**, legend line). One shared `CONTENT_W` (186mm)
+    sizes the header band, classification, charts and grid so all blocks align to the same
+    edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
+    columns** when there are fewer karts so widths stay constant. Endpoint query params
+    `charts` (default **off**) and `grid` (default on) gate the two `reportlab.graphics`
+    charts and the grid. Public GET; `Content-Disposition` attachment. Base-14 fonts only
+    render Latin-1 — avoid fancy Unicode glyphs (a ᴾ superscript rendered as tofu).
   - **Instagram story** — 100% client-side, no new deps, no server round-trip.
     `lib/story.ts:drawStory` paints a 1080x1920 red/black/white standings card (brand
     palette from index.css) inside IG safe areas (`SAFE_TOP` 250 / `SAFE_BOTTOM` 1660).
@@ -173,7 +175,9 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     a **title override** input defaults to the event name. `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
     "POS 11–20" chip labels each page; leader style keyed on `pos===1`; fastest-lap footer
-    repeats per page). Same draw fn feeds the live preview, the PNG (`canvas.toBlob`,
+    repeats per page). A `stat` option (`StoryStat` best|gap|interval) chooses the per-kart
+    right-column value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small
+    caption. Same draw fn feeds the live preview, the PNG (`canvas.toBlob`,
     per-page or download-all) and the video. Video = `captureStream(30)` → `MediaRecorder`
     over an `animatePage` rAF loop, either the current page or **one combined clip cycling
     all pages**; codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari +
