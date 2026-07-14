@@ -5,6 +5,7 @@ import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { PageNav } from '../components/PageNav'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
@@ -227,6 +228,7 @@ function RaceControlInner() {
       <PageHeader
         title={`Race Control — Event ${slot}`}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
+        nav={<PageNav slot={slot} />}
         right={
           <>
             <div className="hidden text-right sm:block">

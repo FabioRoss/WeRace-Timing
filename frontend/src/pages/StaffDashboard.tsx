@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
 import { SafewordGate } from '../components/SafewordGate'
 import { PageHeader } from '../components/StatusBar'
+import { PageNav } from '../components/PageNav'
 import type { KartLinks } from '../lib/types'
 
 export function StaffDashboard() {
@@ -57,6 +58,7 @@ function StaffInner() {
       <PageHeader
         title={`Staff — Event ${slot} QR sheet`}
         subtitle="Let each team scan their own kart's QR codes"
+        nav={<PageNav slot={slot} />}
         right={
           <button
             type="button"
