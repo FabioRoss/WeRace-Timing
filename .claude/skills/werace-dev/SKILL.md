@@ -171,8 +171,13 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
     columns** when there are fewer karts so widths stay constant. Endpoint query params
     `charts` (default **off**) and `grid` (default on) gate the two `reportlab.graphics`
-    charts and the grid, and `event`/`session` override the names on the sheet + the
-    download filename (`{event}-{session}-{date}.pdf`, slugified). Pages 2+ carry a slim
+    charts and the grid; `pits`/`stints` add an optional **pit-stops table** (pit # + lap;
+    measured `Stop` on gate venues from `state.pit_stops`, else inferred pit laps with an
+    optional `pitest` estimate = pit-lap − median, disclaimed) and a **stint-times table**
+    (stint = a run of non-pit laps; duration = Σ its lap times, pit laps excluded, +lap
+    count + disclaimer — uses lap times not the replay-compressed `ts`). `event`/`session`
+    override the names on the sheet + the download filename (`{event}-{session}-{date}.pdf`,
+    slugified). Pages 2+ carry a slim
     running header (event · session / track) and every page gets a "Page N of M" footer via
     a `NumberedCanvas` two-pass canvasmaker + an `onLaterPages` callback. Public GET;
     `Content-Disposition` attachment; **`Cache-Control: no-store`** (the PDF is rebuilt from

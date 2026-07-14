@@ -67,6 +67,7 @@ function ExportInner() {
             eventName={race?.event_name ?? ''}
             trackName={race?.track_name ?? ''}
             runType={race?.run_type ?? ''}
+            autoPitlane={snapshot?.auto_pitlane ?? true}
             kartCount={drivers.length}
             leaderName={leader?.name ?? ''}
             leaderKart={leader?.kart_no ?? ''}
@@ -85,6 +86,7 @@ function TimesheetPanel({
   eventName,
   trackName,
   runType,
+  autoPitlane,
   kartCount,
   leaderName,
   leaderKart,
@@ -94,6 +96,7 @@ function TimesheetPanel({
   eventName: string
   trackName: string
   runType: string
+  autoPitlane: boolean
   kartCount: number
   leaderName: string
   leaderKart: string
@@ -101,6 +104,9 @@ function TimesheetPanel({
 }) {
   const [charts, setCharts] = useState(false)
   const [grid, setGrid] = useState(true)
+  const [pits, setPits] = useState(false)
+  const [stints, setStints] = useState(false)
+  const [pitEstimate, setPitEstimate] = useState(false)
   const [eventOverride, setEventOverride] = useState('')
   const [sessionOverride, setSessionOverride] = useState('')
 
@@ -111,6 +117,9 @@ function TimesheetPanel({
     const params = new URLSearchParams({
       charts: charts ? '1' : '0',
       grid: grid ? '1' : '0',
+      pits: pits ? '1' : '0',
+      stints: stints ? '1' : '0',
+      pitest: pits && pitEstimate ? '1' : '0',
       t: String(Date.now()),
     })
     if (eventOverride.trim()) params.set('event', eventOverride.trim())
@@ -176,6 +185,24 @@ function TimesheetPanel({
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={charts} onChange={(e) => setCharts(e.target.checked)} />
             Charts (best lap + pace trend)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={pits} onChange={(e) => setPits(e.target.checked)} />
+            Pit stops
+          </label>
+          {pits && !autoPitlane && (
+            <label className="ml-6 flex items-center gap-2 text-sm text-ink-300">
+              <input
+                type="checkbox"
+                checked={pitEstimate}
+                onChange={(e) => setPitEstimate(e.target.checked)}
+              />
+              Estimate stop durations (inferred)
+            </label>
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={stints} onChange={(e) => setStints(e.target.checked)} />
+            Stint times
           </label>
         </div>
 
