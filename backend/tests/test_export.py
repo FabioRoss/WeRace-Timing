@@ -62,6 +62,23 @@ def test_timesheet_pdf_unknown_slot_404(client):
     assert client.get("/e/99/api/export/timesheet.pdf").status_code == 404
 
 
+def test_timesheet_pdf_is_not_cacheable(client):
+    _seed_with_laps()
+    r = client.get("/e/1/api/export/timesheet.pdf")
+    assert "no-store" in r.headers.get("cache-control", "")
+
+
+def test_timesheet_pdf_reflects_current_state(client):
+    # Regenerated per request: a state change must change the bytes (no cache).
+    event = _seed_with_laps()
+    first = client.get("/e/1/api/export/timesheet.pdf").content
+    event.state.update(None, [
+        DriverRow(kart_no="99", name="LATE ENTRY", position=1, laps=5, best_lap_ms=40000),
+    ])
+    second = client.get("/e/1/api/export/timesheet.pdf").content
+    assert first != second
+
+
 def test_timesheet_pdf_customization_params(client):
     _seed_with_laps()
     # Charts on, and grid off: both must still yield a valid PDF.

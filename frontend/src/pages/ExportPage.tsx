@@ -99,6 +99,17 @@ function TimesheetPanel({
   const [charts, setCharts] = useState(false)
   const [grid, setGrid] = useState(true)
   const href = `/e/${slot}/api/export/timesheet.pdf?charts=${charts ? 1 : 0}&grid=${grid ? 1 : 0}`
+
+  // The PDF reflects the current standings, which change as a session runs (or
+  // as you replay different recordings). Append a per-click timestamp so no
+  // cache ever hands back a stale copy, then download it programmatically.
+  const downloadPdf = () => {
+    const a = document.createElement('a')
+    a.href = `${href}&t=${Date.now()}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
   return (
     <div className="max-w-2xl space-y-4">
       <div className="rounded-xl bg-pit-900 p-5 ring-1 ring-pit-800">
@@ -133,12 +144,13 @@ function TimesheetPanel({
           </label>
         </div>
 
-        <a
-          href={href}
+        <button
+          type="button"
+          onClick={downloadPdf}
           className="mt-5 inline-block rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110"
         >
           Download PDF
-        </a>
+        </button>
         {!kartCount && (
           <p className="mt-3 text-xs text-ink-500">
             No timing data yet — connect a source (or replay a recording) first.

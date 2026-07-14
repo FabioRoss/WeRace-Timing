@@ -377,10 +377,17 @@ def timesheet_pdf(slot: int, charts: bool = False, grid: bool = True) -> Respons
         raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
     event = get_event(slot)
     pdf = build_timesheet_pdf(event.state, include_charts=charts, include_grid=grid)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     name = f"timesheet-event{slot}-{stamp}.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            # The PDF is regenerated from live state on every request; the URL is
+            # otherwise identical, so browsers would serve a stale cached copy
+            # (very visible when re-downloading across replays). Never cache it.
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
     )
