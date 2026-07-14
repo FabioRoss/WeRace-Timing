@@ -5,6 +5,7 @@ import { DriverDashboard } from './pages/DriverDashboard'
 import { TeamDashboard } from './pages/TeamDashboard'
 import { RaceControl } from './pages/RaceControl'
 import { StaffDashboard } from './pages/StaffDashboard'
+import { ExportPage } from './pages/ExportPage'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/e/:slot/team/:token" element={<TeamDashboard />} />
         <Route path="/e/:slot/control" element={<RaceControl />} />
         <Route path="/e/:slot/staff" element={<StaffDashboard />} />
+        <Route path="/e/:slot/export" element={<ExportPage />} />
       </Routes>
     </BrowserRouter>
   )
