@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
@@ -40,6 +40,18 @@ function StaffInner() {
     return () => clearInterval(t)
   }, [load, extraApplied])
 
+  // Sort by kart number, not the feed's standings order, so the QR sheet is
+  // easy to scan (mirrors the RaceControl message-kart ordering).
+  const sortedKarts = useMemo(
+    () =>
+      [...karts].sort(
+        (a, b) =>
+          (parseInt(a.kart_no, 10) || 0) - (parseInt(b.kart_no, 10) || 0) ||
+          a.kart_no.localeCompare(b.kart_no),
+      ),
+    [karts],
+  )
+
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
       <PageHeader
@@ -79,7 +91,7 @@ function StaffInner() {
             No karts yet — connect a timing source or pre-generate kart numbers above.
           </p>
         )}
-        {karts.map((k) => (
+        {sortedKarts.map((k) => (
           <div
             key={k.kart_no}
             className="break-inside-avoid rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 print:bg-white print:ring-black"
