@@ -4,6 +4,7 @@ import { SafewordGate } from '../components/SafewordGate'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
 import { StoryStudio } from '../components/StoryStudio'
+import { AccentPicker, DEFAULT_ACCENT } from '../components/AccentPicker'
 import { useLive } from '../lib/useLive'
 import { fmtLap } from '../lib/format'
 
@@ -107,6 +108,7 @@ function TimesheetPanel({
   const [pits, setPits] = useState(false)
   const [stints, setStints] = useState(false)
   const [pitEstimate, setPitEstimate] = useState(false)
+  const [accent, setAccent] = useState(DEFAULT_ACCENT)
   const [eventOverride, setEventOverride] = useState('')
   const [sessionOverride, setSessionOverride] = useState('')
 
@@ -120,6 +122,7 @@ function TimesheetPanel({
       pits: pits ? '1' : '0',
       stints: stints ? '1' : '0',
       pitest: pits && pitEstimate ? '1' : '0',
+      accent,
       t: String(Date.now()),
     })
     if (eventOverride.trim()) params.set('event', eventOverride.trim())
@@ -204,6 +207,11 @@ function TimesheetPanel({
             <input type="checkbox" checked={stints} onChange={(e) => setStints(e.target.checked)} />
             Stint times
           </label>
+        </div>
+
+        <div className="mt-4">
+          <div className="label-race mb-1.5">Accent colour</div>
+          <AccentPicker value={accent} onChange={setAccent} />
         </div>
 
         <button
