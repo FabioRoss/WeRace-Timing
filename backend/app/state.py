@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 
 from .models import DriverRow, EventSnapshot, Flag, LapRecord, RaceInfo, SourceStatus
@@ -9,6 +10,25 @@ from .timeparse import parse_duration_ms
 log = logging.getLogger(__name__)
 
 MAX_LAPS_PER_KART = 2000
+
+
+def infer_pit_laps(records: list[LapRecord]) -> set[int]:
+    """Lap numbers that look like a pit / stationary lap, judged from the kart's
+    own pace: a lap well over its median is a stop the feed never flagged
+    (venues without pit-lane gates) or one the incremental detector missed
+    because it had no clean baseline yet (e.g. right after a session reset).
+
+    Mirrors the `_track_laps` heuristic but as a stateless global pass, so a
+    fresh recompute always finds every pit lap present in the data regardless of
+    what was flagged live. Callers OR this with each record's stored `pit` flag,
+    so a genuine pit reported by the feed is never dropped.
+    """
+    times = [r.lap_ms for r in records if r.lap_ms and r.lap_ms > 0]
+    if len(times) < 3:
+        return set()
+    base = statistics.median(times)
+    threshold = max(base * 1.6, base + 20000)
+    return {r.lap_no for r in records if r.lap_ms and r.lap_ms > threshold}
 
 
 def _classify_gap(d: DriverRow, ref: DriverRow | None) -> str:
@@ -333,15 +353,23 @@ class EventState:
         }
 
     def lap_chart(self, karts: list[str] | None = None, last_n: int = 300) -> dict:
-        """Lap history for team-manager analysis charts."""
+        """Lap history for team-manager analysis charts + the PDF timesheet.
+
+        Pit laps are recomputed here from the lap times (`infer_pit_laps`) rather
+        than trusting only the flag stored at record time, so the markers are
+        always complete — even for pits the live detector missed (auto pit-lane
+        on, or laps right after a session reset). The stored flag is preserved.
+        """
         selected = karts or self.kart_numbers()
-        return {
-            kart: [
+        result: dict = {}
+        for kart in selected:
+            recs = self.lap_history.get(kart, [])[-last_n:]
+            pit_laps = infer_pit_laps(recs)
+            result[kart] = [
                 {
                     "lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position,
-                    "pit": rec.pit, "ts": rec.ts,
+                    "pit": rec.pit or rec.lap_no in pit_laps, "ts": rec.ts,
                 }
-                for rec in self.lap_history.get(kart, [])[-last_n:]
+                for rec in recs
             ]
-            for kart in selected
-        }
+        return result

@@ -170,6 +170,21 @@ def test_lap_history_flags_pit_laps_and_prog_fallback():
     assert (row.prog_from, row.prog_to, row.prog_ms) == (0.0, 1.0, 95500)
 
 
+def test_lap_chart_recomputes_missed_pit_laps():
+    # auto_pitlane on (gates) → the feed reports no pits, so no pit is flagged
+    # live; but lap_chart recomputes from the lap times, so an anomalously long
+    # lap (e.g. a driver change / stop, or a pit missed after a session reset)
+    # is still marked. This is what feeds both the dashboard and the PDF.
+    state = EventState(1)
+    state.auto_pitlane = True
+    for lap, ms in [(1, 40000), (2, 40500), (3, 39800), (4, 95000), (5, 40200)]:
+        state.update(RaceInfo(), [make_row(laps=lap, last_lap_ms=ms)])
+
+    assert not any(rec.pit for rec in state.lap_history["7"])  # nothing stored live
+    chart = state.lap_chart(karts=["7"])
+    assert [p["lap"] for p in chart["7"] if p["pit"]] == [4]
+
+
 def test_laps_api_includes_pit_flag():
     with TestClient(app) as client:
         event = get_manager().get(1)

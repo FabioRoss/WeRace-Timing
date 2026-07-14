@@ -39,8 +39,6 @@ try:
     ROW_ALT = colors.HexColor("#f6f7fa")      # zebra
     LINE_GREY = colors.HexColor("#e3e6ee")
     SOFT_GREY = colors.HexColor("#8b93a7")
-    PIT_BG = colors.HexColor("#ffcf6e")       # pit-lap cell background (bright amber)
-    PIT_MARK = colors.HexColor("#9a6200")     # darker amber for the legend text
     CHECK_DARK = colors.HexColor("#14161f")
     CHECK_LIGHT = colors.HexColor("#f4f6fb")
 
@@ -214,7 +212,7 @@ def _lap_grid_tables(state: EventState, styles) -> list:
 
     out: list = [Paragraph(
         "<font color='#e10600'><b>red</b></font> = fastest lap &nbsp;·&nbsp; "
-        "<font color='#9a6200'><b>amber cell</b></font> = pit lap",
+        "<font color='#14161f'><b>dark cell</b></font> = pit lap",
         styles["Legend"],
     )]
     for block_start in range(0, len(karts), MAX_GRID_KARTS):
@@ -266,8 +264,9 @@ def _lap_grid_tables(state: EventState, styles) -> list:
             ("ROUNDEDCORNERS", [4, 4, 0, 0]),
         ]
         for ci, lap in pit_cells:
-            style.append(("BACKGROUND", (ci, lap), (ci, lap), PIT_BG))
-            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), INK_BLACK))
+            # Pit laps: dark header colour + white text, in palette.
+            style.append(("BACKGROUND", (ci, lap), (ci, lap), INK_BLACK))
+            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), colors.white))
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
         for ci, lap in best_cells:
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))

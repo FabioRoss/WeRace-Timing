@@ -128,6 +128,12 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   corrected via snapshot.updated_at.
 - **Crossing glow**: state-driven `.lap-glow` class for 1.5s, keyed on new lap anchors
   (prog_from === 0 + fresh prog_ts), NOT on the laps counter (speed traps corrupt it).
+- **Pit-lap flags**: `_track_laps` sets `LapRecord.pit` live (feed pits/in_pit, plus the
+  long-lap heuristic when `auto_pitlane` off — but only once a clean baseline exists, so
+  early laps or laps after a reset can be missed). `lap_chart()` therefore ALSO recomputes
+  pit laps statelessly via `infer_pit_laps` (a lap > max(median*1.6, median+20s) of the
+  kart's own times), OR-ed with the stored flag. Both the team-dashboard lap charts and the
+  PDF read `lap_chart()`, so pit markers are always complete regardless of the setting.
 - **Ordering**: server positions (rX|# / position column) are authoritative; karts
   without one sort after by best lap. `OrderToggle` re-sorts client-side by best lap
   (races only). `EventState.update` re-sorts by DriverRow.position — emit meaningful
@@ -159,8 +165,8 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     present via qrcode). **Light, print-friendly, portrait A4**: a `HeaderBand` Flowable
     (dark rounded panel, red spine, checker), a card-style classification (dark position
     badge, red-tinted leader row, overall fastest lap red — **no On/Pits columns**), and a
-    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = bold
-    text on a bright amber cell background**, legend line). One shared `CONTENT_W` (186mm)
+    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = white
+    bold text on the dark header colour**, legend line). One shared `CONTENT_W` (186mm)
     sizes the header band, classification, charts and grid so all blocks align to the same
     edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
     columns** when there are fewer karts so widths stay constant. Endpoint query params
