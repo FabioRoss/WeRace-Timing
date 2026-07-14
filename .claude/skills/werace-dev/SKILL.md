@@ -32,6 +32,9 @@ backend/app/
   routers/admin.py     RC API: connect/disconnect/status (incl. first_frames +
                        flag_override), recording, reset, message, flag override, links,
                        settings, replay/seek, recordings list + delete (path-safe)
+  routers/export.py    Post-session downloads: GET /e/{slot}/api/export/timesheet.pdf
+                       (reportlab chrono sheet: classification + lap-by-lap grid +
+                       best-lap/pace charts, built from live EventState)
   routers/public.py    state, /api/laps (lap history incl. pit + ts), team token API
   routers/live.py      /ws/live and /ws/driver/{token}
   tracks.py            Track catalog (Apex: wss://live-data.apex-timing.com:PORT/,
@@ -43,7 +46,12 @@ backend/app/
 
 frontend/src/
   pages/               GeneralDashboard, TeamDashboard (pit wall), RaceControl,
-                       DriverDashboard (landscape phone), StaffDashboard (QR sheet)
+                       DriverDashboard (landscape phone), StaffDashboard (QR sheet),
+                       ExportPage (post-session PDF + Instagram-story downloads)
+  components/PageNav.tsx      Control/Staff/Export link chips (staff pages only; fed to
+                       PageHeader's `nav` slot — never on public dashboards)
+  components/StoryStudio.tsx  client-side Instagram-story generator (see below)
+  lib/story.ts         Canvas 2D renderer for the 1080x1920 story + video-mime picker
   components/TimingTable.tsx  the standings table: progress bars, crossing glow,
                        responsive columns, row click → DriverDetail, embeds TrackRing
                        (ring={false} where a page mounts its own)
@@ -142,6 +150,25 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   order from laps + total time (uploaders that never reorder — christel), `auto_pitlane`
   off infers pits/stint from lap times (venues with no pit-lane gates). Recommended for
   christel/MyWeR by-laps races: recompute ON, auto pit lane OFF.
+- **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
+  deliverables built from *live* EventState (no server-side archive — generate before
+  disconnecting/resetting the source; the page banners this while `race.ended` is false).
+  - **PDF chrono timesheet** — server-side, `routers/export.py` + `reportlab` (a backend
+    dep; Pillow already present via qrcode). Reuses `get_event(slot).state`: classification
+    table, full lap-by-lap grid from `lap_chart()` (one column per kart, fastest lap per
+    kart bold-red, pit laps shaded, wide fields wrap every `MAX_GRID_KARTS`), and two
+    summary charts via `reportlab.graphics` (no matplotlib). Public GET like state/laps;
+    returns bytes with a `Content-Disposition` attachment header (the QR-PNG download
+    pattern). Keep it robust on an empty slot (valid PDF, not a 500).
+  - **Instagram story** — 100% client-side, no new deps, no server round-trip.
+    `lib/story.ts:drawStory` paints a 1080x1920 red/black/white standings card (brand
+    palette from index.css) inside IG safe areas (`SAFE_TOP` 250 / `SAFE_BOTTOM` 1660).
+    Same draw fn feeds the live preview, the PNG (`canvas.toBlob`) and the video. Video =
+    `captureStream(30)` → `MediaRecorder`, driving a rAF loop that reveals rows one-by-one;
+    codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari + recent
+    Chromium) then WebM, and the UI disables video where MediaRecorder is unavailable. A
+    user background is composited via `createImageBitmap` and **never uploaded/stored** —
+    keep it that way.
 
 ## Development workflow
 
