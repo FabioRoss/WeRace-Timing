@@ -153,22 +153,33 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
 - **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
   deliverables built from *live* EventState (no server-side archive — generate before
   disconnecting/resetting the source; the page banners this while `race.ended` is false).
-  - **PDF chrono timesheet** — server-side, `routers/export.py` + `reportlab` (a backend
-    dep; Pillow already present via qrcode). Reuses `get_event(slot).state`: classification
-    table, full lap-by-lap grid from `lap_chart()` (one column per kart, fastest lap per
-    kart bold-red, pit laps shaded, wide fields wrap every `MAX_GRID_KARTS`), and two
-    summary charts via `reportlab.graphics` (no matplotlib). Public GET like state/laps;
-    returns bytes with a `Content-Disposition` attachment header (the QR-PNG download
-    pattern). Keep it robust on an empty slot (valid PDF, not a 500).
+  - **PDF chrono timesheet** — server-side, `routers/export.py` + `reportlab` (in BOTH
+    `requirements.txt` — Docker installs from that — and `pyproject.toml`; guarded by
+    `_REPORTLAB_OK` so a missing dep 503s the endpoint instead of crashing startup; Pillow
+    present via qrcode). **Light, print-friendly, portrait A4**: a `HeaderBand` Flowable
+    (dark rounded panel, red spine, checker), a card-style classification (dark position
+    badge, red-tinted leader row, overall fastest lap red — **no On/Pits columns**), and a
+    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = amber
+    cell + `*` marker, not shaded blue**; legend line; `MAX_GRID_KARTS=10` for portrait
+    width). Endpoint query params `charts` (default **off**) and `grid` (default on) gate
+    the two `reportlab.graphics` charts and the grid. Public GET; `Content-Disposition`
+    attachment. Base-14 fonts only render Latin-1 — avoid fancy Unicode glyphs (the ᴾ
+    superscript rendered as tofu; use `*`).
   - **Instagram story** — 100% client-side, no new deps, no server round-trip.
     `lib/story.ts:drawStory` paints a 1080x1920 red/black/white standings card (brand
     palette from index.css) inside IG safe areas (`SAFE_TOP` 250 / `SAFE_BOTTOM` 1660).
-    Same draw fn feeds the live preview, the PNG (`canvas.toBlob`) and the video. Video =
-    `captureStream(30)` → `MediaRecorder`, driving a rAF loop that reveals rows one-by-one;
-    codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari + recent
-    Chromium) then WebM, and the UI disables video where MediaRecorder is unavailable. A
-    user background is composited via `createImageBitmap` and **never uploaded/stored** —
-    keep it that way.
+    Header lays out **dynamically** (`layoutTitle` auto-shrinks the title to ≤2 lines, then
+    subtitle + list flow from the real header bottom) so long session names don't overlap;
+    a **title override** input defaults to the event name. `buildStoryModel(snapshot,
+    {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
+    "POS 11–20" chip labels each page; leader style keyed on `pos===1`; fastest-lap footer
+    repeats per page). Same draw fn feeds the live preview, the PNG (`canvas.toBlob`,
+    per-page or download-all) and the video. Video = `captureStream(30)` → `MediaRecorder`
+    over an `animatePage` rAF loop, either the current page or **one combined clip cycling
+    all pages**; codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari +
+    recent Chromium) then WebM, disabled where MediaRecorder is unavailable. A user
+    background is composited via `createImageBitmap` and **never uploaded/stored** — keep
+    it that way.
 
 ## Development workflow
 
