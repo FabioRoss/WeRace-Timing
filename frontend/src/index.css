@@ -29,6 +29,20 @@ body {
   @apply bg-pit-950 text-ink-100 font-display antialiased;
 }
 
+/* Tailwind v4's preflight resets buttons to cursor:default; restore a pointer
+   on every interactive element so clickable UI reads as clickable. */
+button:not(:disabled),
+a[href],
+label,
+summary,
+select,
+[role="button"] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 .timing {
   font-family: var(--font-timing);
   font-variant-numeric: tabular-nums;

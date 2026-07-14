@@ -5,7 +5,9 @@ import { useLive } from '../lib/useLive'
 import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { PageNav } from '../components/PageNav'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
+import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
@@ -20,6 +22,12 @@ interface CatalogEntry {
   speed: number
 }
 
+interface RecordingInfo {
+  name: string
+  size_bytes: number
+  modified: number
+}
+
 export function RaceControl() {
   return (
     <SafewordGate>
@@ -32,7 +40,7 @@ function RaceControlInner() {
   const { slot = '1' } = useParams()
   const { snapshot, messages, status } = useLive(slot)
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
-  const [recordings, setRecordings] = useState<string[]>([])
+  const [recordings, setRecordings] = useState<RecordingInfo[]>([])
   const [selected, setSelected] = useState('')
   const [customUrl, setCustomUrl] = useState('')
   const [customKind, setCustomKind] = useState<'apex' | 'mywer'>('apex')
@@ -53,17 +61,27 @@ function RaceControlInner() {
 
   const loadCatalog = useCallback(async () => {
     try {
-      const r = await api<{ catalog: CatalogEntry[]; recordings: string[] }>(
+      const r = await api<{ catalog: CatalogEntry[] }>(
         '/api/admin/tracks', { safeword: true },
       )
       setCatalog(r.catalog)
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [])
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      const r = await api<{ recordings: RecordingInfo[] }>(
+        '/api/admin/recordings', { safeword: true },
+      )
       setRecordings(r.recordings)
     } catch (e) {
       setError(String(e))
     }
   }, [])
 
-  useEffect(() => { void loadCatalog() }, [loadCatalog])
+  useEffect(() => { void loadCatalog(); void loadRecordings() }, [loadCatalog, loadRecordings])
 
   const source = snapshot?.source
 
@@ -143,7 +161,18 @@ function RaceControlInner() {
   const toggleRecording = () => act(() =>
     api(`/e/${slot}/api/admin/recording`, {
       body: { enable: !source?.recording }, safeword: true,
-    }).then(loadCatalog))
+    }).then(loadRecordings))
+
+  const seekReplay = (fraction: number) => act(() =>
+    api(`/e/${slot}/api/admin/replay/seek`, { body: { fraction }, safeword: true }))
+
+  const deleteRecording = (name: string) => {
+    if (!window.confirm(`Delete recording “${name}”? This cannot be undone.`)) return
+    void act(() =>
+      api(`/api/admin/recordings/${encodeURIComponent(name)}`, {
+        method: 'DELETE', safeword: true,
+      }).then(loadRecordings))
+  }
 
   const resetEvent = () => {
     if (window.confirm(`Reset all data for event ${slot}? (standings, laps, messages)`)) {
@@ -179,6 +208,15 @@ function RaceControlInner() {
   }
 
   const race = snapshot?.race
+  // The messaging selector lists karts by number (easier to find one to
+  // message) rather than by race order, which shuffles every lap.
+  const messageKarts = useMemo(
+    () => [...(snapshot?.drivers ?? [])].sort(
+      (a, b) => (parseInt(a.kart_no, 10) || 0) - (parseInt(b.kart_no, 10) || 0)
+        || a.kart_no.localeCompare(b.kart_no),
+    ),
+    [snapshot?.drivers],
+  )
   const recentMessages = useMemo(
     () => [...messages].sort((a: RaceMessage, b: RaceMessage) => b.id - a.id).slice(0, 30),
     [messages],
@@ -190,6 +228,7 @@ function RaceControlInner() {
       <PageHeader
         title={`Race Control — Event ${slot}`}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
+        nav={<PageNav slot={slot} />}
         right={
           <>
             <div className="hidden text-right sm:block">
@@ -268,7 +307,7 @@ function RaceControlInner() {
                 className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
               >
                 <option value="">— pick a recording —</option>
-                {recordings.map((r) => <option key={r} value={r}>{r}</option>)}
+                {recordings.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
               </select>
             )}
             <div className="flex flex-wrap gap-2">
@@ -293,6 +332,9 @@ function RaceControlInner() {
             </div>
             {source?.recording && (
               <p className="text-xs text-ink-500">Writing {source.recording_file}</p>
+            )}
+            {source?.kind === 'replay' && (source?.replay_count ?? 0) > 0 && (
+              <ReplayTimeline source={source} onSeek={seekReplay} disabled={busy} />
             )}
             {error && <p className="text-sm text-race-red">{error}</p>}
 
@@ -345,6 +387,34 @@ function RaceControlInner() {
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
               />
+
+              <div className="pt-2">
+                <h3 className="label-race mb-2">Recordings ({recordings.length})</h3>
+                {recordings.length === 0 ? (
+                  <p className="text-xs text-ink-500">No recordings on the server yet.</p>
+                ) : (
+                  <ul className="max-h-56 space-y-1 overflow-y-auto">
+                    {recordings.map((r) => (
+                      <li key={r.name} className="flex items-center gap-2 rounded bg-pit-850 px-2 py-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-mono text-xs">{r.name}</div>
+                          <div className="text-[0.65rem] text-ink-500">
+                            {fmtSize(r.size_bytes)} · {fmtDate(r.modified)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => deleteRecording(r.name)}
+                          className="rounded bg-pit-700 px-2 py-1 text-xs font-bold uppercase text-race-red hover:bg-pit-600 disabled:opacity-40"
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -368,7 +438,7 @@ function RaceControlInner() {
               </button>
               {target === 'select' && (
                 <div className="flex flex-wrap gap-1.5">
-                  {(snapshot?.drivers ?? []).map((d) => (
+                  {messageKarts.map((d) => (
                     <button
                       key={d.kart_no}
                       type="button"
@@ -451,6 +521,55 @@ function RaceControlInner() {
       </div>
     </div>
   )
+}
+
+/** Seek bar for replay playback: drag to skip anywhere in the recording. */
+function ReplayTimeline({ source, onSeek, disabled }: {
+  source: SourceStatus
+  onSeek: (fraction: number) => void
+  disabled?: boolean
+}) {
+  const count = source.replay_count ?? 0
+  const pos = source.replay_pos ?? 0
+  const [drag, setDrag] = useState<number | null>(null)
+  const liveFrac = count > 1 ? pos / (count - 1) : 0
+  const value = drag ?? liveFrac
+  const duration = source.replay_duration_s ?? 0
+  const elapsed = drag != null ? drag * duration : (source.replay_elapsed_s ?? 0)
+  const commit = () => { if (drag != null) { onSeek(drag); setDrag(null) } }
+  return (
+    <div className="space-y-1">
+      <div className="label-race flex items-center justify-between">
+        <span>Replay timeline</span>
+        <span className="timing">{fmtClock(Math.round(elapsed))} / {fmtClock(Math.round(duration))}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.001}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => setDrag(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        className="w-full accent-race-blue"
+        aria-label="Seek replay position"
+      />
+    </div>
+  )
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fmtDate(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function Toggle({ label, hint, checked, disabled, onChange }: {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -31,6 +32,48 @@ def tracks() -> dict:
         "catalog": [c.model_dump() for c in TRACK_CATALOG],
         "recordings": recordings,
     }
+
+
+@router.get("/api/admin/recordings")
+def list_recordings() -> dict:
+    """Recordings on the server, newest first, with size + mtime for the
+    management panel."""
+    directory = get_settings().recordings_dir
+    items = []
+    if directory.is_dir():
+        for p in sorted(
+            directory.glob("*.ndjson"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):
+            st = p.stat()
+            items.append({"name": p.name, "size_bytes": st.st_size, "modified": st.st_mtime})
+    return {"recordings": items}
+
+
+def _resolve_recording(name: str) -> Path:
+    """Resolve a recording filename to a path inside the recordings dir,
+    rejecting traversal and anything that isn't an existing .ndjson there."""
+    directory = get_settings().recordings_dir.resolve()
+    safe = Path(name).name
+    if safe != name or not safe.endswith(".ndjson"):
+        raise HTTPException(status_code=422, detail="invalid recording name")
+    target = (directory / safe).resolve()
+    if target.parent != directory or not target.is_file():
+        raise HTTPException(status_code=404, detail="recording not found")
+    return target
+
+
+@router.delete("/api/admin/recordings/{name}")
+def delete_recording(name: str) -> dict:
+    from ..events import get_manager
+
+    target = _resolve_recording(name)
+    # Never delete a file a live recording is still writing to.
+    for event in get_manager().events.values():
+        rec = event.recorder
+        if rec.active and rec.path and rec.path.resolve() == target:
+            raise HTTPException(status_code=409, detail="recording is in progress")
+    target.unlink()
+    return {"ok": True, "deleted": target.name}
 
 
 @router.get("/e/{slot}/api/admin/status")
@@ -83,6 +126,22 @@ def recording(slot: int, body: RecordingToggle) -> dict:
         return {"ok": True, "recording": True, "file": name}
     event.stop_recording()
     return {"ok": True, "recording": False}
+
+
+class ReplaySeek(BaseModel):
+    fraction: float = Field(ge=0.0, le=1.0)
+
+
+@router.post("/e/{slot}/api/admin/replay/seek")
+def replay_seek(slot: int, body: ReplaySeek) -> dict:
+    """Jump replay playback to a fraction (0..1) of the recording."""
+    from ..sources.replay import ReplaySource
+
+    event = get_event(slot)
+    if not isinstance(event.source, ReplaySource):
+        raise HTTPException(status_code=409, detail="not replaying a recording")
+    event.source.seek(body.fraction)
+    return {"ok": True, "fraction": body.fraction}
 
 
 @router.post("/e/{slot}/api/admin/reset")

@@ -46,6 +46,48 @@ def test_single_kart_glitch_does_not_reset():
     assert len(state.lap_history["7"]) == history_len   # not wiped
 
 
+def test_stale_subset_refresh_does_not_reset():
+    """MyWeR periodically emits a full-metadata frame carrying only a stale
+    SUBSET of the field (a couple of karts whose lap counts lag by one). This
+    must not be read as a session rollover — the real dump wiped 138 laps of
+    history this way. Reproduce the recorded moment (christel, ~lap 139)."""
+    state = EventState(1)
+    field = [("21", 137), ("22", 136), ("36", 138), ("34", 94), ("25", 138),
+             ("26", 135), ("27", 133), ("28", 137), ("39", 130), ("30", 132),
+             ("32", 139), ("33", 135)]
+    state.update(RaceInfo(), rows(*field))
+    state.update(RaceInfo(), rows(*[(k, n + 1) for k, n in field]))
+    before = {k: len(state.lap_history[k]) for k, _ in field}
+    assert all(v >= 1 for v in before.values())
+
+    # the anomalous frame: only karts 34 and 33, each one lap behind the live count
+    state.update(RaceInfo(), rows(("34", 94), ("33", 135)))
+    after = {k: len(state.lap_history.get(k, [])) for k, _ in field}
+    assert after == before          # nothing wiped
+    assert state.lap_history          # history intact
+
+
+def test_partial_refresh_frame_is_ignored():
+    """A frame covering far fewer karts than we track (MyWeR's stale subset
+    refresh) must not replace the standings — the table would blink to those
+    few karts for a frame. The full field and history stay put."""
+    state = EventState(1)
+    field = [(str(20 + i), 130 + i) for i in range(12)]
+    state.update(RaceInfo(), rows(*field))
+    state.update(RaceInfo(), rows(*[(k, n + 1) for k, n in field]))
+    karts_before = [d.kart_no for d in state.drivers]
+    hist_before = {k: len(v) for k, v in state.lap_history.items()}
+
+    # only two karts arrive (a subset of the 12-kart field)
+    state.update(RaceInfo(), rows(("20", 131), ("21", 132)))
+    assert [d.kart_no for d in state.drivers] == karts_before   # standings unchanged
+    assert {k: len(v) for k, v in state.lap_history.items()} == hist_before
+
+    # a full frame still updates normally
+    state.update(RaceInfo(), rows(*[(k, n + 2) for k, n in field]))
+    assert len(state.drivers) == 12
+
+
 def test_run_type_change_resets():
     state = EventState(1)
     state.update(RaceInfo(run_type="10.2"), rows(("7", 10)))

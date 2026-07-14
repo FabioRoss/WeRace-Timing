@@ -80,6 +80,59 @@ def test_disconnect_pushes_status_to_dashboards(client):
             pytest.fail("no snapshot with connected=False after disconnect")
 
 
+import asyncio
+import json
+
+
+def _write_replay(tmp_path, laps_per_frame, gap=1.0):
+    """A tiny MyWeR recording: one kart (7) whose lap count follows the list,
+    one frame per second."""
+    lines = []
+    for i, laps in enumerate(laps_per_frame):
+        payload = json.dumps({"data": {"drivers": [
+            {"raceno": "7", "position": 1, "laps": laps, "lasttime": "00:00:50.000000"},
+        ]}})
+        lines.append(json.dumps({"ts": float(i) * gap, "payload": payload, "kind": "mywer"}))
+    path = tmp_path / "replaytest.ndjson"
+    path.write_text("\n".join(lines) + "\n")
+    return path.name
+
+
+async def test_replay_plays_through_and_reports_progress(tmp_path, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "recordings_dir", tmp_path)
+    name = _write_replay(tmp_path, [1, 2, 3, 4, 5, 6])
+    event = Event(1)
+    await event.connect_source(SourceConfig(kind="replay", file=name, speed=1000))
+    try:
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if event.source and not event.source.status.connected:
+                break
+        assert event.state.find("7").laps == 6            # played to the end
+        assert event.source.status.replay_count == 6
+        assert event.source.status.replay_duration_s == 5.0
+    finally:
+        await event.disconnect_source()
+
+
+async def test_replay_seek_jumps_and_rebuilds_state(tmp_path, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "recordings_dir", tmp_path)
+    name = _write_replay(tmp_path, [1, 2, 3, 4, 5, 6, 7, 8])
+    event = Event(1)
+    await event.connect_source(SourceConfig(kind="replay", file=name, speed=1))
+    try:
+        await asyncio.sleep(0.1)                            # frame 0 played
+        assert event.state.find("7").laps == 1             # near the start
+        event.source.seek(0.5)                             # jump to the midpoint
+        await asyncio.sleep(0.1)                            # rebuild has no sleeps
+        # target index 4; state is rebuilt from frames [0..4) -> laps 1..4
+        assert event.state.find("7").laps == 4
+    finally:
+        await event.disconnect_source()
+
+
 def test_is_tls_error():
     assert _is_tls_error(ssl.SSLError("wrong version number"))
     assert _is_tls_error(ConnectionResetError())

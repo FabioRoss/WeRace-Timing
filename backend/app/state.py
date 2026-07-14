@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 
 from .models import DriverRow, EventSnapshot, Flag, LapRecord, RaceInfo, SourceStatus
@@ -9,6 +10,25 @@ from .timeparse import parse_duration_ms
 log = logging.getLogger(__name__)
 
 MAX_LAPS_PER_KART = 2000
+
+
+def infer_pit_laps(records: list[LapRecord]) -> set[int]:
+    """Lap numbers that look like a pit / stationary lap, judged from the kart's
+    own pace: a lap well over its median is a stop the feed never flagged
+    (venues without pit-lane gates) or one the incremental detector missed
+    because it had no clean baseline yet (e.g. right after a session reset).
+
+    Mirrors the `_track_laps` heuristic but as a stateless global pass, so a
+    fresh recompute always finds every pit lap present in the data regardless of
+    what was flagged live. Callers OR this with each record's stored `pit` flag,
+    so a genuine pit reported by the feed is never dropped.
+    """
+    times = [r.lap_ms for r in records if r.lap_ms and r.lap_ms > 0]
+    if len(times) < 3:
+        return set()
+    base = statistics.median(times)
+    threshold = max(base * 1.6, base + 20000)
+    return {r.lap_no for r in records if r.lap_ms and r.lap_ms > threshold}
 
 
 def _classify_gap(d: DriverRow, ref: DriverRow | None) -> str:
@@ -37,6 +57,10 @@ class EventState:
         self.race = RaceInfo()
         self.drivers: list[DriverRow] = []
         self.lap_history: dict[str, list[LapRecord]] = {}
+        # Feed-reported pit stops per kart: (lap_no, pit_duration_ms). Only
+        # populated on venues whose feed reports pits (gates); the PDF uses it
+        # for accurate per-stop times there.
+        self.pit_stops: dict[str, list[tuple[int, int]]] = {}
         self.session_best_ms: int | None = None
         self.session_best_kart: str = ""
         # Race-control flag override (organizers without track-system access);
@@ -89,6 +113,17 @@ class EventState:
                     self.slot, sorted(dropped),
                 )
             drivers = unique
+            if self._is_partial_refresh(drivers):
+                # MyWeR periodically emits a full-metadata frame carrying only a
+                # stale subset of the field. It must not replace the live
+                # standings (the table would collapse to those few karts for a
+                # frame); the next full frame ~1s later carries everyone.
+                log.debug(
+                    "slot %d: ignoring partial driver refresh (%d of %d karts)",
+                    self.slot, len(drivers), len(self.drivers),
+                )
+                self.updated_at = now
+                return
             if self._laps_regressed(drivers):
                 self._reset_session_state("lap counts regressed")
             if self.recompute_positions:
@@ -127,17 +162,38 @@ class EventState:
         old, new = self.race.run_type, race.run_type
         return bool(old and new and old != new and self.drivers)
 
+    def _is_partial_refresh(self, drivers: list[DriverRow]) -> bool:
+        """True for a frame that covers far less of the field than we are
+        already tracking — MyWeR's periodic full-metadata refresh ships only a
+        stale two-kart subset. Inert on the first population (nothing tracked)
+        and on genuinely small fields, so a real field shrink still lands."""
+        tracked = len(self.drivers)
+        return tracked >= 4 and len(drivers) * 2 < tracked
+
     def _laps_regressed(self, drivers: list[DriverRow]) -> bool:
-        """A new session resets lap counts; require a quorum of regressing
-        karts so a single glitched row can't wipe the history."""
+        """Detect a genuine session rollover (a fresh session resets every
+        kart's lap count to the startline) without being fooled by two noise
+        sources: a single glitched row, and MyWeR's periodic full-metadata
+        refresh that carries only a stale SUBSET of the field whose lap counts
+        lag by one. Require a quorum of the tracked field to be present AND to
+        have fallen back to the first few laps — not a backward jitter on a
+        couple of karts still deep in the race."""
         prev = {d.kart_no: d.laps for d in self.drivers}
+        if not prev:
+            return False
         common = [d for d in drivers if d.kart_no in prev]
-        regressed = sum(1 for d in common if d.laps < prev[d.kart_no])
-        return regressed >= 2 and regressed * 2 >= len(common)
+        # A subset frame can't declare a rollover for the whole field.
+        if len(common) * 2 < len(prev):
+            return False
+        # A real restart lands back at the startline; a stale high lap count
+        # off by one is not a new session.
+        restarted = sum(1 for d in common if d.laps <= 3 and d.laps < prev[d.kart_no])
+        return restarted >= 2 and restarted * 2 >= len(common)
 
     def _reset_session_state(self, reason: str) -> None:
         log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
         self.lap_history.clear()
+        self.pit_stops.clear()
         self._lap_pits.clear()
         self._cross_ts.clear()
         self._cross_ms.clear()
@@ -152,10 +208,14 @@ class EventState:
         history = self.lap_history.setdefault(row.kart_no, [])
         last_recorded = history[-1].lap_no if history else 0
         if row.laps > last_recorded and row.last_lap_ms:
-            pitted = (
-                row.pits > self._lap_pits.get(row.kart_no, row.pits)
-                or row.in_pit
-            )
+            # The feed reported a completed pit (its counter went up): record the
+            # lap + its measured duration for the pit-stops table (gate venues).
+            feed_pit = row.pits > self._lap_pits.get(row.kart_no, row.pits)
+            if feed_pit:
+                self.pit_stops.setdefault(row.kart_no, []).append(
+                    (row.laps, row.last_pit_ms or 0)
+                )
+            pitted = feed_pit or row.in_pit
             # No pit-lane gates: a lap far longer than the kart's clean pace is
             # a pit stop the feed never reported — count it ourselves.
             if not self.auto_pitlane:
@@ -302,15 +362,23 @@ class EventState:
         }
 
     def lap_chart(self, karts: list[str] | None = None, last_n: int = 300) -> dict:
-        """Lap history for team-manager analysis charts."""
+        """Lap history for team-manager analysis charts + the PDF timesheet.
+
+        Pit laps are recomputed here from the lap times (`infer_pit_laps`) rather
+        than trusting only the flag stored at record time, so the markers are
+        always complete — even for pits the live detector missed (auto pit-lane
+        on, or laps right after a session reset). The stored flag is preserved.
+        """
         selected = karts or self.kart_numbers()
-        return {
-            kart: [
+        result: dict = {}
+        for kart in selected:
+            recs = self.lap_history.get(kart, [])[-last_n:]
+            pit_laps = infer_pit_laps(recs)
+            result[kart] = [
                 {
                     "lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position,
-                    "pit": rec.pit, "ts": rec.ts,
+                    "pit": rec.pit or rec.lap_no in pit_laps, "ts": rec.ts,
                 }
-                for rec in self.lap_history.get(kart, [])[-last_n:]
+                for rec in recs
             ]
-            for kart in selected
-        }
+        return result

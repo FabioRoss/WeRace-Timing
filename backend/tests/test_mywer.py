@@ -134,6 +134,19 @@ def test_partial_frames_keep_merged_race_state():
     assert race.run_type == "10.2"
 
 
+def test_endurance_runtype_is_a_race():
+    """Christel runs endurance by-laps sessions the software reports as
+    runtype 'E' with duralaps 0 (lap target enforced by an external timer
+    reset). 'E' must classify as a race so the order toggle and ring lapped
+    coloring work, not fall through to 'unknown'."""
+    dec = MyWerDecoder()
+    race, _ = dec.decode(race_frame({
+        "runtype": "E", "runname": "RACE 124 Laps", "duralaps": 0,
+        "duratime": "00:02:04", "flag": "G",
+    }))
+    assert race.session_kind == "race"
+
+
 def test_single_lap_singular():
     dec = MyWerDecoder()
     race, _ = dec.decode(race_frame({"duralaps": 10, "duratime": "00:00:00", "lapstogo": 1}))
