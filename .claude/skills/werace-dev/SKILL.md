@@ -171,7 +171,12 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
     columns** when there are fewer karts so widths stay constant. Endpoint query params
     `charts` (default **off**) and `grid` (default on) gate the two `reportlab.graphics`
-    charts and the grid; `pits`/`stints` add an optional **per-kart section** (one heading
+    charts and the grid; `accent` (validated hex, default red) recolours the whole sheet
+    via `_accent_kit` (luminance-picked text on the accent, a light tint for the leader row,
+    a darkened variant for coloured text on white) so light accents stay legible. The
+    classification carries an **Interval** column (time to the car directly ahead from
+    cumulative times → real gap between same-lap karts, incl. both lapped, not just +N L).
+    `pits`/`stints` add an optional **per-kart section** (one heading
     per kart with its pit-stops and stint mini-tables side by side, via `KeepTogether`).
     Pit stops = pit # + lap (measured `Stop` on gate venues from `state.pit_stops`, else
     inferred pit laps with an optional `pitest` estimate = pit-lap − median, disclaimed);
@@ -202,7 +207,9 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     all pages**; codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari +
     recent Chromium) then WebM, disabled where MediaRecorder is unavailable. A user
     background is composited via `createImageBitmap` and **never uploaded/stored** — keep
-    it that way.
+    it that way. `drawStory` takes an `accent` hex (luminance-derived text colour, so light
+    accents stay legible); both exporters share `components/AccentPicker.tsx` (6 presets +
+    a native colour input).
 
 ## Development workflow
 
