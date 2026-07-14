@@ -38,10 +38,15 @@ try:
     ROW_ALT = colors.HexColor("#f6f7fa")      # zebra
     LINE_GREY = colors.HexColor("#e3e6ee")
     SOFT_GREY = colors.HexColor("#8b93a7")
-    PIT_TINT = colors.HexColor("#f0f1f5")     # pit-lap cell background
-    PIT_MARK = colors.HexColor("#b26a00")     # pit "P" marker
+    PIT_BG = colors.HexColor("#ffcf6e")       # pit-lap cell background (bright amber)
+    PIT_MARK = colors.HexColor("#9a6200")     # darker amber for the legend text
     CHECK_DARK = colors.HexColor("#14161f")
     CHECK_LIGHT = colors.HexColor("#f4f6fb")
+
+    # Single content width shared by every block (header band, classification,
+    # charts, lap grid) so they all align to the same left and right edges.
+    # A4 portrait (210mm) minus the 12mm document margins on each side.
+    CONTENT_W = 186 * mm
 
     class HeaderBand(Flowable):
         """A modern hero band: dark rounded panel with a checker strip, the event
@@ -182,7 +187,7 @@ def _lap_grid_tables(state: EventState, styles) -> list:
 
     out: list = [Paragraph(
         "<font color='#e10600'><b>red</b></font> = fastest lap &nbsp;·&nbsp; "
-        "<font color='#b26a00'><b>*</b></font> = pit lap",
+        "<font color='#9a6200'><b>amber cell</b></font> = pit lap",
         styles["Legend"],
     )]
     for block_start in range(0, len(karts), MAX_GRID_KARTS):
@@ -194,7 +199,10 @@ def _lap_grid_tables(state: EventState, styles) -> list:
         }
         max_lap = max((r["lap"] for k in block for r in chart.get(k, [])), default=0)
 
-        header = ["Lap"] + [f"#{k}" for k in block]
+        # Always render a fixed number of kart columns; pad with empties when
+        # there are fewer karts so every block keeps the same column widths.
+        pad = MAX_GRID_KARTS - len(block)
+        header = ["Lap"] + [f"#{k}" for k in block] + [""] * pad
         rows = [header]
         pit_cells: list[tuple[int, int]] = []
         best_cells: list[tuple[int, int]] = []
@@ -205,17 +213,15 @@ def _lap_grid_tables(state: EventState, styles) -> list:
                 if rec is None:
                     row.append("")
                     continue
-                text = fmt_lap_ms(rec["ms"])
                 if rec["pit"]:
-                    text += "*"
                     pit_cells.append((ci, lap))
-                row.append(text)
+                row.append(fmt_lap_ms(rec["ms"]))
                 if best_lap_no[k] == lap:
                     best_cells.append((ci, lap))
+            row += [""] * pad
             rows.append(row)
 
-        usable = 186 * mm
-        col_w = [11 * mm] + [(usable - 11 * mm) / len(block)] * len(block)
+        col_w = [11 * mm] + [(CONTENT_W - 11 * mm) / MAX_GRID_KARTS] * MAX_GRID_KARTS
         table = Table(rows, colWidths=col_w, repeatRows=1)
         style = [
             ("BACKGROUND", (0, 0), (-1, 0), INK_BLACK),
@@ -233,8 +239,9 @@ def _lap_grid_tables(state: EventState, styles) -> list:
             ("ROUNDEDCORNERS", [4, 4, 0, 0]),
         ]
         for ci, lap in pit_cells:
-            style.append(("BACKGROUND", (ci, lap), (ci, lap), PIT_TINT))
-            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), PIT_MARK))
+            style.append(("BACKGROUND", (ci, lap), (ci, lap), PIT_BG))
+            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), INK_BLACK))
+            style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
         for ci, lap in best_cells:
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
             style.append(("TEXTCOLOR", (ci, lap), (ci, lap), RACE_RED))
@@ -249,14 +256,14 @@ def _lap_grid_tables(state: EventState, styles) -> list:
 
 def _best_lap_bar(state: EventState) -> Drawing:
     rows = [(d.kart_no, d.best_lap_ms) for d in state.drivers if d.best_lap_ms]
-    d = Drawing(500, 180)
+    d = Drawing(CONTENT_W, 180)
     d.add(String(0, 165, "Best lap by kart (s)", fontSize=11, fontName="Helvetica-Bold",
                  fillColor=INK_BLACK))
     if not rows:
         d.add(String(0, 80, "No lap data.", fontSize=9))
         return d
     chart = VerticalBarChart()
-    chart.x, chart.y, chart.width, chart.height = 20, 20, 460, 130
+    chart.x, chart.y, chart.width, chart.height = 25, 20, CONTENT_W - 50, 130
     chart.data = [[ms / 1000 for _, ms in rows]]
     chart.categoryAxis.categoryNames = [f"#{k}" for k, _ in rows]
     chart.categoryAxis.labels.fontSize = 7
@@ -276,7 +283,7 @@ def _pace_trend(state: EventState) -> Drawing:
     """Lap-time trend for the top few karts (leaders)."""
     chart_data = state.lap_chart(last_n=100000)
     leaders = [d.kart_no for d in state.drivers[:4] if chart_data.get(d.kart_no)]
-    d = Drawing(500, 200)
+    d = Drawing(CONTENT_W, 200)
     d.add(String(0, 185, "Lap-time trend — leaders (s)", fontSize=11,
                  fontName="Helvetica-Bold", fillColor=INK_BLACK))
     series = []
@@ -289,7 +296,7 @@ def _pace_trend(state: EventState) -> Drawing:
         d.add(String(0, 90, "No lap data.", fontSize=9))
         return d
     plot = LinePlot()
-    plot.x, plot.y, plot.width, plot.height = 30, 25, 450, 145
+    plot.x, plot.y, plot.width, plot.height = 35, 25, CONTENT_W - 60, 145
     plot.data = series
     for i in range(len(series)):
         plot.lines[i].strokeColor = palette[i % len(palette)]
