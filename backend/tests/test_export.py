@@ -62,6 +62,15 @@ def test_timesheet_pdf_unknown_slot_404(client):
     assert client.get("/e/99/api/export/timesheet.pdf").status_code == 404
 
 
+def test_timesheet_pdf_customization_params(client):
+    _seed_with_laps()
+    # Charts on, and grid off: both must still yield a valid PDF.
+    r1 = client.get("/e/1/api/export/timesheet.pdf?charts=1")
+    assert r1.status_code == 200 and r1.content[:5] == b"%PDF-"
+    r2 = client.get("/e/1/api/export/timesheet.pdf?charts=0&grid=0")
+    assert r2.status_code == 200 and r2.content[:5] == b"%PDF-"
+
+
 def test_timesheet_pdf_503_when_reportlab_missing(client, monkeypatch):
     # If reportlab is ever absent from the image the endpoint must 503, not
     # crash the app (the app still imports because the dep is guarded).

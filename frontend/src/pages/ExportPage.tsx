@@ -96,7 +96,9 @@ function TimesheetPanel({
   leaderKart: string
   fastest: { ms: number; kart: string } | null
 }) {
-  const href = `/e/${slot}/api/export/timesheet.pdf`
+  const [charts, setCharts] = useState(false)
+  const [grid, setGrid] = useState(true)
+  const href = `/e/${slot}/api/export/timesheet.pdf?charts=${charts ? 1 : 0}&grid=${grid ? 1 : 0}`
   return (
     <div className="max-w-2xl space-y-4">
       <div className="rounded-xl bg-pit-900 p-5 ring-1 ring-pit-800">
@@ -104,7 +106,7 @@ function TimesheetPanel({
           Chrono timesheet (PDF)
         </h2>
         <p className="mt-1 text-sm text-ink-500">
-          Full classification plus a lap-by-lap grid for every kart and summary charts —
+          A modern classification sheet with an optional lap-by-lap grid for every kart —
           the print-style sheet you'd hand out after the race.
         </p>
 
@@ -118,6 +120,18 @@ function TimesheetPanel({
             value={fastest ? `${fmtLap(fastest.ms)} (#${fastest.kart})` : '—'}
           />
         </dl>
+
+        <div className="mt-4 space-y-2">
+          <div className="label-race">Include</div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)} />
+            Lap-by-lap grid
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={charts} onChange={(e) => setCharts(e.target.checked)} />
+            Charts (best lap + pace trend)
+          </label>
+        </div>
 
         <a
           href={href}
