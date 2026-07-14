@@ -21,6 +21,7 @@ try:
     from reportlab.pdfgen import canvas as pdfcanvas
     from reportlab.platypus import (
         Flowable,
+        KeepTogether,
         PageBreak,
         Paragraph,
         SimpleDocTemplate,
@@ -297,116 +298,141 @@ def _lap_grid_tables(state: EventState, styles) -> list:
     return out
 
 
-def _summary_style() -> TableStyle:
-    """Shared modern look for the small pit / stint tables: red header, dark
-    kart-badge first column, zebra rows, rounded corners."""
+def _mini_style() -> TableStyle:
+    """Compact look for the per-kart pit / stint mini-tables: dark header,
+    zebra rows, rounded top."""
     return TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), RACE_RED),
+        ("BACKGROUND", (0, 0), (-1, 0), INK_BLACK),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-        ("BACKGROUND", (0, 1), (0, -1), BADGE_INK),
-        ("TEXTCOLOR", (0, 1), (0, -1), colors.white),
-        ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("ROWBACKGROUNDS", (1, 1), (-1, -1), [colors.white, ROW_ALT]),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE_GREY),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROW_ALT]),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.3, LINE_GREY),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("ROUNDEDCORNERS", [4, 4, 0, 0]),
     ])
 
 
-def _pit_stops_table(state: EventState, styles, estimate: bool) -> list:
-    """Pit stops per kart: pit # + lap. On gate venues (auto_pitlane) a measured
-    Stop column shows by default; without gates it's optionally an inferred
-    estimate (pit-lap time − the kart's median lap)."""
-    chart = state.lap_chart(last_n=100000)
-    # Use the feed-measured pit history when a gate venue actually reported pits;
-    # otherwise fall back to the inferred pit laps (with an optional estimate).
-    use_feed = state.auto_pitlane and any(state.pit_stops.values())
-    show_stop = use_feed or estimate
-    stop_label = "Stop" if use_feed else "Est. stop"
-
-    data: list[tuple[str, int, int, int | None]] = []
-    for d in state.drivers:
-        k = d.kart_no
-        if use_feed:
-            for i, (lap, ms) in enumerate(state.pit_stops.get(k, []), 1):
-                data.append((k, i, lap, ms))
+def _stints_of(recs: list) -> list[tuple[int, int, int, int, int]]:
+    """(stint_no, from_lap, to_lap, n_laps, duration_ms) — a stint is a run of
+    consecutive non-pit laps; duration = sum of those laps' times."""
+    out: list[tuple[int, int, int, int, int]] = []
+    cur: list[tuple[int, int]] = []
+    n = 0
+    for r in list(recs) + [{"pit": True, "lap": 0, "ms": 0}]:  # sentinel flushes last
+        if r["pit"]:
+            if cur:
+                n += 1
+                out.append((n, cur[0][0], cur[-1][0], len(cur), sum(m for _, m in cur if m)))
+                cur = []
         else:
-            recs = chart.get(k, [])
-            times = [r["ms"] for r in recs if r["ms"]]
-            base = statistics.median(times) if len(times) >= 3 else None
-            for i, r in enumerate((r for r in recs if r["pit"]), 1):
-                est = int(r["ms"] - base) if (estimate and base) else None
-                data.append((k, i, r["lap"], est))
-
-    out: list = [Paragraph("Pit stops", styles["SectionHead"])]
-    if not data:
-        out.append(Paragraph("No pit stops recorded.", styles["ReportSmall"]))
-        return out
-
-    header = ["Kart", "Pit", "Lap"] + ([stop_label] if show_stop else [])
-    rows = [header]
-    for k, pit_no, lap, ms in data:
-        row = [f"#{k}", str(pit_no), str(lap)]
-        if show_stop:
-            row.append(fmt_stop(ms) if ms is not None else "—")
-        rows.append(row)
-
-    widths = [26 * mm, 20 * mm, 20 * mm] + ([32 * mm] if show_stop else [])
-    table = Table(rows, colWidths=widths, repeatRows=1)
-    table.hAlign = "LEFT"
-    table.setStyle(_summary_style())
-    out.append(table)
-    if not use_feed and estimate:
-        out.append(Paragraph(
-            "Est. stop = the pit lap's time minus the kart's median lap — inferred from "
-            "lap times, not measured (this venue has no pit-lane timing).",
-            styles["Legend"]))
+            cur.append((r["lap"], r["ms"]))
     return out
 
 
-def _stint_table(state: EventState, styles) -> list:
-    """Stint durations per kart: a stint is a run of consecutive non-pit laps;
-    the duration is the sum of those laps' times (pit laps excluded)."""
+def _pit_and_stint_sections(
+    state: EventState, styles, include_pits: bool, include_stints: bool, pit_estimate: bool,
+) -> list:
+    """One block per kart (heading + its pit-stops and stint tables side by side),
+    which is far clearer than cramming every kart into two shared tables."""
     chart = state.lap_chart(last_n=100000)
-    data: list[tuple[str, int, int, int, int, int]] = []
+    # Feed-measured pit history on gate venues; otherwise inferred pit laps.
+    use_feed = state.auto_pitlane and any(state.pit_stops.values())
+    show_stop = include_pits and (use_feed or pit_estimate)
+    stop_label = "Stop" if use_feed else "Est. stop"
+
+    title = ("Pit stops & stints" if include_pits and include_stints
+             else "Pit stops" if include_pits else "Stint times")
+    out: list = [Paragraph(title, styles["SectionHead"])]
+    if include_pits and not use_feed and pit_estimate:
+        out.append(Paragraph(
+            "Est. stop = the pit lap's time minus the kart's median lap — inferred from "
+            "lap times, not measured (this venue has no pit-lane timing).", styles["Legend"]))
+    if include_stints:
+        out.append(Paragraph(
+            "Stint duration = the sum of that stint's racing-lap times (a stint is a run of "
+            "consecutive non-pit laps; pit laps are excluded). On tracks without pit-lane "
+            "timing this is an approximation — the partial lap around a stop isn't counted.",
+            styles["Legend"]))
+    out.append(Spacer(1, 2 * mm))
+
+    def pit_rows(k, recs):
+        if use_feed:
+            return [(i, lap, ms) for i, (lap, ms) in enumerate(state.pit_stops.get(k, []), 1)]
+        times = [r["ms"] for r in recs if r["ms"]]
+        base = statistics.median(times) if len(times) >= 3 else None
+        res = []
+        for i, r in enumerate((x for x in recs if x["pit"]), 1):
+            est = int(r["ms"] - base) if (pit_estimate and base) else None
+            res.append((i, r["lap"], est))
+        return res
+
+    def pit_cell(k, recs):
+        cell: list = [Paragraph("Pit stops", styles["MiniCap"])]
+        rows = pit_rows(k, recs)
+        if not rows:
+            cell.append(Paragraph("No pit stops.", styles["ReportSmall"]))
+            return cell
+        header = ["Pit", "Lap"] + ([stop_label] if show_stop else [])
+        trows = [header]
+        for pit_no, lap, ms in rows:
+            r = [str(pit_no), str(lap)]
+            if show_stop:
+                r.append(fmt_stop(ms) if ms is not None else "—")
+            trows.append(r)
+        widths = [14 * mm, 16 * mm] + ([26 * mm] if show_stop else [])
+        t = Table(trows, colWidths=widths)
+        t.hAlign = "LEFT"
+        t.setStyle(_mini_style())
+        cell.append(t)
+        return cell
+
+    def stint_cell(recs):
+        cell: list = [Paragraph("Stints", styles["MiniCap"])]
+        rows = _stints_of(recs)
+        if not rows:
+            cell.append(Paragraph("No stints.", styles["ReportSmall"]))
+            return cell
+        trows = [["Stint", "Laps", "N", "Duration"]]
+        for sn, lo, hi, n, dur in rows:
+            trows.append([str(sn), f"{lo}–{hi}", str(n), fmt_clock(dur)])
+        t = Table(trows, colWidths=[14 * mm, 22 * mm, 12 * mm, 26 * mm])
+        t.hAlign = "LEFT"
+        t.setStyle(_mini_style())
+        cell.append(t)
+        return cell
+
+    any_kart = False
     for d in state.drivers:
         recs = chart.get(d.kart_no, [])
-        stint_no = 0
-        cur: list[tuple[int, int]] = []
-        # Sentinel pit lap flushes the final stint.
-        for r in list(recs) + [{"pit": True, "lap": 0, "ms": 0}]:
-            if r["pit"]:
-                if cur:
-                    stint_no += 1
-                    dur = sum(m for _, m in cur if m)
-                    data.append((d.kart_no, stint_no, cur[0][0], cur[-1][0], len(cur), dur))
-                    cur = []
-            else:
-                cur.append((r["lap"], r["ms"]))
+        if not recs:
+            continue
+        any_kart = True
+        label = f"Kart #{d.kart_no}" + (f" — {d.name}" if d.name else "")
+        block: list = [Paragraph(label, styles["KartHead"])]
+        cells = []
+        if include_pits:
+            cells.append(pit_cell(d.kart_no, recs))
+        if include_stints:
+            cells.append(stint_cell(recs))
+        if len(cells) == 2:
+            row = Table([cells], colWidths=[CONTENT_W / 2, CONTENT_W / 2])
+            row.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (0, 0), (0, 0), 6 * mm),
+                ("LEFTPADDING", (1, 0), (1, 0), 0),
+            ]))
+            block.append(row)
+        else:
+            block.extend(cells[0])
+        out.append(KeepTogether(block))
 
-    out: list = [Paragraph("Stint times", styles["SectionHead"])]
-    if not data:
-        out.append(Paragraph("No stints recorded.", styles["ReportSmall"]))
-        return out
-
-    rows = [["Kart", "Stint", "Laps", "N", "Duration"]]
-    for k, sn, lo, hi, n, dur in data:
-        rows.append([f"#{k}", str(sn), f"{lo}–{hi}", str(n), fmt_clock(dur)])
-    table = Table(rows, colWidths=[26 * mm, 20 * mm, 28 * mm, 16 * mm, 30 * mm], repeatRows=1)
-    table.hAlign = "LEFT"
-    table.setStyle(_summary_style())
-    out.append(table)
-    out.append(Paragraph(
-        "Stint duration = the sum of that stint's racing-lap times (a stint is a run of "
-        "consecutive non-pit laps; pit laps are excluded). On tracks without pit-lane "
-        "timing this is an approximation — the partial lap around a stop isn't counted.",
-        styles["Legend"]))
+    if not any_kart:
+        out.append(Paragraph("No lap data recorded yet.", styles["ReportSmall"]))
     return out
 
 
@@ -494,6 +520,12 @@ def build_timesheet_pdf(
         "Legend": ParagraphStyle(
             "Legend", parent=base["Normal"], fontSize=8, textColor=SOFT_GREY, spaceAfter=3),
         "Cell": ParagraphStyle("Cell", parent=base["Normal"], fontSize=9),
+        "KartHead": ParagraphStyle(
+            "KartHead", parent=base["Heading3"], fontSize=11, textColor=INK_BLACK,
+            spaceBefore=8, spaceAfter=2),
+        "MiniCap": ParagraphStyle(
+            "MiniCap", parent=base["Normal"], fontSize=7.5, textColor=SOFT_GREY,
+            fontName="Helvetica-Bold", spaceBefore=1, spaceAfter=1),
     }
 
     race = state.race
@@ -542,13 +574,10 @@ def build_timesheet_pdf(
         story.append(Spacer(1, 4 * mm))
         story.append(_pace_trend(state))
 
-    if include_pits:
+    if include_pits or include_stints:
         story.append(Spacer(1, 6 * mm))
-        story += _pit_stops_table(state, styles, pit_estimate)
-
-    if include_stints:
-        story.append(Spacer(1, 6 * mm))
-        story += _stint_table(state, styles)
+        story += _pit_and_stint_sections(
+            state, styles, include_pits, include_stints, pit_estimate)
 
     if include_grid:
         story.append(PageBreak())
