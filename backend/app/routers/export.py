@@ -17,6 +17,7 @@ try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as pdfcanvas
     from reportlab.platypus import (
         Flowable,
         PageBreak,
@@ -47,6 +48,32 @@ try:
     # charts, lap grid) so they all align to the same left and right edges.
     # A4 portrait (210mm) minus the 12mm document margins on each side.
     CONTENT_W = 186 * mm
+
+    class NumberedCanvas(pdfcanvas.Canvas):
+        """Buffers pages so a 'Page N of M' footer can be stamped once the total
+        is known (the standard reportlab two-pass recipe)."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states = []
+
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                if total > 1:  # no "Page 1 of 1" on a single-page sheet
+                    self.setFont("Helvetica", 8)
+                    self.setFillColor(SOFT_GREY)
+                    self.drawRightString(
+                        self._pagesize[0] - 12 * mm, 8 * mm,
+                        f"Page {self._pageNumber} of {total}",
+                    )
+                super().showPage()
+            super().save()
 
     class HeaderBand(Flowable):
         """A modern hero band: dark rounded panel with a checker strip, the event
@@ -315,14 +342,16 @@ def _pace_trend(state: EventState) -> Drawing:
 
 
 def build_timesheet_pdf(
-    state: EventState, include_charts: bool = False, include_grid: bool = True
+    state: EventState, include_charts: bool = False, include_grid: bool = True,
+    event_name: str = "", session_name: str = "",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
         leftMargin=12 * mm, rightMargin=12 * mm,
-        topMargin=12 * mm, bottomMargin=12 * mm,
+        # A little extra headroom on later pages for the running header.
+        topMargin=16 * mm, bottomMargin=14 * mm,
         title="Race timesheet",
     )
     base = getSampleStyleSheet()
@@ -338,16 +367,40 @@ def build_timesheet_pdf(
     }
 
     race = state.race
+    event = event_name.strip() or race.event_name or "Race"
+    session = session_name.strip() or race.run_type or ""
+    # A typed session name shows as-is; a bare feed run code (e.g. "E") reads
+    # better as "Run E".
+    session_meta = session_name.strip() or (f"Run {race.run_type}" if race.run_type else "")
     meta_bits = [
         race.track_name,
-        race.run_type and f"Run {race.run_type}",
+        session_meta,
         datetime.now().strftime("%d %b %Y %H:%M"),
         "FINISHED" if race.ended else "PROVISIONAL",
     ]
     meta = "   ·   ".join(b for b in meta_bits if b)
 
+    # Slim running header on pages 2+ so the middle pages still say what event
+    # this is (page 1 already carries the big HeaderBand).
+    running_left = "  ·  ".join(b for b in (event, session) if b)
+
+    def _later_pages(cnv, _doc):
+        cnv.saveState()
+        y = A4[1] - 11 * mm
+        cnv.setFont("Helvetica-Bold", 8.5)
+        cnv.setFillColor(INK_BLACK)
+        cnv.drawString(12 * mm, y, running_left)
+        if race.track_name:
+            cnv.setFont("Helvetica", 8)
+            cnv.setFillColor(SOFT_GREY)
+            cnv.drawRightString(A4[0] - 12 * mm, y, race.track_name)
+        cnv.setStrokeColor(LINE_GREY)
+        cnv.setLineWidth(0.5)
+        cnv.line(12 * mm, y - 2.5 * mm, A4[0] - 12 * mm, y - 2.5 * mm)
+        cnv.restoreState()
+
     story: list = [
-        HeaderBand(race.event_name or "Race", meta),
+        HeaderBand(event, meta),
         Spacer(1, 6 * mm),
         Paragraph("Classification", styles["SectionHead"]),
         _classification_table(state, styles),
@@ -364,21 +417,42 @@ def build_timesheet_pdf(
         story.append(Paragraph("Lap by lap", styles["SectionHead"]))
         story += _lap_grid_tables(state, styles)
 
-    doc.build(story)
+    doc.build(story, onLaterPages=_later_pages, canvasmaker=NumberedCanvas)
     return buf.getvalue()
 
 
+def _slug(text: str) -> str:
+    """Filesystem-safe filename part: keep word chars/dashes/spaces, spaces to
+    dashes, trimmed."""
+    import re
+
+    cleaned = re.sub(r"[^\w\- ]+", "", text).strip()
+    return re.sub(r"\s+", "-", cleaned)[:60].strip("-")
+
+
 @router.get("/e/{slot}/api/export/timesheet.pdf")
-def timesheet_pdf(slot: int, charts: bool = False, grid: bool = True) -> Response:
+def timesheet_pdf(
+    slot: int, charts: bool = False, grid: bool = True,
+    event: str = "", session: str = "",
+) -> Response:
     """Downloadable chrono timesheet: modern classification + optional charts +
     lap-by-lap grid. Built from live state, so generate it before disconnecting
-    the source."""
+    the source. `event`/`session` override the names on the sheet + filename."""
     if not _REPORTLAB_OK:
         raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
-    event = get_event(slot)
-    pdf = build_timesheet_pdf(event.state, include_charts=charts, include_grid=grid)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    name = f"timesheet-event{slot}-{stamp}.pdf"
+    evt = get_event(slot)
+    pdf = build_timesheet_pdf(
+        evt.state, include_charts=charts, include_grid=grid,
+        event_name=event, session_name=session,
+    )
+    # Filename: chosen event + session + date (falls back to the feed's names).
+    date = datetime.now().strftime("%Y%m%d")
+    parts = [
+        _slug(event or evt.state.race.event_name),
+        _slug(session or evt.state.race.run_type),
+    ]
+    stem = "-".join(p for p in parts if p) or f"timesheet-event{slot}"
+    name = f"{stem}-{date}.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",

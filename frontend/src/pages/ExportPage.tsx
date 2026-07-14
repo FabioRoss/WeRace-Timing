@@ -66,6 +66,7 @@ function ExportInner() {
             slot={slot}
             eventName={race?.event_name ?? ''}
             trackName={race?.track_name ?? ''}
+            runType={race?.run_type ?? ''}
             kartCount={drivers.length}
             leaderName={leader?.name ?? ''}
             leaderKart={leader?.kart_no ?? ''}
@@ -83,6 +84,7 @@ function TimesheetPanel({
   slot,
   eventName,
   trackName,
+  runType,
   kartCount,
   leaderName,
   leaderKart,
@@ -91,6 +93,7 @@ function TimesheetPanel({
   slot: string
   eventName: string
   trackName: string
+  runType: string
   kartCount: number
   leaderName: string
   leaderKart: string
@@ -98,14 +101,22 @@ function TimesheetPanel({
 }) {
   const [charts, setCharts] = useState(false)
   const [grid, setGrid] = useState(true)
-  const href = `/e/${slot}/api/export/timesheet.pdf?charts=${charts ? 1 : 0}&grid=${grid ? 1 : 0}`
+  const [eventOverride, setEventOverride] = useState('')
+  const [sessionOverride, setSessionOverride] = useState('')
 
   // The PDF reflects the current standings, which change as a session runs (or
   // as you replay different recordings). Append a per-click timestamp so no
   // cache ever hands back a stale copy, then download it programmatically.
   const downloadPdf = () => {
+    const params = new URLSearchParams({
+      charts: charts ? '1' : '0',
+      grid: grid ? '1' : '0',
+      t: String(Date.now()),
+    })
+    if (eventOverride.trim()) params.set('event', eventOverride.trim())
+    if (sessionOverride.trim()) params.set('session', sessionOverride.trim())
     const a = document.createElement('a')
-    a.href = `${href}&t=${Date.now()}`
+    a.href = `/e/${slot}/api/export/timesheet.pdf?${params.toString()}`
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -131,6 +142,30 @@ function TimesheetPanel({
             value={fastest ? `${fmtLap(fastest.ms)} (#${fastest.kart})` : '—'}
           />
         </dl>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="label-race">Event name</span>
+            <input
+              value={eventOverride}
+              onChange={(e) => setEventOverride(e.target.value)}
+              placeholder={eventName || 'Event'}
+              className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+            />
+          </label>
+          <label className="block">
+            <span className="label-race">Session name</span>
+            <input
+              value={sessionOverride}
+              onChange={(e) => setSessionOverride(e.target.value)}
+              placeholder={runType || 'Session'}
+              className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+            />
+          </label>
+        </div>
+        <p className="mt-1 text-[0.65rem] text-ink-500">
+          Used on the sheet header and the file name (with the date).
+        </p>
 
         <div className="mt-4 space-y-2">
           <div className="label-race">Include</div>

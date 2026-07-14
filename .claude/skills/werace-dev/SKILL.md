@@ -165,8 +165,14 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
     columns** when there are fewer karts so widths stay constant. Endpoint query params
     `charts` (default **off**) and `grid` (default on) gate the two `reportlab.graphics`
-    charts and the grid. Public GET; `Content-Disposition` attachment. Base-14 fonts only
-    render Latin-1 — avoid fancy Unicode glyphs (a ᴾ superscript rendered as tofu).
+    charts and the grid, and `event`/`session` override the names on the sheet + the
+    download filename (`{event}-{session}-{date}.pdf`, slugified). Pages 2+ carry a slim
+    running header (event · session / track) and every page gets a "Page N of M" footer via
+    a `NumberedCanvas` two-pass canvasmaker + an `onLaterPages` callback. Public GET;
+    `Content-Disposition` attachment; **`Cache-Control: no-store`** (the PDF is rebuilt from
+    live state per request, and the frontend adds a `t=` cache-bust, so re-downloads across
+    replays never return a stale copy). Base-14 fonts only render Latin-1 — avoid fancy
+    Unicode glyphs (a ᴾ superscript rendered as tofu).
   - **Instagram story** — 100% client-side, no new deps, no server round-trip.
     `lib/story.ts:drawStory` paints a 1080x1920 red/black/white standings card (brand
     palette from index.css) inside IG safe areas (`SAFE_TOP` 250 / `SAFE_BOTTOM` 1660).

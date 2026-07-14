@@ -46,9 +46,18 @@ def test_timesheet_pdf_downloads(client):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
     assert "attachment" in r.headers.get("content-disposition", "")
-    assert "timesheet-event1" in r.headers.get("content-disposition", "")
+    # Filename derives from the event + session (run) + date.
+    assert "Test-Cup" in r.headers.get("content-disposition", "")
     assert r.content[:5] == b"%PDF-"
     assert len(r.content) > 1000       # a real multi-element document
+
+
+def test_timesheet_pdf_custom_names_in_filename(client):
+    _seed_with_laps()
+    r = client.get("/e/1/api/export/timesheet.pdf?event=Summer%20Trophy&session=Final%20A")
+    assert r.status_code == 200
+    disp = r.headers.get("content-disposition", "")
+    assert "Summer-Trophy" in disp and "Final-A" in disp
 
 
 def test_timesheet_pdf_empty_slot_is_valid(client):
