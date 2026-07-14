@@ -19,12 +19,14 @@ const GREY = '#b9c0d4'
 const FONT = "'Segoe UI', Inter, system-ui, sans-serif"
 const MONO = "ui-monospace, 'SF Mono', 'Roboto Mono', monospace"
 
+export type StoryStat = 'best' | 'gap' | 'interval'
+
 export interface StoryRow {
   pos: number
   kart: string
   name: string
-  best: string
-  gap: string
+  statValue: string    // the chosen metric, shown large
+  statCaption: string  // its label (BEST LAP / TO LEADER / INTERVAL), shown small
 }
 
 export interface StoryModel {
@@ -40,6 +42,7 @@ export interface StoryOptions {
   perPage: number      // standings rows per page
   pageIndex?: number   // 0-based page to render
   title?: string       // overrides the event name; blank falls back to it
+  stat?: StoryStat     // which metric each kart shows (default 'best')
 }
 
 /** How many pages the whole field spans at `perPage` rows each (min 1). */
@@ -55,13 +58,24 @@ export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): 
   const page = Math.min(Math.max(0, opts.pageIndex ?? 0), pageCount - 1)
   const start = page * perPage
   const slice = drivers.slice(start, start + perPage)
-  const rows: StoryRow[] = slice.map((d, i) => ({
-    pos: d.position || start + i + 1,
-    kart: d.kart_no,
-    name: d.name || `Kart ${d.kart_no}`,
-    best: fmtLap(d.best_lap_ms),
-    gap: (d.position || start + i + 1) === 1 ? 'LEADER' : fmtGap(d.gap_leader),
-  }))
+  const stat = opts.stat ?? 'best'
+  const rows: StoryRow[] = slice.map((d, i) => {
+    const pos = d.position || start + i + 1
+    const isLeader = pos === 1
+    let statValue: string
+    let statCaption: string
+    if (stat === 'best') {
+      statValue = fmtLap(d.best_lap_ms)
+      statCaption = 'BEST LAP'
+    } else if (stat === 'gap') {
+      statValue = isLeader ? 'LEADER' : fmtGap(d.gap_leader)
+      statCaption = isLeader ? '' : 'TO LEADER'
+    } else {
+      statValue = isLeader ? 'LEADER' : fmtGap(d.gap_ahead)
+      statCaption = isLeader ? '' : 'INTERVAL'
+    }
+    return { pos, kart: d.kart_no, name: d.name || `Kart ${d.kart_no}`, statValue, statCaption }
+  })
   const title = opts.title?.trim() || snapshot?.race.event_name || 'Race Result'
   const pageLabel =
     pageCount > 1 && rows.length ? `POS ${rows[0].pos}–${rows[rows.length - 1].pos}` : ''
@@ -221,15 +235,22 @@ export function drawStory(
     ctx.font = `700 ${Math.round(barH * 0.34)}px ${FONT}`
     const name = fitText(ctx, row.name.toUpperCase(), 430)
     ctx.fillText(name, M + 240, cy)
-    // Best lap / gap (right)
+    // Chosen stat (right): big value + small caption
     ctx.textAlign = 'right'
-    ctx.fillStyle = leader ? WHITE : GREY
-    ctx.font = `600 ${Math.round(barH * 0.3)}px ${MONO}`
     const right = STORY_W - M - 24
-    ctx.fillText(row.best, right, cy - barH * 0.16)
-    ctx.fillStyle = leader ? 'rgba(255,255,255,0.85)' : 'rgba(185,192,212,0.7)'
-    ctx.font = `500 ${Math.round(barH * 0.22)}px ${FONT}`
-    ctx.fillText(row.gap, right, cy + barH * 0.22)
+    if (row.statCaption) {
+      ctx.fillStyle = leader ? WHITE : GREY
+      ctx.font = `600 ${Math.round(barH * 0.3)}px ${MONO}`
+      ctx.fillText(row.statValue, right, cy - barH * 0.16)
+      ctx.fillStyle = leader ? 'rgba(255,255,255,0.85)' : 'rgba(185,192,212,0.7)'
+      ctx.font = `500 ${Math.round(barH * 0.2)}px ${FONT}`
+      ctx.fillText(row.statCaption, right, cy + barH * 0.24)
+    } else {
+      // No caption (e.g. LEADER in gap/interval mode): center the value.
+      ctx.fillStyle = leader ? WHITE : GREY
+      ctx.font = `700 ${Math.round(barH * 0.3)}px ${MONO}`
+      ctx.fillText(row.statValue, right, cy)
+    }
     ctx.restore()
   })
 

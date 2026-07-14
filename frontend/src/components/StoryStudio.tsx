@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Snapshot } from '../lib/types'
 import {
   STORY_W, STORY_H, buildStoryModel, storyPageCount, drawStory, pickVideoMime,
-  mimeExtension, downloadBlob, type StoryModel,
+  mimeExtension, downloadBlob, type StoryModel, type StoryStat,
 } from '../lib/story'
 
 type Mode = 'image' | 'video'
@@ -33,6 +33,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [perPage, setPerPage] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
+  const [stat, setStat] = useState<StoryStat>('best')
   const [mode, setMode] = useState<Mode>('image')
   const [videoScope, setVideoScope] = useState<VideoScope>('page')
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
@@ -43,8 +44,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
 
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
-    () => buildStoryModel(snapshot, { perPage, pageIndex, title }),
-    [snapshot, perPage, pageIndex, title],
+    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat }),
+    [snapshot, perPage, pageIndex, title, stat],
   )
   const videoMime = useMemo(() => pickVideoMime(), [])
   const hasData = model.rows.length > 0
@@ -101,7 +102,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     try {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
         drawStory(ctx, m, m.rows.length, bg)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
@@ -112,7 +113,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, title, bg, pageCount, restorePreview])
+  }, [snapshot, perPage, title, stat, bg, pageCount, restorePreview])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -136,7 +137,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
         : [pageIndex]
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
         await animatePage(ctx, m, bg)
       }
       recorder.stop()
@@ -151,7 +152,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, pageIndex, title, bg, videoMime, videoScope, pageCount, restorePreview])
+  }, [snapshot, perPage, pageIndex, title, stat, bg, videoMime, videoScope, pageCount, restorePreview])
 
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
@@ -211,6 +212,18 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             placeholder={snapshot?.race.event_name || 'Race Result'}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
+        </Field>
+
+        <Field label="Right column">
+          <select
+            value={stat}
+            onChange={(e) => setStat(e.target.value as StoryStat)}
+            className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+          >
+            <option value="best">Best lap</option>
+            <option value="gap">Gap to leader</option>
+            <option value="interval">Interval (to kart ahead)</option>
+          </select>
         </Field>
 
         <Field label="Rows per page">
