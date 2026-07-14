@@ -568,14 +568,20 @@ def build_timesheet_pdf(
         _classification_table(state, styles),
     ]
 
+    # Keep page 1 for the classification alone; charts + pit/stint start on the
+    # next page. (The grid already begins on its own page, so don't add a break
+    # for it here — that would leave a blank page.)
+    if include_charts or include_pits or include_stints:
+        story.append(PageBreak())
+
     if include_charts:
-        story.append(Spacer(1, 7 * mm))
         story.append(_best_lap_bar(state))
         story.append(Spacer(1, 4 * mm))
         story.append(_pace_trend(state))
 
     if include_pits or include_stints:
-        story.append(Spacer(1, 6 * mm))
+        if include_charts:
+            story.append(Spacer(1, 6 * mm))
         story += _pit_and_stint_sections(
             state, styles, include_pits, include_stints, pit_estimate)
 
