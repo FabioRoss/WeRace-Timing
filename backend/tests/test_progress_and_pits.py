@@ -170,6 +170,16 @@ def test_lap_history_flags_pit_laps_and_prog_fallback():
     assert (row.prog_from, row.prog_to, row.prog_ms) == (0.0, 1.0, 95500)
 
 
+def test_pit_stops_history_records_feed_pits():
+    # A feed that reports pits (gate venue) → per-stop lap + measured duration.
+    state = EventState(1)
+    state.update(RaceInfo(), [make_row(laps=1, last_lap_ms=40000)])
+    state.update(RaceInfo(), [make_row(laps=2, last_lap_ms=40500)])
+    state.update(RaceInfo(), [make_row(laps=3, last_lap_ms=41000, pits=1, last_pit_ms=25000)])
+    state.update(RaceInfo(), [make_row(laps=7, last_lap_ms=40800, pits=2, last_pit_ms=23000)])
+    assert state.pit_stops["7"] == [(3, 25000), (7, 23000)]
+
+
 def test_lap_chart_recomputes_missed_pit_laps():
     # auto_pitlane on (gates) → the feed reports no pits, so no pit is flagged
     # live; but lap_chart recomputes from the lap times, so an anomalously long

@@ -57,6 +57,10 @@ class EventState:
         self.race = RaceInfo()
         self.drivers: list[DriverRow] = []
         self.lap_history: dict[str, list[LapRecord]] = {}
+        # Feed-reported pit stops per kart: (lap_no, pit_duration_ms). Only
+        # populated on venues whose feed reports pits (gates); the PDF uses it
+        # for accurate per-stop times there.
+        self.pit_stops: dict[str, list[tuple[int, int]]] = {}
         self.session_best_ms: int | None = None
         self.session_best_kart: str = ""
         # Race-control flag override (organizers without track-system access);
@@ -189,6 +193,7 @@ class EventState:
     def _reset_session_state(self, reason: str) -> None:
         log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
         self.lap_history.clear()
+        self.pit_stops.clear()
         self._lap_pits.clear()
         self._cross_ts.clear()
         self._cross_ms.clear()
@@ -203,10 +208,14 @@ class EventState:
         history = self.lap_history.setdefault(row.kart_no, [])
         last_recorded = history[-1].lap_no if history else 0
         if row.laps > last_recorded and row.last_lap_ms:
-            pitted = (
-                row.pits > self._lap_pits.get(row.kart_no, row.pits)
-                or row.in_pit
-            )
+            # The feed reported a completed pit (its counter went up): record the
+            # lap + its measured duration for the pit-stops table (gate venues).
+            feed_pit = row.pits > self._lap_pits.get(row.kart_no, row.pits)
+            if feed_pit:
+                self.pit_stops.setdefault(row.kart_no, []).append(
+                    (row.laps, row.last_pit_ms or 0)
+                )
+            pitted = feed_pit or row.in_pit
             # No pit-lane gates: a lap far longer than the kart's clean pace is
             # a pit stop the feed never reported — count it ourselves.
             if not self.auto_pitlane:
