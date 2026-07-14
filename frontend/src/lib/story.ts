@@ -31,29 +31,45 @@ export interface StoryModel {
   title: string
   subtitle: string
   rows: StoryRow[]
+  pageLabel: string   // "POS 11–20" for multi-page; "" when the whole field fits
   fastestKart: string
   fastestLap: string
 }
 
 export interface StoryOptions {
-  topN: number
-  title?: string   // overrides the event name; blank falls back to it
+  perPage: number      // standings rows per page
+  pageIndex?: number   // 0-based page to render
+  title?: string       // overrides the event name; blank falls back to it
+}
+
+/** How many pages the whole field spans at `perPage` rows each (min 1). */
+export function storyPageCount(snapshot: Snapshot | null, perPage: number): number {
+  const n = snapshot?.drivers.length ?? 0
+  return Math.max(1, Math.ceil(n / Math.max(1, perPage)))
 }
 
 export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): StoryModel {
   const drivers = snapshot?.drivers ?? []
-  const rows: StoryRow[] = drivers.slice(0, opts.topN).map((d, i) => ({
-    pos: d.position || i + 1,
+  const perPage = Math.max(1, opts.perPage)
+  const pageCount = Math.max(1, Math.ceil(drivers.length / perPage))
+  const page = Math.min(Math.max(0, opts.pageIndex ?? 0), pageCount - 1)
+  const start = page * perPage
+  const slice = drivers.slice(start, start + perPage)
+  const rows: StoryRow[] = slice.map((d, i) => ({
+    pos: d.position || start + i + 1,
     kart: d.kart_no,
     name: d.name || `Kart ${d.kart_no}`,
     best: fmtLap(d.best_lap_ms),
-    gap: (d.position || i + 1) === 1 ? 'LEADER' : fmtGap(d.gap_leader),
+    gap: (d.position || start + i + 1) === 1 ? 'LEADER' : fmtGap(d.gap_leader),
   }))
   const title = opts.title?.trim() || snapshot?.race.event_name || 'Race Result'
+  const pageLabel =
+    pageCount > 1 && rows.length ? `POS ${rows[0].pos}–${rows[rows.length - 1].pos}` : ''
   return {
     title,
     subtitle: snapshot?.race.track_name || '',
     rows,
+    pageLabel,
     fastestKart: snapshot?.session_best_kart ?? '',
     fastestLap: snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : '',
   }
@@ -121,6 +137,23 @@ export function drawStory(
   ctx.fillStyle = RED
   ctx.font = `800 34px ${FONT}`
   ctx.fillText('RACE CLASSIFICATION', M, SAFE_TOP + 78)
+
+  // Page range chip (multi-page grid), right-aligned on the label baseline.
+  if (model.pageLabel) {
+    ctx.font = `800 30px ${FONT}`
+    const tw = ctx.measureText(model.pageLabel).width
+    const chipW = tw + 44
+    const chipX = STORY_W - M - chipW
+    roundRect(ctx, chipX, SAFE_TOP + 50, chipW, 44, 10)
+    ctx.fillStyle = RED
+    ctx.fill()
+    ctx.fillStyle = WHITE
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(model.pageLabel, chipX + chipW / 2, SAFE_TOP + 73)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+  }
 
   // Title: auto-shrink until it fits in <= 2 lines, then wrap.
   const { lines, size, lineH } = layoutTitle(ctx, model.title.toUpperCase(), maxW)
