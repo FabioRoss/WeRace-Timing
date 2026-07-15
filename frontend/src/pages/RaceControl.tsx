@@ -241,8 +241,18 @@ function RaceControlInner() {
   const servePenalty = (id: number, served: boolean) => void act(() =>
     api(`/e/${slot}/api/admin/penalty/${id}/served`, { body: { served }, safeword: true }))
 
-  const removePenalty = (id: number) => void act(() =>
-    api(`/e/${slot}/api/admin/penalty/${id}`, { method: 'DELETE', safeword: true }))
+  // Mark every penalty that made up a kart's summed pit time as served at once.
+  const serveKartTimePenalties = (ids: number[]) => void act(() =>
+    Promise.all(ids.map((id) =>
+      api(`/e/${slot}/api/admin/penalty/${id}/served`, { body: { served: true }, safeword: true }))))
+
+  const removePenalty = (id: number) => {
+    const p = (snapshot?.penalties ?? []).find((x) => x.id === id)
+    const what = p ? `the ${p.kind === 'warning' ? 'warning' : 'penalty'} for #${p.kart_no}` : 'this penalty'
+    if (!window.confirm(`Remove ${what}? This cannot be undone.`)) return
+    void act(() =>
+      api(`/e/${slot}/api/admin/penalty/${id}`, { method: 'DELETE', safeword: true }))
+  }
 
   const race = snapshot?.race
   // The messaging selector lists karts by number (easier to find one to
@@ -267,14 +277,25 @@ function RaceControlInner() {
     () => new Set((snapshot?.drivers ?? []).filter((d) => d.in_pit).map((d) => d.kart_no)),
     [snapshot?.drivers],
   )
-  const toServe = useMemo(() => {
-    return penalties
-      .filter((p) => p.kind === 'time' && !p.served)
-      .sort((a, b) => {
-        const ap = inPit.has(a.kart_no) ? 1 : 0
-        const bp = inPit.has(b.kart_no) ? 1 : 0
-        return bp - ap || a.id - b.id
-      })
+  // Outstanding time penalties grouped per kart: a kart's 5s + 10s show as one
+  // "+15s" to serve, and serving it clears every penalty that made up the sum.
+  const toServeGroups = useMemo(() => {
+    const byKart = new Map<string, { kart: string; seconds: number; ids: number[]; reasons: string[] }>()
+    for (const p of penalties) {
+      if (p.kind !== 'time' || p.served) continue
+      const g = byKart.get(p.kart_no) ?? { kart: p.kart_no, seconds: 0, ids: [], reasons: [] }
+      g.seconds += p.seconds
+      g.ids.push(p.id)
+      if (p.reason) g.reasons.push(p.reason)
+      byKart.set(p.kart_no, g)
+    }
+    return [...byKart.values()].sort((a, b) => {
+      const ap = inPit.has(a.kart) ? 1 : 0
+      const bp = inPit.has(b.kart) ? 1 : 0
+      return bp - ap
+        || (parseInt(a.kart, 10) || 0) - (parseInt(b.kart, 10) || 0)
+        || a.kart.localeCompare(b.kart)
+    })
   }, [penalties, inPit])
 
   return (
@@ -640,37 +661,38 @@ function RaceControlInner() {
               </p>
             </form>
 
-            {/* To serve in pit (unserved time penalties) */}
+            {/* To serve in pit (outstanding time penalties, summed per kart) */}
             <div>
               <h4 className="label-race mb-2 text-race-yellow">To serve in pit</h4>
-              {toServe.length === 0 ? (
+              {toServeGroups.length === 0 ? (
                 <p className="text-sm text-ink-500">No time penalties outstanding.</p>
               ) : (
                 <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
-                  {toServe.map((p) => (
-                    <li key={p.id}
+                  {toServeGroups.map((g) => (
+                    <li key={g.kart}
                       className={`flex items-center gap-2 rounded px-3 py-2 ${
-                        inPit.has(p.kart_no)
+                        inPit.has(g.kart)
                           ? 'bg-pit-850 ring-1 ring-race-red'
                           : 'bg-pit-850'
                       }`}>
-                      <span className="min-w-[2.5rem] font-timing font-bold">#{p.kart_no}</span>
-                      {inPit.has(p.kart_no) && (
+                      <span className="min-w-[2.5rem] font-timing font-bold">#{g.kart}</span>
+                      {inPit.has(g.kart) && (
                         <span className="rounded bg-race-red px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
                           IN PIT
                         </span>
                       )}
                       <span className="flex-1 truncate">
-                        <span className="font-bold text-race-red">+{p.seconds}s</span>
-                        {p.reason && <span className="text-ink-300"> — {p.reason}</span>}
+                        <span className="font-bold text-race-red">+{g.seconds}s</span>
+                        {g.reasons.length > 0 && (
+                          <span className="text-ink-300"> — {[...new Set(g.reasons)].join(', ')}</span>
+                        )}
+                        {g.ids.length > 1 && (
+                          <span className="ml-1 text-[0.65rem] text-ink-500">({g.ids.length} penalties)</span>
+                        )}
                       </span>
-                      <button type="button" onClick={() => servePenalty(p.id, true)}
+                      <button type="button" onClick={() => serveKartTimePenalties(g.ids)}
                         className="rounded bg-race-green px-2 py-0.5 text-[0.65rem] font-bold uppercase text-pit-950">
                         serve
-                      </button>
-                      <button type="button" onClick={() => removePenalty(p.id)}
-                        className="rounded bg-pit-700 px-2 py-0.5 text-[0.65rem] font-bold uppercase text-ink-300 hover:bg-race-red hover:text-white">
-                        ✕
                       </button>
                     </li>
                   ))}
