@@ -268,6 +268,36 @@ def test_admin_snapshot_pdf(api):
     assert api.get(f"/api/admin/snapshots/{sid}/timesheet.pdf").status_code == 401
 
 
+def test_og_meta_and_card(api):
+    sid = _save_one(api)
+    rec = snapshots.load_record(sid)
+    og = snapshots.og_meta(rec)
+    assert og["image_path"] == f"/api/results/{sid}/card.png"
+    assert og["url_path"] == f"/results/{sid}"
+    assert "#7" in og["description"] and og["title"]
+
+    # card is published-only PNG
+    assert api.get(f"/api/results/{sid}/card.png").status_code == 404   # not published yet
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    card = api.get(f"/api/results/{sid}/card.png")
+    assert card.status_code == 200 and card.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert card.headers["content-type"] == "image/png"
+
+
+def test_results_html_injects_og_when_published(api):
+    from app.main import FRONTEND_DIST
+    if not FRONTEND_DIST.is_dir():
+        pytest.skip("frontend/dist not built")
+    sid = _save_one(api)
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    html = api.get(f"/results/{sid}").text
+    assert 'property="og:title"' in html and 'name="twitter:card"' in html
+    assert f"/api/results/{sid}/card.png" in html
+    # unpublished / unknown -> plain shell (no OG injection)
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": False})
+    assert 'property="og:title"' not in api.get(f"/results/{sid}").text
+
+
 def test_public_results_only_published_and_no_private(api):
     sid = _save_one(api)
     # private + public notes set; not yet published

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/StatusBar'
 import { FlagBanner } from '../components/FlagBanner'
@@ -20,6 +20,11 @@ export function ResultsDetail() {
     [id],
   )
   const [downloading, setDownloading] = useState(false)
+
+  useEffect(() => {
+    if (record) document.title = `${record.name || 'Results'} — WeRace`
+    return () => { document.title = 'WeRace Bridge' }
+  }, [record])
 
   if (loading) return <p className="p-6 text-ink-500">Loading…</p>
   if (error || !record || !snapshot) {

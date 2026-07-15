@@ -10,6 +10,11 @@ RUN npm run build
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
+# DejaVu TTFs for the Open Graph result-preview cards (the slim image ships none)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Layout must mirror the repo: main.py resolves the SPA at ../../frontend/dist
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt

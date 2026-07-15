@@ -153,6 +153,22 @@ def meta_of(record: dict) -> dict:
     }
 
 
+def og_meta(record: dict) -> dict:
+    """Open Graph / link-preview fields for a published result: a title, a
+    podium+track description, and the paths for the preview image + page."""
+    meta = meta_of(record)
+    podium = " · ".join(
+        f"P{p['position']} #{p['kart_no']} {p['name']}".strip() for p in meta["podium"]
+    )
+    description = " — ".join(b for b in (podium, meta["track"]) if b) or "Race results"
+    return {
+        "title": meta["name"] or "Results",
+        "description": description,
+        "image_path": f"/api/results/{meta['id']}/card.png",
+        "url_path": f"/results/{meta['id']}",
+    }
+
+
 def public_view(record: dict) -> dict:
     """Public detail payload: the renderable snapshot + public notes, with
     private notes and internal-only blocks stripped."""
