@@ -322,6 +322,31 @@ def test_snapshot_pdf_config_saved_and_applied(client, tmp_path, monkeypatch):
     assert client.get(f"/api/results/{sid}/timesheet.pdf?grid=1").content[:5] == b"%PDF-"
 
 
+def test_snapshot_laps_endpoints(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    event = seed()
+    # Give kart 7 a couple of tracked laps so lap_chart has points.
+    import time as _t
+    for lap in range(1, 4):
+        row = event.state.find("7")
+        row.laps = lap
+        row.last_lap_ms = 52000 + lap
+        event.state._track_laps(row, _t.time())
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    # Admin laps (safeword) returns per-kart points.
+    r = client.get(f"/api/admin/snapshots/{sid}/laps?karts=7", headers=SAFEWORD)
+    assert r.status_code == 200
+    assert len(r.json()["laps"]["7"]) == 3
+
+    # Public laps are gated on publication.
+    assert client.get(f"/api/results/{sid}/laps").status_code == 404
+    client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD, json={"published": True})
+    pub = client.get(f"/api/results/{sid}/laps?karts=7")
+    assert pub.status_code == 200 and len(pub.json()["laps"]["7"]) == 3
+
+
 def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     from app.config import get_settings
     monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)

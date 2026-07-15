@@ -5,7 +5,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ from .. import snapshots
 from ..config import get_settings
 from ..models import Flag, Penalty, SourceConfig
 from ..security import check_safeword, make_token
+from ..state import EventState
 from ..tracks import TRACK_CATALOG
 from .public import get_event
 
@@ -405,6 +406,15 @@ def list_snapshots() -> dict:
 @router.get("/api/admin/snapshots/{snapshot_id}")
 def get_snapshot(snapshot_id: str) -> dict:
     return _load_snapshot_or_404(snapshot_id)
+
+
+@router.get("/api/admin/snapshots/{snapshot_id}/laps")
+def snapshot_laps(snapshot_id: str, karts: str = Query(default="")) -> dict:
+    """Lap-by-lap history for any saved snapshot (same shape as the live laps
+    endpoint), so the editor can preview the lap-time charts."""
+    rec = _load_snapshot_or_404(snapshot_id)
+    selected = [k.strip() for k in karts.split(",") if k.strip()] or None
+    return {"id": snapshot_id, "laps": EventState.hydrate(rec).lap_chart(selected)}
 
 
 class SnapshotPatch(BaseModel):

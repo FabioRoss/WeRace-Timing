@@ -11,9 +11,10 @@ import logging
 import os
 import time
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import snapshots
+from ..state import EventState
 from .export import snapshot_pdf_response
 
 router = APIRouter()
@@ -58,6 +59,15 @@ def get_result(snapshot_id: str) -> dict:
     """A published session's public view: renderable snapshot + public notes,
     with private notes stripped."""
     return snapshots.public_view(_published_or_404(snapshot_id))
+
+
+@router.get("/api/results/{snapshot_id}/laps")
+def result_laps(snapshot_id: str, karts: str = Query(default="")) -> dict:
+    """Lap-by-lap history for a published session (the same shape as the live
+    `/e/{slot}/api/laps`), so the results page can draw lap-time charts."""
+    record = _published_or_404(snapshot_id)
+    selected = [k.strip() for k in karts.split(",") if k.strip()] or None
+    return {"id": snapshot_id, "laps": EventState.hydrate(record).lap_chart(selected)}
 
 
 def _wrap(draw, text: str, font, max_w: int) -> list[str]:
