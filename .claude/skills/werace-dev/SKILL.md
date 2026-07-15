@@ -146,6 +146,28 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   MyWeR's stale partial-refresh frames (see above) from wiping mid-race history.
 - **Flag override**: EventState.flag_override (set via POST /api/admin/flag) replaces
   race.flag in snapshots/driver views; None mirrors the feed. RC has the button row.
+- **Penalties & warnings** (`Penalty` model): stateful RC decisions, so — unlike
+  messages — they live on `EventState.penalties` (in-memory; the list + `_penalty_id`
+  are the **single persistence seam**, commented for a later disk-backed impl) and ride
+  in every **snapshot** + each kart's `driver_view`. Cleared on a genuine session
+  rollover. Three kinds: `time` (+seconds, served in the pit → then NOT applied to the
+  result), `lap` (−laps, results-only, applied while present), `warning` (no result
+  effect). Admin CRUD in `admin.py` (safeword): `POST /api/admin/penalty`,
+  `POST …/{id}/served`, `DELETE …/{id}` — each mutates + `broadcast_now()`. Assigning
+  schedules a **delayed team notification** (`Event.schedule_penalty_notify` →
+  `asyncio` task sleeping `Settings.penalty_notify_delay_s` ≈12s, then `send_message`
+  targeted to the kart + driver banner); **deleting before it fires cancels it**
+  (`_pending_notify[id]`, cleared on reset). "Amend" = delete + re-add (no edit
+  endpoint — the delay is the grace window). Frontend: `lib/penalties.ts` (labels/
+  presets) + shared `components/PenaltyLog.tsx` (read-only everywhere; RC passes
+  `onServe`/`onRemove` for actions). RC has an assign panel + a **"to serve in pit"**
+  list (unserved TIME penalties, in-pit karts pulled to top + red-outlined) + full log;
+  `TimingTable` shows a **PEN** badge for karts with an outstanding result-affecting
+  penalty. Team/Driver/**public General** dashboards all show the log. **PDF**
+  (`?penalties=1`): `_penalty_adjusted_drivers` recomputes page-1 classification with
+  UNSERVED penalties applied (time→+total_time, lap→−laps), re-sorted `(-laps,total)`
+  with fresh pos/gap/interval (reuses `_classify_gap`), titled "penalties applied", plus
+  a `_penalties_summary_table` (served + warnings excluded; final-result disclaimer).
 - **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
   start/finish line) while the field keeps lapping, so the marker sits at
   (ownFraction − pitTime/pace) mod 1 — the karts near it NOW are the traffic at

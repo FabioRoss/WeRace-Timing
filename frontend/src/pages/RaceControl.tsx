@@ -666,7 +666,7 @@ function RaceControlInner() {
                       </span>
                       <button type="button" onClick={() => servePenalty(p.id, true)}
                         className="rounded bg-race-green px-2 py-0.5 text-[0.65rem] font-bold uppercase text-pit-950">
-                        served
+                        serve
                       </button>
                       <button type="button" onClick={() => removePenalty(p.id)}
                         className="rounded bg-pit-700 px-2 py-0.5 text-[0.65rem] font-bold uppercase text-ink-300 hover:bg-race-red hover:text-white">
