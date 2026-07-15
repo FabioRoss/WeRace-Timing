@@ -260,15 +260,16 @@ def _classification_table(state: EventState, styles) -> Table:
 
 def _lap_grid_tables(state: EventState, styles) -> list:
     """Chrono-style lap-by-lap grid: one row per lap, one column per kart.
-    Fastest lap per kart is red-bold; pit laps are tinted and marked with a small
-    ᴾ. Wraps karts across blocks so a wide field doesn't overflow the page."""
+    Fastest lap per kart is filled with the accent colour (contrast text); pit
+    laps are filled dark. Wraps karts across blocks so a wide field doesn't
+    overflow the page."""
     chart = state.lap_chart(last_n=100000)  # full history
     karts = [d.kart_no for d in state.drivers if chart.get(d.kart_no)]
     if not karts:
         return [Paragraph("No lap data recorded yet.", styles["ReportSmall"])]
 
     out: list = [Paragraph(
-        f"<font color='{styles['accent_dark_hex']}'><b>coloured</b></font> = fastest lap "
+        f"<font color='{styles['accent_dark_hex']}'><b>accent cell</b></font> = fastest lap "
         "&nbsp;·&nbsp; <font color='#14161f'><b>dark cell</b></font> = pit lap",
         styles["Legend"],
     )]
@@ -326,8 +327,11 @@ def _lap_grid_tables(state: EventState, styles) -> list:
             style.append(("TEXTCOLOR", (ci, lap), (ci, lap), colors.white))
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
         for ci, lap in best_cells:
+            # Fastest lap per kart: accent-filled cell (like pit laps are filled),
+            # with contrast text (white/ink) chosen for legibility on the accent.
+            style.append(("BACKGROUND", (ci, lap), (ci, lap), styles["accent"]))
+            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), styles["accent_text"]))
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
-            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), styles["accent_dark"]))
         table.setStyle(TableStyle(style))
         out.append(Paragraph(
             f"Karts {', '.join('#' + k for k in block)}", styles["SectionHead"]

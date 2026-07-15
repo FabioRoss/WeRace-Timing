@@ -166,8 +166,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     present via qrcode). **Light, print-friendly, portrait A4**: a `HeaderBand` Flowable
     (dark rounded panel, red spine, checker), a card-style classification (dark position
     badge, red-tinted leader row, overall fastest lap red — **no On/Pits columns**), and a
-    lap-by-lap grid from `lap_chart()` (fastest lap per kart red-bold; **pit laps = white
-    bold text on the dark header colour**, legend line). One shared `CONTENT_W` (186mm)
+    lap-by-lap grid from `lap_chart()` (fastest lap per kart = **accent-filled cell with
+    contrast text** (`accent`/`accent_text` by luminance, like the classification header);
+    **pit laps = white bold text on the dark header colour**; legend line). One shared
+    `CONTENT_W` (186mm)
     sizes the header band, classification, charts and grid so all blocks align to the same
     edges. The grid always renders a fixed `MAX_GRID_KARTS` (10) columns, **padding empty
     columns** when there are fewer karts so widths stay constant. Endpoint query params
