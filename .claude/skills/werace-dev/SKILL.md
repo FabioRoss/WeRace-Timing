@@ -201,10 +201,15 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     `useRef` seeded flag (same pattern seeds the PDF panel's Event/Session inputs from
     `event_name`/`run_type`). `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
-    "POS 11–20" chip labels each page; leader style keyed on `pos===1`; fastest-lap footer
-    repeats per page). A `stat` option (`StoryStat` best|gap|interval) chooses the per-kart
-    right-column value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small
-    caption. Same draw fn feeds the live preview, the PNG (`canvas.toBlob`,
+    "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
+    (`StoryStat` best|gap|interval, **UI default interval**) chooses the per-kart right-column
+    value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small caption. A
+    `label` option sets the kicker above the title (session-type selector: Free
+    Practice/Qualifying/Race/Custom, **default Race**; fitted so a long custom label never
+    overlaps the page chip). `showFastest` toggles the fastest-lap footer — when off,
+    `buildStoryModel` clears `fastestKart`/`fastestLap`, which both drops the band and lets
+    the standings reclaim its space (layout already gates on `model.fastestLap`). Same draw fn
+    feeds the live preview, the PNG (`canvas.toBlob`,
     per-page or download-all) and the video. Video = `captureStream(30)` → `MediaRecorder`
     over an `animatePage` rAF loop, either the current page or **one combined clip cycling
     all pages**; codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari +
