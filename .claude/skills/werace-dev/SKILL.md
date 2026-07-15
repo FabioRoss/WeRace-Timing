@@ -31,7 +31,8 @@ backend/app/
   hub.py               WebSocket fanout (live + per-driver channels)
   routers/admin.py     RC API: connect/disconnect/status (incl. first_frames +
                        flag_override), recording, reset, message, flag override, links,
-                       settings, replay/seek, recordings list + delete (path-safe)
+                       settings, replay/seek, recordings + story-backgrounds
+                       CRUD (path-safe, safeword-guarded)
   routers/export.py    Post-session downloads: GET /e/{slot}/api/export/timesheet.pdf
                        (reportlab chrono sheet: classification + lap-by-lap grid +
                        best-lap/pace charts, built from live EventState)
@@ -196,20 +197,49 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     palette from index.css) inside IG safe areas (`SAFE_TOP` 250 / `SAFE_BOTTOM` 1660).
     Header lays out **dynamically** (`layoutTitle` auto-shrinks the title to ≤2 lines, then
     subtitle + list flow from the real header bottom) so long session names don't overlap;
-    a **title override** input defaults to the event name. `buildStoryModel(snapshot,
+    a **title** input is **prefilled** (editable) once from the live event name via a
+    `useRef` seeded flag (same pattern seeds the PDF panel's Event/Session inputs from
+    `event_name`/`run_type`). `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
-    "POS 11–20" chip labels each page; leader style keyed on `pos===1`; fastest-lap footer
-    repeats per page). A `stat` option (`StoryStat` best|gap|interval) chooses the per-kart
-    right-column value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small
-    caption. Same draw fn feeds the live preview, the PNG (`canvas.toBlob`,
+    "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
+    (`StoryStat` best|gap|interval, **UI default interval**) chooses the per-kart right-column
+    value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small caption. A
+    `label` option sets the kicker above the title (session-type selector: Free
+    Practice/Qualifying/Race/Custom, **default Race**; fitted so a long custom label never
+    overlaps the page chip). `showFastest` toggles the fastest-lap footer — when off,
+    `buildStoryModel` clears `fastestKart`/`fastestLap`, which both drops the band and lets
+    the standings reclaim its space (layout already gates on `model.fastestLap`). Same draw fn
+    feeds the live preview, the PNG (`canvas.toBlob`,
     per-page or download-all) and the video. Video = `captureStream(30)` → `MediaRecorder`
     over an `animatePage` rAF loop, either the current page or **one combined clip cycling
     all pages**; codec via `pickVideoMime()` prefers `video/mp4;codecs=h264` (iOS Safari +
     recent Chromium) then WebM, disabled where MediaRecorder is unavailable. A user
-    background is composited via `createImageBitmap` and **never uploaded/stored** — keep
-    it that way. `drawStory` takes an `accent` hex (luminance-derived text colour, so light
-    accents stay legible); both exporters share `components/AccentPicker.tsx` (6 presets +
-    a native colour input).
+    background is composited via `createImageBitmap` and **stays client-only by default —
+    never uploaded** unless the operator explicitly opts to save it (see below). `drawStory`
+    takes an `accent` hex (luminance-derived text colour, so light accents stay legible);
+    both exporters share `components/AccentPicker.tsx` (6 presets + a native colour input).
+  - **Background framing** — `drawStory(…, bgTransform={scale,x,y,rot})` frames the photo
+    Canva-style: base cover-fit × `scale`, panned by `x`/`y` (canvas px), rotated `rot`°;
+    the default `DEFAULT_BG_TRANSFORM` reproduces the old plain cover-fit. StoryStudio pans
+    on canvas drag, zooms on wheel, plus Zoom/Rotate sliders + Reset (shown only with a bg);
+    threaded through preview / PNG / all-pages / video renders. Every mutation routes through
+    an `applyTransform` setter that **snaps** (zoom→1× within 0.05, rotate→0° within 4°; a
+    `<datalist>` tick marks each default) then **clamps** via pure `clampBgTransform(bw,bh,W,H,t)`
+    so the image always fully covers the frame — **no empty corners**. The clamp auto-raises
+    zoom to the min the rotation needs (auto-zoom-to-fill; ==1 at rot 0) then bounds the pan on
+    the rotated axes. It's framework-free/unit-testable (verify by asserting all 4 canvas
+    corners project inside the image rect over an aspect/rot/pan/zoom sweep; bundle the module
+    with `node_modules/.bin/rolldown src/lib/story.ts --format esm` to import it in Node).
+  - **Optional saved backgrounds** (opt-in, privacy-preserving) — safeword-guarded CRUD in
+    `admin.py` mirroring recordings: `GET/POST/DELETE /api/admin/backgrounds` (+`{name}`
+    serve). POST is **multipart `UploadFile`** (needs **`python-multipart`** — in BOTH
+    `requirements.txt` and `pyproject.toml`, the reportlab-502 lesson), Pillow-validated,
+    downscaled ≤2000px + re-encoded, **max 5** (6th → 409), non-image → 422, path-safe
+    `_resolve_background`. `Settings.backgrounds_dir` (gitignored). StoryStudio shows a
+    thumbnail strip (served via `?safeword=`), click loads (server-sourced → no re-save
+    prompt), × deletes **behind a `window.confirm`** (matches `RaceControl.tsx` recording
+    deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
+    POSTs the kept `File`.
 
 ## Development workflow
 

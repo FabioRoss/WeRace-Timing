@@ -2,12 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Snapshot } from '../lib/types'
 import {
   STORY_W, STORY_H, buildStoryModel, storyPageCount, drawStory, pickVideoMime,
-  mimeExtension, downloadBlob, type StoryModel, type StoryStat,
+  mimeExtension, downloadBlob, DEFAULT_BG_TRANSFORM, clampBgTransform,
+  type StoryModel, type StoryStat, type BgTransform,
 } from '../lib/story'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
+import { getSafeword } from '../lib/api'
+
+interface SavedBg { name: string; size_bytes: number; modified: number }
+
+const BG_API = '/api/admin/backgrounds'
+const bgSrc = (name: string) => `${BG_API}/${name}?safeword=${encodeURIComponent(getSafeword())}`
 
 type Mode = 'image' | 'video'
 type VideoScope = 'page' | 'all'
+type LabelChoice = 'Free Practice' | 'Qualifying' | 'Race' | 'Custom'
 
 const REVEAL_MS = 320   // per standings row
 const HOLD_MS = 1600    // pause on a full page before the clip/page ends
@@ -15,14 +23,14 @@ const HOLD_MS = 1600    // pause on a full page before the clip/page ends
 /** Animate one page's rows revealing in, then hold. Resolves when done. */
 function animatePage(
   ctx: CanvasRenderingContext2D, model: StoryModel, bg: CanvasImageSource | null,
-  accent: string,
+  accent: string, bgTransform: BgTransform,
 ): Promise<void> {
   return new Promise((resolve) => {
     const total = model.rows.length * REVEAL_MS + HOLD_MS
     const start = performance.now()
     const tick = () => {
       const t = performance.now() - start
-      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg, accent)
+      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg, accent, bgTransform)
       if (t >= total) resolve()
       else requestAnimationFrame(tick)
     }
@@ -35,20 +43,43 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [perPage, setPerPage] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
-  const [stat, setStat] = useState<StoryStat>('best')
+  const [stat, setStat] = useState<StoryStat>('interval')
+  const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race')
+  const [customLabel, setCustomLabel] = useState('')
+  const [showFastest, setShowFastest] = useState(true)
   const [accent, setAccent] = useState(DEFAULT_ACCENT)
   const [mode, setMode] = useState<Mode>('image')
   const [videoScope, setVideoScope] = useState<VideoScope>('page')
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
   const [bgName, setBgName] = useState('')
+  const [bgTransform, setBgTransform] = useState<BgTransform>(DEFAULT_BG_TRANSFORM)
+  // The freshly-uploaded File is kept so the operator can opt to save it. It is
+  // null when the background came from the server (already saved) or none.
+  const [bgFile, setBgFile] = useState<File | null>(null)
+  const [saved, setSaved] = useState<SavedBg[]>([])
+  const [savePrompt, setSavePrompt] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
 
+  // Seed the title once from the live event name, then let the user own it.
+  const titleSeeded = useRef(false)
+  useEffect(() => {
+    if (titleSeeded.current) return
+    const name = snapshot?.race.event_name
+    if (name) {
+      setTitle(name)
+      titleSeeded.current = true
+    }
+  }, [snapshot])
+
+  const label = labelChoice === 'Custom' ? customLabel.trim() || 'Race' : labelChoice
+
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
-    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat }),
-    [snapshot, perPage, pageIndex, title, stat],
+    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat, label, showFastest }),
+    [snapshot, perPage, pageIndex, title, stat, label, showFastest],
   )
   const videoMime = useMemo(() => pickVideoMime(), [])
   const hasData = model.rows.length > 0
@@ -61,16 +92,20 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   // Live preview: fully-revealed still of the current page.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
-  }, [model, bg, accent])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
+  }, [model, bg, accent, bgTransform])
 
   const onPickBackground = useCallback(async (file: File | undefined) => {
     setError('')
+    setSavePrompt(false)
+    setSaveMsg('')
     if (!file) return
     try {
       const bitmap = await createImageBitmap(file)
       setBg(bitmap)
       setBgName(file.name)
+      setBgFile(file)                     // a fresh upload — offer to save later
+      setBgTransform(DEFAULT_BG_TRANSFORM) // fresh frame starts cover-fit
     } catch {
       setError('Could not read that image.')
     }
@@ -79,22 +114,81 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const clearBackground = useCallback(() => {
     setBg(null)
     setBgName('')
+    setBgFile(null)
+    setSavePrompt(false)
+    setSaveMsg('')
+    setBgTransform(DEFAULT_BG_TRANSFORM)
   }, [])
+
+  // ---- Saved backgrounds (opt-in server store, shared across sessions) ----
+  const refreshSaved = useCallback(async () => {
+    try {
+      const res = await fetch(BG_API, { headers: { 'X-Safeword': getSafeword() } })
+      if (res.ok) setSaved((await res.json()).backgrounds ?? [])
+    } catch { /* offline — the strip just stays empty */ }
+  }, [])
+
+  useEffect(() => { void refreshSaved() }, [refreshSaved])
+
+  const loadSaved = useCallback(async (name: string) => {
+    setError('')
+    setSavePrompt(false)
+    setSaveMsg('')
+    try {
+      const res = await fetch(bgSrc(name), { headers: { 'X-Safeword': getSafeword() } })
+      if (!res.ok) throw new Error()
+      const bitmap = await createImageBitmap(await res.blob())
+      setBg(bitmap)
+      setBgName(name)
+      setBgFile(null)                     // from the server — no re-save prompt
+      setBgTransform(DEFAULT_BG_TRANSFORM)
+    } catch {
+      setError('Could not load that saved background.')
+    }
+  }, [])
+
+  const deleteSaved = useCallback(async (name: string) => {
+    if (!window.confirm("Delete this saved background? This can't be undone.")) return
+    try {
+      await fetch(`${BG_API}/${name}`, { method: 'DELETE', headers: { 'X-Safeword': getSafeword() } })
+    } catch { /* ignore */ }
+    void refreshSaved()
+  }, [refreshSaved])
+
+  const saveCurrent = useCallback(async () => {
+    if (!bgFile) return
+    setSaveMsg('')
+    try {
+      const form = new FormData()
+      form.append('file', bgFile)
+      const res = await fetch(BG_API, {
+        method: 'POST', headers: { 'X-Safeword': getSafeword() }, body: form,
+      })
+      if (res.status === 409) { setSaveMsg('Store is full (5) — delete one first.'); return }
+      if (!res.ok) { setSaveMsg('Could not save the background.'); return }
+      setSaved((await res.json()).backgrounds ?? [])
+      setBgFile(null)          // now it lives on the server
+      setSavePrompt(false)
+    } catch {
+      setSaveMsg('Could not save the background.')
+    }
+  }, [bgFile])
 
   const restorePreview = useCallback(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
-  }, [model, bg, accent])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
+  }, [model, bg, accent, bgTransform])
 
   const downloadPng = useCallback(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
-    drawStory(ctx, model, model.rows.length, bg, accent)
+    drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
     canvas.toBlob((blob) => {
       if (blob) downloadBlob(blob, `story-p${pageIndex + 1}-${stamp()}.png`)
     }, 'image/png')
-  }, [model, bg, accent, pageIndex])
+    if (bgFile) setSavePrompt(true)
+  }, [model, bg, accent, bgTransform, pageIndex, bgFile])
 
   const downloadAllPages = useCallback(async () => {
     const canvas = canvasRef.current
@@ -105,8 +199,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     try {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        drawStory(ctx, m, m.rows.length, bg, accent)
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest })
+        drawStory(ctx, m, m.rows.length, bg, accent, bgTransform)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
         await new Promise((r) => setTimeout(r, 200))
@@ -115,8 +209,9 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setProgress('')
       setBusy(false)
       restorePreview()
+      if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, title, stat, bg, accent, pageCount, restorePreview])
+  }, [snapshot, perPage, title, stat, label, showFastest, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -140,8 +235,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
         : [pageIndex]
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        await animatePage(ctx, m, bg, accent)
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest })
+        await animatePage(ctx, m, bg, accent, bgTransform)
       }
       recorder.stop()
       await done
@@ -154,8 +249,46 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setProgress('')
       setBusy(false)
       restorePreview()
+      if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, videoMime, videoScope, pageCount, restorePreview])
+  }, [snapshot, perPage, pageIndex, title, stat, label, showFastest, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
+
+  // Apply a transform update, snapped to defaults near them and clamped so the
+  // photo always fully covers the frame (no empty corners).
+  const applyTransform = useCallback((fn: (t: BgTransform) => BgTransform) => {
+    setBgTransform((prev) => {
+      const next = snapTransform(fn(prev))
+      const dims = bg as { width?: number; height?: number } | null
+      if (!dims?.width || !dims?.height) return next
+      return clampBgTransform(dims.width, dims.height, STORY_W, STORY_H, next)
+    })
+  }, [bg])
+
+  // Drag the preview to pan the background. Pointer deltas are in on-screen px;
+  // scale them to canvas px so a drag tracks the cursor 1:1.
+  const drag = useRef<{ x: number; y: number } | null>(null)
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!bg) return
+    drag.current = { x: e.clientX, y: e.clientY }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }, [bg])
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drag.current) return
+    const k = STORY_W / e.currentTarget.clientWidth
+    const dx = (e.clientX - drag.current.x) * k
+    const dy = (e.clientY - drag.current.y) * k
+    drag.current = { x: e.clientX, y: e.clientY }
+    applyTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+  }, [applyTransform])
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    drag.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+  }, [])
+  const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!bg) return
+    const factor = Math.exp(-e.deltaY * 0.0015)
+    applyTransform((t) => ({ ...t, scale: t.scale * factor }))
+  }, [bg, applyTransform])
 
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
@@ -165,7 +298,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           ref={canvasRef}
           width={STORY_W}
           height={STORY_H}
-          className="w-full max-w-[280px] rounded-xl ring-1 ring-pit-700"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onWheel={onWheel}
+          className={`w-full max-w-[280px] rounded-xl ring-1 ring-pit-700 ${bg ? 'cursor-move touch-none' : ''}`}
           style={{ aspectRatio: `${STORY_W} / ${STORY_H}` }}
         />
         {pageCount > 1 && (
@@ -213,9 +351,31 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={snapshot?.race.event_name || 'Race Result'}
+            placeholder="Race Result"
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
+        </Field>
+
+        <Field label="Session label">
+          <div className="space-y-2">
+            <select
+              value={labelChoice}
+              onChange={(e) => setLabelChoice(e.target.value as LabelChoice)}
+              className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+            >
+              {(['Free Practice', 'Qualifying', 'Race', 'Custom'] as const).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            {labelChoice === 'Custom' && (
+              <input
+                value={customLabel}
+                onChange={(e) => setCustomLabel(e.target.value)}
+                placeholder="Custom label"
+                className="block w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+              />
+            )}
+          </div>
         </Field>
 
         <Field label="Accent colour">
@@ -231,6 +391,17 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             <option value="best">Best lap</option>
             <option value="gap">Gap to leader</option>
             <option value="interval">Interval (to kart ahead)</option>
+          </select>
+        </Field>
+
+        <Field label="Fastest-lap footer">
+          <select
+            value={showFastest ? 'show' : 'hide'}
+            onChange={(e) => setShowFastest(e.target.value === 'show')}
+            className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+          >
+            <option value="show">Show</option>
+            <option value="hide">Hide</option>
           </select>
         </Field>
 
@@ -267,8 +438,106 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 </button>
               </div>
             )}
+            {bg && (
+              <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-pit-800">
+                <div className="flex items-center justify-between">
+                  <span className="label-race">Frame the photo</span>
+                  <button
+                    type="button"
+                    onClick={() => applyTransform(() => DEFAULT_BG_TRANSFORM)}
+                    className="text-[0.7rem] font-bold uppercase tracking-wider text-ink-300 hover:text-ink-100"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <label className="block text-xs text-ink-400">
+                  <span className="flex justify-between">
+                    <span>Zoom</span>
+                    <span className="timing">{bgTransform.scale.toFixed(2)}×</span>
+                  </span>
+                  <input
+                    type="range" min={1} max={5} step={0.01} list="bg-zoom-ticks"
+                    value={bgTransform.scale}
+                    onChange={(e) => applyTransform((t) => ({ ...t, scale: Number(e.target.value) }))}
+                    className="mt-1 w-full"
+                  />
+                  <datalist id="bg-zoom-ticks"><option value="1" /></datalist>
+                </label>
+                <label className="block text-xs text-ink-400">
+                  <span className="flex justify-between">
+                    <span>Rotate</span>
+                    <span className="timing">{Math.round(bgTransform.rot)}°</span>
+                  </span>
+                  <input
+                    type="range" min={-180} max={180} step={1} list="bg-rot-ticks"
+                    value={bgTransform.rot}
+                    onChange={(e) => applyTransform((t) => ({ ...t, rot: Number(e.target.value) }))}
+                    className="mt-1 w-full"
+                  />
+                  <datalist id="bg-rot-ticks"><option value="0" /></datalist>
+                </label>
+                <p className="text-[0.65rem] text-ink-500">
+                  Drag the preview to move · scroll to zoom. The photo always fills the frame.
+                </p>
+              </div>
+            )}
+
+            {savePrompt && bgFile && (
+              <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-race-red/40">
+                <p className="text-xs text-ink-200">Save this background on the server for later use?</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveCurrent()}
+                    className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSavePrompt(false)}
+                    className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600"
+                  >
+                    Not now
+                  </button>
+                  {saveMsg && <span className="text-[0.7rem] text-race-red">{saveMsg}</span>}
+                </div>
+              </div>
+            )}
+
+            {saved.length > 0 && (
+              <div className="space-y-1">
+                <span className="label-race">Saved on server ({saved.length}/5)</span>
+                <div className="flex flex-wrap gap-2">
+                  {saved.map((s) => (
+                    <div key={s.name} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => void loadSaved(s.name)}
+                        title="Use this background"
+                        className={`block h-14 w-9 overflow-hidden rounded ring-1 ${
+                          bgName === s.name ? 'ring-race-red' : 'ring-pit-700 hover:ring-pit-500'
+                        }`}
+                      >
+                        <img src={bgSrc(s.name)} alt="" className="h-full w-full object-cover" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteSaved(s.name)}
+                        title="Delete"
+                        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-race-red text-[0.6rem] font-bold text-white opacity-0 group-hover:opacity-100"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-[0.65rem] text-ink-500">
-              Stays in your browser — the image is never uploaded or stored on the server.
+              A background stays in your browser and is never uploaded — unless you choose to
+              save it above, where it's kept on the server (max 5) for reuse.
             </p>
           </div>
         </Field>
@@ -381,4 +650,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function stamp(): string {
   return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+}
+
+/** Snap zoom/rotate to their defaults (1× / 0°) when they land close, so the
+ * baseline is easy to return to without a modifier key. */
+function snapTransform(t: BgTransform): BgTransform {
+  const scale = Math.abs(t.scale - 1) < 0.05 ? 1 : t.scale
+  const rot = Math.abs(t.rot) < 4 ? 0 : t.rot
+  return t.scale === scale && t.rot === rot ? t : { ...t, scale, rot }
 }

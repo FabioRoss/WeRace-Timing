@@ -6,3 +6,4 @@ node_modules/
 frontend/dist/
 backend/.env
 backend/recordings/
+backend/backgrounds/

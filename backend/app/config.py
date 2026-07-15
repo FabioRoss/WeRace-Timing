@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     # Directory where raw-frame recordings (.ndjson) are written / replayed from.
     recordings_dir: Path = Path("recordings")
+    # Directory where optionally-saved story backgrounds are kept (max 5).
+    backgrounds_dir: Path = Path("backgrounds")
 
     host: str = "0.0.0.0"
     port: int = 8000

@@ -41,6 +41,7 @@ export interface StoryRow {
 }
 
 export interface StoryModel {
+  label: string       // kicker above the title (session type), e.g. "RACE"
   title: string
   subtitle: string
   rows: StoryRow[]
@@ -49,11 +50,57 @@ export interface StoryModel {
   fastestLap: string
 }
 
+/** How the background photo is framed behind the card. `scale` multiplies the
+ * base cover-fit (1 == fills the frame like before); `x`/`y` pan in canvas px;
+ * `rot` rotates in degrees. The default is exactly the old cover-fit. */
+export interface BgTransform {
+  scale: number
+  x: number
+  y: number
+  rot: number
+}
+
+export const DEFAULT_BG_TRANSFORM: BgTransform = { scale: 1, x: 0, y: 0, rot: 0 }
+
+/** Constrain a background transform so the image always fully covers the WxH
+ * frame — no empty corners. Zoom is raised to the minimum the current rotation
+ * needs (auto-zoom-to-fill), then panning is clamped so no edge enters the
+ * frame. Pure + framework-free so it can be unit-tested directly. */
+export function clampBgTransform(
+  bw: number, bh: number, W: number, H: number, t: BgTransform,
+): BgTransform {
+  const cover = Math.max(W / bw, H / bh)
+  const th = (t.rot * Math.PI) / 180
+  const c = Math.abs(Math.cos(th))
+  const s = Math.abs(Math.sin(th))
+  // Canvas extent projected onto the image's rotated axes.
+  const cwU = W * c + H * s
+  const cwV = W * s + H * c
+  // Smallest scale that still covers the frame at this rotation (== 1 at rot 0).
+  const sMin = Math.max(cwU / (bw * cover), cwV / (bh * cover))
+  const scale = Math.min(Math.max(t.scale, sMin), Math.max(5, sMin))
+  const dw = bw * cover * scale
+  const dh = bh * cover * scale
+  // Pan offset in rotated coords, each bounded by the cover slack on that axis.
+  const cos = Math.cos(th)
+  const sin = Math.sin(th)
+  const a = clamp(t.x * cos + t.y * sin, (dw - cwU) / 2)
+  const b = clamp(-t.x * sin + t.y * cos, (dh - cwV) / 2)
+  return { scale, x: a * cos - b * sin, y: a * sin + b * cos, rot: t.rot }
+}
+
+function clamp(v: number, lim: number): number {
+  const m = Math.max(0, lim)
+  return Math.min(m, Math.max(-m, v))
+}
+
 export interface StoryOptions {
-  perPage: number      // standings rows per page
-  pageIndex?: number   // 0-based page to render
-  title?: string       // overrides the event name; blank falls back to it
-  stat?: StoryStat     // which metric each kart shows (default 'best')
+  perPage: number       // standings rows per page
+  pageIndex?: number    // 0-based page to render
+  title?: string        // overrides the event name; blank falls back to it
+  stat?: StoryStat      // which metric each kart shows (default 'best')
+  label?: string        // kicker (session type); blank falls back to 'Race'
+  showFastest?: boolean // draw the fastest-lap footer (default true)
 }
 
 /** How many pages the whole field spans at `perPage` rows each (min 1). */
@@ -90,13 +137,16 @@ export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): 
   const title = opts.title?.trim() || snapshot?.race.event_name || 'Race Result'
   const pageLabel =
     pageCount > 1 && rows.length ? `POS ${rows[0].pos}–${rows[rows.length - 1].pos}` : ''
+  const showFastest = opts.showFastest ?? true
   return {
+    label: opts.label?.trim() || 'Race',
     title,
     subtitle: snapshot?.race.track_name || '',
     rows,
     pageLabel,
-    fastestKart: snapshot?.session_best_kart ?? '',
-    fastestLap: snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : '',
+    // Clearing these hides the footer AND reclaims its row space in drawStory.
+    fastestKart: showFastest ? (snapshot?.session_best_kart ?? '') : '',
+    fastestLap: showFastest && snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : '',
   }
 }
 
@@ -130,6 +180,7 @@ export function drawStory(
   reveal: number,
   background: CanvasImageSource | null,
   accent: string = '#e10600',
+  bgTransform: BgTransform = DEFAULT_BG_TRANSFORM,
 ) {
   const [ar, ag, ab] = hexToRgb(accent)
   const ACCENT = `rgb(${ar}, ${ag}, ${ab})`
@@ -144,10 +195,15 @@ export function drawStory(
   if (background) {
     const bw = (background as { width?: number }).width ?? STORY_W
     const bh = (background as { height?: number }).height ?? STORY_H
-    const scale = Math.max(STORY_W / bw, STORY_H / bh)
-    const dw = bw * scale
-    const dh = bh * scale
-    ctx.drawImage(background, (STORY_W - dw) / 2, (STORY_H - dh) / 2, dw, dh)
+    // Base cover-fit, then the user's zoom / pan / rotate on top of it.
+    const cover = Math.max(STORY_W / bw, STORY_H / bh)
+    const s = cover * Math.max(0.05, bgTransform.scale)
+    ctx.save()
+    ctx.translate(STORY_W / 2 + bgTransform.x, STORY_H / 2 + bgTransform.y)
+    ctx.rotate((bgTransform.rot * Math.PI) / 180)
+    ctx.scale(s, s)
+    ctx.drawImage(background, -bw / 2, -bh / 2, bw, bh)
+    ctx.restore()
     ctx.fillStyle = 'rgba(7, 8, 12, 0.74)'
     ctx.fillRect(0, 0, STORY_W, STORY_H)
   } else {
@@ -165,9 +221,15 @@ export function drawStory(
   // ---- Header (laid out dynamically so long titles never overlap) ----
   drawChecker(ctx, M, SAFE_TOP, 240, 26, 26)
   ctx.textBaseline = 'alphabetic'
+  // Reserve room for the page chip (drawn below) so a long kicker never overlaps it.
+  let kickerMaxW = maxW
+  if (model.pageLabel) {
+    ctx.font = `800 30px ${FONT}`
+    kickerMaxW = maxW - (ctx.measureText(model.pageLabel).width + 44) - 24
+  }
   ctx.fillStyle = ACCENT
   ctx.font = `800 34px ${FONT}`
-  ctx.fillText('RACE CLASSIFICATION', M, SAFE_TOP + 78)
+  ctx.fillText(fitText(ctx, model.label.toUpperCase(), kickerMaxW), M, SAFE_TOP + 78)
 
   // Page range chip (multi-page grid), right-aligned on the label baseline.
   if (model.pageLabel) {
