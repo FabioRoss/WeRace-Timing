@@ -8,6 +8,8 @@ import { StaffDashboard } from './pages/StaffDashboard'
 import { ExportPage } from './pages/ExportPage'
 import { SnapshotManager } from './pages/SnapshotManager'
 import { SnapshotEditor } from './pages/SnapshotEditor'
+import { ResultsIndex } from './pages/ResultsIndex'
+import { ResultsDetail } from './pages/ResultsDetail'
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
         <Route path="/e/:slot/export" element={<ExportPage />} />
         <Route path="/admin/snapshots" element={<SnapshotManager />} />
         <Route path="/admin/snapshots/:id" element={<SnapshotEditor />} />
+        <Route path="/results" element={<ResultsIndex />} />
+        <Route path="/results/:id" element={<ResultsDetail />} />
       </Routes>
     </BrowserRouter>
   )

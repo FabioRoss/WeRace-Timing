@@ -49,6 +49,13 @@ export function Landing() {
           </Link>
         ))}
       </div>
+      <Link
+        to="/results"
+        className="flex items-center justify-between rounded-xl bg-pit-900 px-5 py-3 ring-1 ring-pit-700 hover:ring-race-red"
+      >
+        <div className="font-bold uppercase tracking-wider">Past results</div>
+        <span className="text-xs text-ink-500">Published sessions →</span>
+      </Link>
       <p className="text-center text-xs text-ink-500">
         Drivers and team managers: use the link or QR code handed out by the staff.
       </p>
