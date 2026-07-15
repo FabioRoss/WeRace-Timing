@@ -202,8 +202,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     `event_name`/`run_type`). `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
     "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
-    (`StoryStat` best|gap|interval, **UI default interval**) chooses the per-kart right-column
-    value (best_lap_ms / gap_leader / gap_ahead) shown as a big value + small caption. A
+    (`StoryStat` best|gap|interval|pits, **UI default interval**) chooses the per-kart
+    right-column value (best_lap_ms / gap_leader / gap_ahead / `DriverRow.pits`) shown as a
+    big value + small caption. `pits` shows the feed pit-stop count on **all** rows incl. the
+    leader (populated on gate feeds; 0 on no-gate MyWeR, which doesn't report pit counts). A
     `label` option sets the kicker above the title (session-type selector: Free
     Practice/Qualifying/Race/Custom, **default Race**; fitted so a long custom label never
     overlaps the page chip). `showFastest` toggles the fastest-lap footer — when off,
