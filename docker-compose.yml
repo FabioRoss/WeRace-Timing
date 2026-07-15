@@ -7,6 +7,7 @@ services:
     volumes:
       - recordings:/app/backend/recordings
       - backgrounds:/app/backend/backgrounds
+      - snapshots:/app/backend/snapshots
     expose:
       - "8000"
 
@@ -30,5 +31,6 @@ services:
 volumes:
   recordings:
   backgrounds:
+  snapshots:
   caddy_data:
   caddy_config:

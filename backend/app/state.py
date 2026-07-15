@@ -357,6 +357,49 @@ class EventState:
             updated_at=self.updated_at,
         )
 
+    # ----------------------------------------------- snapshot persistence seam
+    # A saved snapshot is the live EventSnapshot plus the two collections the
+    # snapshot omits but the PDF needs (lap_history, pit_stops) and the penalty
+    # id counter (so amendments after a reload don't collide). The eight private
+    # tracking dicts are live-frame scratch only — a static saved snapshot never
+    # processes new frames, so they are deliberately dropped.
+
+    def export_state(self, source: SourceStatus) -> dict:
+        return {
+            "snapshot": self.snapshot(source).model_dump(),
+            "lap_history": {
+                k: [r.model_dump() for r in v] for k, v in self.lap_history.items()
+            },
+            "pit_stops": {k: [list(t) for t in v] for k, v in self.pit_stops.items()},
+            "penalty_seq": self._penalty_id,
+        }
+
+    @classmethod
+    def hydrate(cls, data: dict) -> "EventState":
+        """Rebuild a static EventState from `export_state` output — enough to
+        regenerate the PDF (classification, lap grid, pit/stint, penalties)."""
+        snap = data.get("snapshot", {})
+        st = cls(int(snap.get("slot", 0)))
+        # snap["race"] is already the effective race (flag override folded in),
+        # so leave flag_override at None — it only matters for live frames.
+        st.race = RaceInfo.model_validate(snap.get("race", {}))
+        st.drivers = [DriverRow.model_validate(d) for d in snap.get("drivers", [])]
+        st.session_best_ms = snap.get("session_best_ms")
+        st.session_best_kart = snap.get("session_best_kart", "")
+        st.recompute_positions = snap.get("recompute_positions", False)
+        st.auto_pitlane = snap.get("auto_pitlane", True)
+        st.penalties = [Penalty.model_validate(p) for p in snap.get("penalties", [])]
+        st._penalty_id = int(data.get("penalty_seq", len(st.penalties)))
+        st.lap_history = {
+            k: [LapRecord.model_validate(r) for r in v]
+            for k, v in data.get("lap_history", {}).items()
+        }
+        st.pit_stops = {
+            k: [tuple(t) for t in v] for k, v in data.get("pit_stops", {}).items()
+        }
+        st.updated_at = snap.get("updated_at", 0.0)
+        return st
+
     def kart_numbers(self) -> list[str]:
         return [d.kart_no for d in self.drivers if d.kart_no]
 

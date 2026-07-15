@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # team, so Race Control can delete a mistake first. Deleting before it fires
     # cancels the notification.
     penalty_notify_delay_s: float = 12.0
+    # Directory where saved session snapshots (JSON results archive) are kept.
+    snapshots_dir: Path = Path("snapshots")
+    # Saved snapshots auto-delete after this many days unless flagged to keep.
+    snapshot_ttl_days: int = 30
+    # How often the background GC sweeps for expired snapshots (seconds).
+    snapshot_gc_interval_s: float = 21600.0  # 6h
 
     host: str = "0.0.0.0"
     port: int = 8000
