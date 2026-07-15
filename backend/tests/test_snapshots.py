@@ -207,3 +207,25 @@ def test_admin_snapshot_pdf(api):
     assert api.get("/api/admin/snapshots/missing/timesheet.pdf", headers=SAFE).status_code == 404
     # safeword required
     assert api.get(f"/api/admin/snapshots/{sid}/timesheet.pdf").status_code == 401
+
+
+def test_public_results_only_published_and_no_private(api):
+    sid = _save_one(api)
+    # private + public notes set; not yet published
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE,
+              json={"private_notes": "steward only", "public_notes": "great race"})
+    # unpublished: invisible to the public API (no safeword)
+    assert api.get("/api/results").json()["results"] == []
+    assert api.get(f"/api/results/{sid}").status_code == 404
+    assert api.get(f"/api/results/{sid}/timesheet.pdf").status_code == 404
+
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    listed = api.get("/api/results").json()["results"]
+    assert [r["id"] for r in listed] == [sid]
+    detail = api.get(f"/api/results/{sid}").json()
+    assert detail["public_notes"] == "great race"
+    assert "private_notes" not in detail
+    # private notes never appear anywhere in the public payload
+    assert "steward only" not in api.get(f"/api/results/{sid}").text
+    assert detail["snapshot"]["drivers"][0]["kart_no"] == "7"
+    assert api.get(f"/api/results/{sid}/timesheet.pdf?penalties=1").content[:5] == b"%PDF-"

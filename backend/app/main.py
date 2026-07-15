@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from . import snapshots
 from .config import get_settings
 from .events import get_manager
-from .routers import admin, export, live, public, team
+from .routers import admin, export, live, public, results, team
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -59,6 +59,7 @@ app.include_router(public.router)
 app.include_router(admin.router)
 app.include_router(team.router)
 app.include_router(export.router)
+app.include_router(results.router)
 
 
 if FRONTEND_DIST.is_dir():
