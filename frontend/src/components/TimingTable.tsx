@@ -166,7 +166,10 @@ export function TimingTable({
                 className={`cursor-pointer border-b border-pit-800 ${
                   flashing.has(d.kart_no) ? 'lap-glow' : ''
                 } ${
-                  own ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60' : ''
+                  // Own-row highlight wins over the zebra (both set background-color).
+                  own
+                    ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60'
+                    : (index % 2 === 1 ? 'bg-pit-850' : '')
                 } ${d.finished ? 'opacity-60' : ''}`}
               >
                 {selectable && (
