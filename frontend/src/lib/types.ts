@@ -51,6 +51,18 @@ export interface DriverRow {
   pit_since_ts: number | null
 }
 
+export interface Penalty {
+  id: number
+  ts: number
+  kart_no: string
+  kind: 'time' | 'lap' | 'warning'
+  seconds: number       // time penalties: seconds added to total time
+  laps: number          // lap penalties: laps subtracted from the count
+  reason: string
+  served: boolean       // time penalties: served in the pit lane
+  notified: boolean
+}
+
 export interface SourceStatus {
   kind: string
   label: string
@@ -78,6 +90,7 @@ export interface Snapshot {
   auto_pitlane: boolean
   session_best_ms: number | null
   session_best_kart: string
+  penalties: Penalty[]
   updated_at: number
 }
 
@@ -110,6 +123,7 @@ export interface DriverView {
   run_type?: string
   ended?: boolean
   session_best_ms?: number | null
+  penalties?: Penalty[]
   updated_at: number
 }
 
