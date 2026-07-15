@@ -305,21 +305,25 @@ export function TeamDashboard() {
             </ul>
           </div>
 
-          {/* Your penalties & warnings */}
-          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-            <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
-            <PenaltyLog
-              penalties={snapshot?.penalties ?? []}
-              filterKart={kart}
-              empty="None — clean so far."
-            />
-          </div>
+          {/* Penalties & warnings — hidden when race control opts to (e.g. until
+              penalties are official). */}
+          {!snapshot?.hide_team_penalties && (
+            <>
+              <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+                <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
+                <PenaltyLog
+                  penalties={snapshot?.penalties ?? []}
+                  filterKart={kart}
+                  empty="None — clean so far."
+                />
+              </div>
 
-          {/* All penalties & warnings */}
-          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-            <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
-            <PenaltyLog penalties={snapshot?.penalties ?? []} />
-          </div>
+              <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
+                <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
+                <PenaltyLog penalties={snapshot?.penalties ?? []} />
+              </div>
+            </>
+          )}
 
           {/* Analysis: track position ring + charts */}
           <div className="lg:col-span-3 grid gap-4 lg:grid-cols-3">

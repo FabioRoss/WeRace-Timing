@@ -186,6 +186,7 @@ def status(slot: int) -> dict:
         "flag_override": event.state.flag_override,
         "recompute_positions": event.state.recompute_positions,
         "auto_pitlane": event.state.auto_pitlane,
+        "hide_team_penalties": event.state.hide_team_penalties,
         # Diagnostic: the first raw frames after connect, to inspect what the
         # upstream actually sends (init/grid sequences).
         "first_frames": event.source.first_frames if event.source else [],
@@ -276,23 +277,28 @@ async def flag_override(slot: int, body: FlagOverride) -> dict:
 class EventSettings(BaseModel):
     recompute_positions: bool | None = None
     auto_pitlane: bool | None = None
+    hide_team_penalties: bool | None = None
 
 
 @router.post("/e/{slot}/api/admin/settings")
 async def settings(slot: int, body: EventSettings) -> dict:
     """How the feed is interpreted for this event: recompute standings from
-    laps/time, and whether the venue has automatic pit-lane gates."""
+    laps/time, whether the venue has automatic pit-lane gates, and whether the
+    team dashboard hides its penalty panels."""
     event = get_event(slot)
     if body.recompute_positions is not None:
         event.state.recompute_positions = body.recompute_positions
     if body.auto_pitlane is not None:
         event.state.auto_pitlane = body.auto_pitlane
+    if body.hide_team_penalties is not None:
+        event.state.hide_team_penalties = body.hide_team_penalties
     event.state.updated_at = time.time()
     await event.broadcast_now()
     return {
         "ok": True,
         "recompute_positions": event.state.recompute_positions,
         "auto_pitlane": event.state.auto_pitlane,
+        "hide_team_penalties": event.state.hide_team_penalties,
     }
 
 

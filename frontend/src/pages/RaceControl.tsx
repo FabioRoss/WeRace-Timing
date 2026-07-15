@@ -395,6 +395,13 @@ function RaceControlInner() {
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
               />
+              <Toggle
+                label="Hide penalties from teams"
+                hint="On = the team dashboard hides its penalty panels (e.g. until penalties are official). Race control still sees everything."
+                checked={!!snapshot?.hide_team_penalties}
+                disabled={busy}
+                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { hide_team_penalties: v }, safeword: true }))}
+              />
 
               <div className="pt-2">
                 <h3 className="label-race mb-2">Recordings ({recordings.length})</h3>

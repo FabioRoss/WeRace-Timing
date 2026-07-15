@@ -70,6 +70,9 @@ class EventState:
         # whether the venue has automatic pit-lane gates (else pits are inferred).
         self.recompute_positions: bool = False
         self.auto_pitlane: bool = True
+        # Hide the penalty panels on the team dashboard (race control decides
+        # when teams may see penalties, e.g. only after the session).
+        self.hide_team_penalties: bool = False
         self.updated_at: float = 0.0
         # Bumped on every session rollover; the Event uses it to re-arm the
         # one-shot end-of-session auto-save for each new session.
@@ -93,9 +96,9 @@ class EventState:
 
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
-        settings = (self.recompute_positions, self.auto_pitlane)
+        settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties)
         self.__init__(self.slot)
-        self.recompute_positions, self.auto_pitlane = settings
+        self.recompute_positions, self.auto_pitlane, self.hide_team_penalties = settings
 
     # ------------------------------------------------------- penalties & warnings
 
@@ -355,6 +358,7 @@ class EventState:
             flag_override=self.flag_override,
             recompute_positions=self.recompute_positions,
             auto_pitlane=self.auto_pitlane,
+            hide_team_penalties=self.hide_team_penalties,
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
             penalties=list(self.penalties),
@@ -392,6 +396,7 @@ class EventState:
         st.session_best_kart = snap.get("session_best_kart", "")
         st.recompute_positions = snap.get("recompute_positions", False)
         st.auto_pitlane = snap.get("auto_pitlane", True)
+        st.hide_team_penalties = snap.get("hide_team_penalties", False)
         st.penalties = [Penalty.model_validate(p) for p in snap.get("penalties", [])]
         st._penalty_id = int(data.get("penalty_seq", len(st.penalties)))
         st.lap_history = {
