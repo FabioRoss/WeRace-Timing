@@ -453,6 +453,65 @@ def patch_snapshot(snapshot_id: str, body: SnapshotPatch) -> dict:
     return {"ok": True, "snapshot": snapshots.meta_of(rec)}
 
 
+# ---------------------------------------------------- event groups (snapshots)
+
+@router.get("/api/admin/snapshot-groups")
+def list_snapshot_groups() -> dict:
+    """All events (snapshot groups), published or not, for the manager UI."""
+    return {"groups": snapshots.list_groups(published_only=False)}
+
+
+class GroupAssign(BaseModel):
+    snapshot_ids: list[str] = Field(min_length=1)
+    group_id: str | None = None
+    group_name: str | None = Field(default=None, max_length=120)
+
+
+@router.post("/api/admin/snapshot-groups/assign")
+def assign_snapshot_group(body: GroupAssign) -> dict:
+    """Group snapshots into an event (existing `group_id` or a new `group_name`),
+    or ungroup them when neither is given. Events are per-track: assigning
+    snapshots that span multiple tracks is rejected."""
+    recs = []
+    for sid in body.snapshot_ids:
+        rec = snapshots.load_record(sid)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"snapshot not found: {sid}")
+        recs.append(rec)
+
+    wants_group = bool(body.group_id) or bool((body.group_name or "").strip())
+    if not wants_group:
+        for rec in recs:
+            rec["group_id"], rec["group_name"] = None, ""
+            snapshots.write_record(rec)
+        return {"ok": True, "group": None}
+
+    tracks = {(rec.get("track") or "").strip() for rec in recs}
+    if body.group_id:
+        match = next(
+            (g for g in snapshots.list_groups() if g["id"] == body.group_id), None
+        )
+        gid = body.group_id
+        name = ((body.group_name or "") or (match["name"] if match else "")).strip() or gid
+        if match:
+            tracks.add((match["track"] or "").strip())
+    else:
+        name = body.group_name.strip()
+        gid = snapshots.make_id(name)
+
+    tracks.discard("")
+    if len(tracks) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"snapshots span multiple tracks: {sorted(tracks)}",
+        )
+
+    for rec in recs:
+        rec["group_id"], rec["group_name"] = gid, name
+        snapshots.write_record(rec)
+    return {"ok": True, "group": {"id": gid, "name": name}}
+
+
 @router.delete("/api/admin/snapshots/{snapshot_id}")
 def delete_snapshot(snapshot_id: str) -> dict:
     try:

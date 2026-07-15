@@ -61,6 +61,38 @@ def get_result(snapshot_id: str) -> dict:
     return snapshots.public_view(_published_or_404(snapshot_id))
 
 
+@router.get("/api/events")
+def list_events() -> dict:
+    """Published events (snapshot groups) plus published sessions not in any
+    event ("loose"), so the results index can show both."""
+    events = snapshots.list_groups(published_only=True)
+    loose = [
+        snapshots.meta_of(r)
+        for r in snapshots.list_records()
+        if r.get("published") and not r.get("group_id")
+    ]
+    return {"events": events, "loose": loose}
+
+
+@router.get("/api/events/{group_id}")
+def get_event(group_id: str) -> dict:
+    """An event's published sessions (oldest-first) as full public views, one per
+    tab. 404 when the event has no published sessions."""
+    records = [
+        r for r in snapshots.list_records()
+        if r.get("published") and r.get("group_id") == group_id
+    ]
+    if not records:
+        raise HTTPException(status_code=404, detail="event not found")
+    records.sort(key=lambda r: r.get("created_at") or 0)
+    name = next((r.get("group_name") for r in records if r.get("group_name")), group_id)
+    track = next((r.get("track") for r in records if r.get("track")), "")
+    return {
+        "id": group_id, "name": name, "track": track,
+        "sessions": [snapshots.public_view(r) for r in records],
+    }
+
+
 @router.get("/api/results/{snapshot_id}/laps")
 def result_laps(snapshot_id: str, karts: str = Query(default="")) -> dict:
     """Lap-by-lap history for a published session (the same shape as the live

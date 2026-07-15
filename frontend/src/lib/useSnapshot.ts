@@ -30,8 +30,21 @@ export interface SnapshotRecord {
   private_notes?: string
   public_notes?: string
   pdf_config?: PdfConfig
+  group_id?: string | null
+  group_name?: string
   snapshot: Snapshot
   original_penalties?: Penalty[]
+}
+
+/** Lightweight list/card projection of a snapshot (no heavy `snapshot` block). */
+export type SnapshotMeta = Omit<SnapshotRecord, 'snapshot'>
+
+/** An event: several snapshots grouped under one name, on one track. */
+export interface EventGroup {
+  id: string
+  name: string
+  track: string
+  sessions: SnapshotMeta[]
 }
 
 /** Fetch a saved snapshot by URL (admin or public). Returns the record plus a

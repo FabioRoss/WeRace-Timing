@@ -176,6 +176,8 @@ def meta_of(record: dict) -> dict:
         "published": record.get("published", False),
         "trigger": record.get("trigger", ""),
         "slot": record.get("slot"),
+        "group_id": record.get("group_id"),
+        "group_name": record.get("group_name", ""),
         "event_name": race.get("event_name", ""),
         "run_type": race.get("run_type", ""),
         "driver_count": len(drivers),
@@ -197,6 +199,37 @@ def og_meta(record: dict) -> dict:
         "image_path": f"/api/results/{meta['id']}/card.png",
         "url_path": f"/results/{meta['id']}",
     }
+
+
+def list_groups(published_only: bool = False) -> list[dict]:
+    """Derive events (snapshot groups) from the store. An event bundles the
+    snapshots sharing a `group_id`; sessions are ordered oldest-first (so
+    Practice → Qualifying → Race read in order) and events newest-first."""
+    records = list_records()
+    if published_only:
+        records = [r for r in records if r.get("published")]
+    groups: dict[str, dict] = {}
+    for rec in records:
+        gid = rec.get("group_id")
+        if not gid:
+            continue
+        group = groups.get(gid)
+        if group is None:
+            group = groups[gid] = {
+                "id": gid, "name": rec.get("group_name") or "",
+                "track": rec.get("track") or "", "sessions": [],
+            }
+        group["sessions"].append(meta_of(rec))
+    events = list(groups.values())
+    for group in events:
+        group["sessions"].sort(key=lambda m: m.get("created_at") or 0)
+        if not group["name"]:
+            group["name"] = group["sessions"][0]["name"] if group["sessions"] else group["id"]
+    events.sort(
+        key=lambda g: max((s.get("created_at") or 0 for s in g["sessions"]), default=0),
+        reverse=True,
+    )
+    return events
 
 
 def public_view(record: dict) -> dict:

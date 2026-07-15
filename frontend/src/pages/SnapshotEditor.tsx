@@ -57,6 +57,8 @@ function EditorInner() {
 
         <DetailsCard record={record} url={url} onSaved={refetch} />
 
+        <EventPicker record={record} onSaved={refetch} />
+
         <div className="flex gap-2">
           {(['result', 'pdf', 'story'] as const).map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)}
@@ -108,6 +110,78 @@ function EditorInner() {
         )}
         {tab === 'story' && <StoryStudio snapshot={snapshot} />}
       </main>
+    </div>
+  )
+}
+
+function EventPicker({ record, onSaved }: {
+  record: { id: string; track: string; group_id?: string | null; group_name?: string }
+  onSaved: () => void
+}) {
+  const [groups, setGroups] = useState<{ id: string; name: string; track: string }[]>([])
+  const [newName, setNewName] = useState('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    void api<{ groups: { id: string; name: string; track: string }[] }>(
+      '/api/admin/snapshot-groups', { safeword: true },
+    ).then((r) => setGroups(r.groups)).catch(() => {})
+  }, [])
+
+  const assign = async (body: { group_id?: string; group_name?: string }) => {
+    try {
+      await api('/api/admin/snapshot-groups/assign', {
+        method: 'POST', safeword: true, body: { snapshot_ids: [record.id], ...body },
+      })
+      setErr(''); setNewName(''); setMsg('Saved ✓'); setTimeout(() => setMsg(''), 2500)
+      onSaved()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // Only events on the same track are valid targets (events are per-track).
+  const options = groups.filter((g) => !record.track || g.track === record.track || g.id === record.group_id)
+
+  return (
+    <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+      <h3 className="label-race mb-2">Event</h3>
+      <p className="mb-3 text-sm text-ink-300">
+        {record.group_name
+          ? <>In event <span className="font-bold text-race-red">{record.group_name}</span>.</>
+          : <span className="text-ink-500">Not in an event — grouped sessions share one public page.</span>}
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {options.length > 0 && (
+          <select
+            value={record.group_id ?? ''}
+            onChange={(e) => { if (e.target.value) void assign({ group_id: e.target.value }) }}
+            className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600">
+            <option value="">Move to event…</option>
+            {options.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="New event name"
+          className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600 focus:ring-race-red"
+        />
+        <button type="button" disabled={!newName.trim()}
+          onClick={() => void assign({ group_name: newName.trim() })}
+          className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase text-white hover:brightness-110 disabled:opacity-40">
+          Create event
+        </button>
+        {record.group_id && (
+          <button type="button" onClick={() => void assign({})}
+            className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
+            Remove from event
+          </button>
+        )}
+        {msg && <span className="text-xs text-race-green">{msg}</span>}
+        {err && <span className="text-xs text-race-red">{err}</span>}
+      </div>
     </div>
   )
 }

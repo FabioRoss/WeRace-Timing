@@ -347,6 +347,51 @@ def test_snapshot_laps_endpoints(client, tmp_path, monkeypatch):
     assert pub.status_code == 200 and len(pub.json()["laps"]["7"]) == 3
 
 
+def test_event_groups_flow(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+
+    def mkrec(sid, track, created, sess):
+        snapshots.write_record({
+            "id": sid, "created_at": created, "name": sess, "track": track,
+            "published": True, "group_id": None, "group_name": "",
+            "snapshot": {"drivers": [], "race": {"run_type": sess}},
+        })
+    mkrec("aaa-000001", "Rozzano", 100.0, "Practice")
+    mkrec("bbb-000002", "Rozzano", 200.0, "Race")
+    mkrec("ccc-000003", "Cremona", 300.0, "Race")
+
+    # Bundle the two Rozzano sessions into a new event.
+    r = client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                    json={"snapshot_ids": ["aaa-000001", "bbb-000002"],
+                          "group_name": "Club Round 1"})
+    assert r.status_code == 200
+    gid = r.json()["group"]["id"]
+
+    # Events are per-track: a cross-track assignment is rejected.
+    bad = client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                      json={"snapshot_ids": ["bbb-000002", "ccc-000003"], "group_name": "X"})
+    assert bad.status_code == 422
+
+    # Public index: one event (2 ordered sessions) + the Cremona race loose.
+    ev = client.get("/api/events").json()
+    assert len(ev["events"]) == 1 and ev["events"][0]["id"] == gid
+    assert [s["run_type"] for s in ev["events"][0]["sessions"]] == ["Practice", "Race"]
+    assert [x["id"] for x in ev["loose"]] == ["ccc-000003"]
+
+    # Event detail: ordered full public views.
+    detail = client.get(f"/api/events/{gid}").json()
+    assert detail["name"] == "Club Round 1" and detail["track"] == "Rozzano"
+    assert len(detail["sessions"]) == 2 and detail["sessions"][0]["run_type"] == "Practice"
+
+    # Ungroup removes the event again.
+    client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                json={"snapshot_ids": ["aaa-000001", "bbb-000002"]})
+    assert client.get("/api/events").json()["events"] == []
+    assert client.get(f"/api/events/{gid}").status_code == 404
+
+
 def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     from app.config import get_settings
     monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)

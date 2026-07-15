@@ -10,6 +10,7 @@ import { SnapshotManager } from './pages/SnapshotManager'
 import { SnapshotEditor } from './pages/SnapshotEditor'
 import { ResultsIndex } from './pages/ResultsIndex'
 import { ResultsDetail } from './pages/ResultsDetail'
+import { EventDetail } from './pages/EventDetail'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/admin/snapshots/:id" element={<SnapshotEditor />} />
         <Route path="/results" element={<ResultsIndex />} />
         <Route path="/results/:id" element={<ResultsDetail />} />
+        <Route path="/events/:id" element={<EventDetail />} />
       </Routes>
     </BrowserRouter>
   )
