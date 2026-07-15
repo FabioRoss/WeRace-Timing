@@ -6,6 +6,12 @@ import {
   type StoryModel, type StoryStat, type BgTransform,
 } from '../lib/story'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
+import { getSafeword } from '../lib/api'
+
+interface SavedBg { name: string; size_bytes: number; modified: number }
+
+const BG_API = '/api/admin/backgrounds'
+const bgSrc = (name: string) => `${BG_API}/${name}?safeword=${encodeURIComponent(getSafeword())}`
 
 type Mode = 'image' | 'video'
 type VideoScope = 'page' | 'all'
@@ -43,6 +49,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
   const [bgName, setBgName] = useState('')
   const [bgTransform, setBgTransform] = useState<BgTransform>(DEFAULT_BG_TRANSFORM)
+  // The freshly-uploaded File is kept so the operator can opt to save it. It is
+  // null when the background came from the server (already saved) or none.
+  const [bgFile, setBgFile] = useState<File | null>(null)
+  const [saved, setSaved] = useState<SavedBg[]>([])
+  const [savePrompt, setSavePrompt] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
@@ -79,11 +91,14 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
 
   const onPickBackground = useCallback(async (file: File | undefined) => {
     setError('')
+    setSavePrompt(false)
+    setSaveMsg('')
     if (!file) return
     try {
       const bitmap = await createImageBitmap(file)
       setBg(bitmap)
       setBgName(file.name)
+      setBgFile(file)                     // a fresh upload — offer to save later
       setBgTransform(DEFAULT_BG_TRANSFORM) // fresh frame starts cover-fit
     } catch {
       setError('Could not read that image.')
@@ -93,8 +108,64 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const clearBackground = useCallback(() => {
     setBg(null)
     setBgName('')
+    setBgFile(null)
+    setSavePrompt(false)
+    setSaveMsg('')
     setBgTransform(DEFAULT_BG_TRANSFORM)
   }, [])
+
+  // ---- Saved backgrounds (opt-in server store, shared across sessions) ----
+  const refreshSaved = useCallback(async () => {
+    try {
+      const res = await fetch(BG_API, { headers: { 'X-Safeword': getSafeword() } })
+      if (res.ok) setSaved((await res.json()).backgrounds ?? [])
+    } catch { /* offline — the strip just stays empty */ }
+  }, [])
+
+  useEffect(() => { void refreshSaved() }, [refreshSaved])
+
+  const loadSaved = useCallback(async (name: string) => {
+    setError('')
+    setSavePrompt(false)
+    setSaveMsg('')
+    try {
+      const res = await fetch(bgSrc(name), { headers: { 'X-Safeword': getSafeword() } })
+      if (!res.ok) throw new Error()
+      const bitmap = await createImageBitmap(await res.blob())
+      setBg(bitmap)
+      setBgName(name)
+      setBgFile(null)                     // from the server — no re-save prompt
+      setBgTransform(DEFAULT_BG_TRANSFORM)
+    } catch {
+      setError('Could not load that saved background.')
+    }
+  }, [])
+
+  const deleteSaved = useCallback(async (name: string) => {
+    try {
+      await fetch(`${BG_API}/${name}`, { method: 'DELETE', headers: { 'X-Safeword': getSafeword() } })
+    } catch { /* ignore */ }
+    void refreshSaved()
+  }, [refreshSaved])
+
+  const saveCurrent = useCallback(async () => {
+    if (!bgFile) return
+    setSaveMsg('')
+    try {
+      const form = new FormData()
+      form.append('file', bgFile)
+      const res = await fetch(BG_API, {
+        method: 'POST', headers: { 'X-Safeword': getSafeword() }, body: form,
+      })
+      if (res.status === 409) { setSaveMsg('Store is full (5) — delete one first.'); return }
+      if (!res.ok) { setSaveMsg('Could not save the background.'); return }
+      setSaved((await res.json()).backgrounds ?? [])
+      setBgFile(null)          // now it lives on the server
+      setSavePrompt(false)
+    } catch {
+      setSaveMsg('Could not save the background.')
+    }
+  }, [bgFile])
 
   const restorePreview = useCallback(() => {
     const ctx = canvasRef.current?.getContext('2d')
@@ -109,7 +180,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     canvas.toBlob((blob) => {
       if (blob) downloadBlob(blob, `story-p${pageIndex + 1}-${stamp()}.png`)
     }, 'image/png')
-  }, [model, bg, accent, bgTransform, pageIndex])
+    if (bgFile) setSavePrompt(true)
+  }, [model, bg, accent, bgTransform, pageIndex, bgFile])
 
   const downloadAllPages = useCallback(async () => {
     const canvas = canvasRef.current
@@ -130,8 +202,9 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setProgress('')
       setBusy(false)
       restorePreview()
+      if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, title, stat, bg, accent, bgTransform, pageCount, restorePreview])
+  }, [snapshot, perPage, title, stat, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -169,8 +242,9 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setProgress('')
       setBusy(false)
       restorePreview()
+      if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview])
+  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
 
   // Drag the preview to pan the background. Pointer deltas are in on-screen px;
   // scale them to canvas px so a drag tracks the cursor 1:1.
@@ -354,8 +428,63 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 </p>
               </div>
             )}
+
+            {savePrompt && bgFile && (
+              <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-race-red/40">
+                <p className="text-xs text-ink-200">Save this background on the server for later use?</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveCurrent()}
+                    className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSavePrompt(false)}
+                    className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600"
+                  >
+                    Not now
+                  </button>
+                  {saveMsg && <span className="text-[0.7rem] text-race-red">{saveMsg}</span>}
+                </div>
+              </div>
+            )}
+
+            {saved.length > 0 && (
+              <div className="space-y-1">
+                <span className="label-race">Saved on server ({saved.length}/5)</span>
+                <div className="flex flex-wrap gap-2">
+                  {saved.map((s) => (
+                    <div key={s.name} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => void loadSaved(s.name)}
+                        title="Use this background"
+                        className={`block h-14 w-9 overflow-hidden rounded ring-1 ${
+                          bgName === s.name ? 'ring-race-red' : 'ring-pit-700 hover:ring-pit-500'
+                        }`}
+                      >
+                        <img src={bgSrc(s.name)} alt="" className="h-full w-full object-cover" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteSaved(s.name)}
+                        title="Delete"
+                        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-race-red text-[0.6rem] font-bold text-white opacity-0 group-hover:opacity-100"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <p className="text-[0.65rem] text-ink-500">
-              Stays in your browser — the image is never uploaded or stored on the server.
+              A background stays in your browser and is never uploaded — unless you choose to
+              save it above, where it's kept on the server (max 5) for reuse.
             </p>
           </div>
         </Field>
