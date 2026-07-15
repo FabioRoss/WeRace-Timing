@@ -204,8 +204,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
     (`StoryStat` best|gap|interval|pits, **UI default interval**) chooses the per-kart
     right-column value (best_lap_ms / gap_leader / gap_ahead / `DriverRow.pits`) shown as a
-    big value + small caption. `pits` shows the feed pit-stop count on **all** rows incl. the
-    leader (populated on gate feeds; 0 on no-gate MyWeR, which doesn't report pit counts). A
+    big value + small caption. `pits` shows the pit-stop count on **all** rows incl. the
+    leader, reading `DriverRow.pits` — which `state.py:_track_laps` already makes correct in
+    both modes: the feed count on gate venues (`auto_pitlane` ON) and the **inferred** count
+    (`_auto_pits`, from long-lap detection) on no-gate venues (`auto_pitlane` OFF). So the
+    story shows real pit stops on MyWeR endurance too, as long as auto_pitlane is off. A
     `label` option sets the kicker above the title (session-type selector: Free
     Practice/Qualifying/Race/Custom, **default Race**; fitted so a long custom label never
     overlaps the page chip). `showFastest` toggles the fastest-lap footer — when off,
