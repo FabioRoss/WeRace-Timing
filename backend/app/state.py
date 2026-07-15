@@ -4,7 +4,7 @@ import logging
 import statistics
 import time
 
-from .models import DriverRow, EventSnapshot, Flag, LapRecord, RaceInfo, SourceStatus
+from .models import DriverRow, EventSnapshot, Flag, LapRecord, Penalty, RaceInfo, SourceStatus
 from .timeparse import parse_duration_ms
 
 log = logging.getLogger(__name__)
@@ -79,12 +79,55 @@ class EventState:
         self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
         self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
         self._auto_pits: dict[str, int] = {}     # inferred pit-stop count (no gates)
+        # --- Penalties & warnings (race control) -------------------------------
+        # In-memory only, like team messages: a server restart mid-race loses
+        # these. This list + `_penalty_id` are the single storage seam — nothing
+        # else touches penalties directly. To persist later, serialize this list
+        # per slot (e.g. to a file under a named volume, mirroring recordings)
+        # whenever it changes and reload it here in __init__.
+        self.penalties: list[Penalty] = []
+        self._penalty_id: int = 0
 
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
         settings = (self.recompute_positions, self.auto_pitlane)
         self.__init__(self.slot)
         self.recompute_positions, self.auto_pitlane = settings
+
+    # ------------------------------------------------------- penalties & warnings
+
+    def add_penalty(
+        self, kart_no: str, kind: str, *, seconds: int = 0, laps: int = 0, reason: str = ""
+    ) -> Penalty:
+        self._penalty_id += 1
+        pen = Penalty(
+            id=self._penalty_id,
+            kart_no=kart_no,
+            kind=kind,  # type: ignore[arg-type]
+            seconds=seconds,
+            laps=laps,
+            reason=reason,
+        )
+        self.penalties.append(pen)
+        return pen
+
+    def find_penalty(self, penalty_id: int) -> Penalty | None:
+        for pen in self.penalties:
+            if pen.id == penalty_id:
+                return pen
+        return None
+
+    def set_penalty_served(self, penalty_id: int, served: bool) -> Penalty | None:
+        pen = self.find_penalty(penalty_id)
+        if pen is not None:
+            pen.served = served
+        return pen
+
+    def remove_penalty(self, penalty_id: int) -> Penalty | None:
+        pen = self.find_penalty(penalty_id)
+        if pen is not None:
+            self.penalties.remove(pen)
+        return pen
 
     # ------------------------------------------------------------------ input
 
@@ -201,6 +244,8 @@ class EventState:
         self._pit_counts.clear()
         self._stint_started.clear()
         self._auto_pits.clear()
+        # A genuine new session voids the previous session's penalties/warnings.
+        self.penalties.clear()
         self.session_best_ms = None
         self.session_best_kart = ""
 
@@ -308,6 +353,7 @@ class EventState:
             auto_pitlane=self.auto_pitlane,
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
+            penalties=list(self.penalties),
             updated_at=self.updated_at,
         )
 
@@ -358,6 +404,8 @@ class EventState:
             "run_type": self.race.run_type,
             "ended": self.race.ended,
             "session_best_ms": self.session_best_ms,
+            # The driver's own penalties/warnings (compact driver payload).
+            "penalties": [p.model_dump() for p in self.penalties if p.kart_no == kart_no],
             "updated_at": self.updated_at,
         }
 

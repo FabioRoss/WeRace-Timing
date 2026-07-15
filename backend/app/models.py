@@ -89,6 +89,34 @@ class Message(BaseModel):
     priority: Literal["info", "warning", "urgent"] = "info"
 
 
+class Penalty(BaseModel):
+    """A race-control penalty or warning against a single kart.
+
+    Kinds:
+      - "time":    +`seconds` added to the kart's total time in the final
+                   (penalty-adjusted) classification. Served in the pit lane;
+                   once `served` it is NOT applied to the result.
+      - "lap":     `laps` subtracted from the kart's lap count in the final
+                   classification. Results-only (no pit serving); applies while
+                   present, removed by deleting it.
+      - "warning": no effect on the result; a formal notice only.
+    Only UNSERVED time/lap penalties are applied to the PDF result.
+    """
+
+    id: int
+    ts: float = Field(default_factory=time.time)
+    kart_no: str
+    kind: Literal["time", "lap", "warning"]
+    seconds: int = 0                    # time penalties: seconds added to total time
+    laps: int = 0                       # lap penalties: laps subtracted from the count
+    reason: str = ""
+    served: bool = False                # time penalties: served in the pit lane
+    # Whether the delayed team notification has already been sent. Staff get a
+    # short grace window (Settings.penalty_notify_delay_s) to delete a mistake
+    # before the team is notified; deleting before then cancels the notice.
+    notified: bool = False
+
+
 class SourceStatus(BaseModel):
     kind: str = ""                  # mywer | apex | simulator | replay
     label: str = ""
@@ -123,6 +151,8 @@ class EventSnapshot(BaseModel):
     auto_pitlane: bool = True
     session_best_ms: int | None = None
     session_best_kart: str = ""
+    # Race-control penalties & warnings (full current list every broadcast).
+    penalties: list[Penalty] = []
     updated_at: float = 0.0
 
 
