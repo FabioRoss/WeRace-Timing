@@ -19,6 +19,10 @@ interface Props {
   selectedKarts?: string[]
   compareColors?: Record<string, string>
   onToggleKart?: (kart: string) => void
+  // Saved snapshot: where the row-click driver modal reads its lap history from
+  // (e.g. `/api/results/{id}`), instead of the live feed. Static → no polling.
+  lapsBase?: string
+  safeword?: boolean
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -39,6 +43,7 @@ function barStyle(pct: number, smooth: boolean): CSSProperties {
 export function TimingTable({
   snapshot, highlightKart, compact = false, orderMode = 'race', ring = true,
   selectable = false, selectedKarts, compareColors, onToggleKart,
+  lapsBase, safeword,
 }: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
@@ -259,6 +264,8 @@ export function TimingTable({
           snapshot={snapshot}
           kart={detailKart}
           onClose={() => setDetailKart(null)}
+          lapsBase={lapsBase}
+          safeword={safeword}
         />
       )}
     </div>

@@ -8,25 +8,32 @@ interface Props {
   snapshot: Snapshot
   kart: string
   onClose: () => void
+  // For a saved snapshot, the laps base (e.g. `/api/results/{id}` or
+  // `/api/admin/snapshots/{id}`) — the modal reads its history from there
+  // instead of the live feed, whose slot is disconnected. Static → no polling.
+  lapsBase?: string
+  safeword?: boolean
 }
 
 /** Per-driver lap history panel, opened by clicking a timing-table row. */
-export function DriverDetail({ snapshot, kart, onClose }: Props) {
+export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = false }: Props) {
   const [laps, setLaps] = useState<LapPoint[] | null>(null)
   const driver = snapshot.drivers.find((d) => d.kart_no === kart)
 
   useEffect(() => {
     let stop = false
+    const url = lapsBase
+      ? `${lapsBase}/laps?karts=${encodeURIComponent(kart)}`
+      : `/e/${snapshot.slot}/api/laps?karts=${encodeURIComponent(kart)}`
     const load = () =>
-      api<{ laps: Record<string, LapPoint[]> }>(
-        `/e/${snapshot.slot}/api/laps?karts=${encodeURIComponent(kart)}`,
-      )
+      api<{ laps: Record<string, LapPoint[]> }>(url, { safeword })
         .then((r) => { if (!stop) setLaps(r.laps[kart] ?? []) })
         .catch((e) => console.error('[driver detail] laps fetch failed:', e))
     void load()
-    const t = setInterval(load, 10000)
-    return () => { stop = true; clearInterval(t) }
-  }, [snapshot.slot, kart])
+    // A saved snapshot never changes; only the live feed needs polling.
+    const t = lapsBase ? null : setInterval(load, 10000)
+    return () => { stop = true; if (t) clearInterval(t) }
+  }, [snapshot.slot, kart, lapsBase, safeword])
 
   const stats = useMemo(() => {
     const all = laps ?? []
@@ -100,7 +107,9 @@ export function DriverDetail({ snapshot, kart, onClose }: Props) {
               <p className="p-4 text-center text-sm text-ink-500">Loading lap history…</p>
             ) : laps.length === 0 ? (
               <p className="p-4 text-center text-sm text-ink-500">
-                No laps recorded yet — history starts when the dashboard server sees the kart cross the line.
+                {lapsBase
+                  ? 'No lap history recorded for this kart in this session.'
+                  : 'No laps recorded yet — history starts when the dashboard server sees the kart cross the line.'}
               </p>
             ) : (
               <>

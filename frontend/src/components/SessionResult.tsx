@@ -33,7 +33,12 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
             <OrderToggle mode={orderMode} onChange={setOrderMode} />
           </div>
         )}
-        <TimingTable snapshot={snapshot} orderMode={isRace ? orderMode : 'race'} ring={false} />
+        <TimingTable
+          snapshot={snapshot}
+          orderMode={isRace ? orderMode : 'race'}
+          ring={false}
+          lapsBase={baseUrl}
+        />
       </div>
 
       {snapshot.penalties.length > 0 && (

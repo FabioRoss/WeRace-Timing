@@ -58,7 +58,9 @@ frontend/src/
                        (ring={false} where a page mounts its own)
   components/TrackRing.tsx    F1-style position ring; relativeTo/pitPlan/selection
                        props power the team-dashboard version
-  components/DriverDetail.tsx lap-history modal (pace/consistency/pit stats)
+  components/DriverDetail.tsx lap-history modal (pace/consistency/pit stats); reads the live
+                       feed by default, or a saved snapshot's laps when TimingTable is given
+                       `lapsBase` (results/event/editor) — static, no polling
   components/LapCharts.tsx    Recharts lap-time + gap charts (legend click toggles)
   components/OrderToggle.tsx  per-viewer Default/Best-lap ordering (races only)
   lib/lapProgress.ts   useServerNow (clock-skew-corrected ticks) + lapFraction +
@@ -326,7 +328,9 @@ penalty_seq, original_penalties}`.
   it. Frontend factors `components/SessionResult.tsx` (the public body: notes + classification **with
   no track ring** + penalties + `SnapshotLapCharts` + PDF) reused by `ResultsDetail` and every
   `EventDetail` tab; `components/SnapshotLapCharts.tsx` picks karts and draws the lap-time trend
-  from `{base}/laps` (reuses `LapCharts.LapTimeChart`).
+  from `{base}/laps` (reuses `LapCharts.LapTimeChart`). The classification **row-click modal**
+  (`DriverDetail`) also reads its lap history from `{base}/laps` when `TimingTable`/`SessionResult`
+  pass `lapsBase` (results/event tabs + editor, `safeword` for admin) — otherwise the live feed.
 - **Admin API** (safeword, `admin.py`): `GET/PATCH/DELETE /api/admin/snapshots[/{id}]`
   (name/track/tags/notes/keep/published/**pdf_config**), penalty amend on a stored record
   (`.../{id}/penalty[...]` add/serve/remove/`revert` to `original_penalties`; validation shared
