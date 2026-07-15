@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import type { PdfConfig } from '../components/TimesheetPanel'
 import type { Penalty, Snapshot } from './types'
 
 export interface PodiumEntry {
@@ -28,6 +29,7 @@ export interface SnapshotRecord {
   podium?: PodiumEntry[]
   private_notes?: string
   public_notes?: string
+  pdf_config?: PdfConfig
   snapshot: Snapshot
   original_penalties?: Penalty[]
 }

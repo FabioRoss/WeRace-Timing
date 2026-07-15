@@ -96,6 +96,10 @@ function EditorInner() {
             leaderName={leader?.name ?? ''}
             leaderKart={leader?.kart_no ?? ''}
             fastest={fastest}
+            initialConfig={record.pdf_config}
+            onSaveConfig={(pdf_config) =>
+              api(url, { method: 'PATCH', body: { pdf_config }, safeword: true }).then(refetch)
+            }
           />
         )}
         {tab === 'story' && <StoryStudio snapshot={snapshot} />}

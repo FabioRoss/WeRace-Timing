@@ -302,6 +302,26 @@ def test_manual_snapshot_save(client, tmp_path, monkeypatch):
     assert snapshots.load_record(meta["id"])["snapshot"]["drivers"][0]["kart_no"] == "7"
 
 
+def test_snapshot_pdf_config_saved_and_applied(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    seed()
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    # Persist a public PDF layout; unknown keys are dropped, values coerced.
+    r = client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD,
+                     json={"pdf_config": {"grid": False, "charts": True, "bogus": 1},
+                           "published": True})
+    assert r.status_code == 200
+    assert snapshots.load_record(sid)["pdf_config"] == {"grid": False, "charts": True}
+
+    # Public download works with no params (uses the saved layout as default)…
+    assert client.get(f"/api/results/{sid}/timesheet.pdf").content[:5] == b"%PDF-"
+    # …and an explicit query param still overrides it.
+    assert client.get(f"/api/results/{sid}/timesheet.pdf?grid=1").content[:5] == b"%PDF-"
+
+
 def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     from app.config import get_settings
     monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)

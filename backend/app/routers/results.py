@@ -127,13 +127,22 @@ def result_card(snapshot_id: str) -> Response:
 
 @router.get("/api/results/{snapshot_id}/timesheet.pdf")
 def result_pdf(
-    snapshot_id: str, charts: bool = False, grid: bool = True,
-    pits: bool = False, stints: bool = False, pitest: bool = False,
-    penalties: bool = False,
-    event: str = "", session: str = "", accent: str = "#e10600",
+    snapshot_id: str,
+    charts: bool | None = None, grid: bool | None = None,
+    pits: bool | None = None, stints: bool | None = None, pitest: bool | None = None,
+    penalties: bool | None = None,
+    event: str | None = None, session: str | None = None, accent: str | None = None,
 ) -> Response:
+    """Public timesheet. The layout defaults to the snapshot's saved `pdf_config`
+    (what the operator picked); any explicit query param overrides it."""
     record = _published_or_404(snapshot_id)
-    return snapshot_pdf_response(
-        record, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
-        penalties=penalties, event=event, session=session, accent=accent,
-    )
+    config = snapshots.effective_pdf_config(record)
+    overrides = {
+        "charts": charts, "grid": grid, "pits": pits, "stints": stints,
+        "pitest": pitest, "penalties": penalties,
+        "event": event, "session": session, "accent": accent,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            config[key] = value
+    return snapshot_pdf_response(record, **config)

@@ -29,6 +29,36 @@ log = logging.getLogger(__name__)
 SNAPSHOT_VERSION = 1
 _ID_RE = re.compile(r"[A-Za-z0-9_-]+")
 
+# The public-download PDF layout an operator can persist per snapshot. Keys
+# mirror the export endpoint params (and the TimesheetPanel toggles). Applied by
+# the public `timesheet.pdf` route as the default; explicit query params still
+# override it.
+PDF_CONFIG_DEFAULTS = {
+    "charts": False, "grid": True, "pits": False, "stints": False,
+    "pitest": False, "penalties": True,
+    "event": "", "session": "", "accent": "#e10600",
+}
+_PDF_BOOL_KEYS = ("charts", "grid", "pits", "stints", "pitest", "penalties")
+_PDF_STR_KEYS = ("event", "session", "accent")
+
+
+def sanitize_pdf_config(config: dict | None) -> dict:
+    """Keep only the recognised PDF-config keys, coerced to safe types."""
+    config = config or {}
+    out: dict = {}
+    for key in _PDF_BOOL_KEYS:
+        if key in config:
+            out[key] = bool(config[key])
+    for key in _PDF_STR_KEYS:
+        if config.get(key) is not None:
+            out[key] = str(config[key])[:120]
+    return out
+
+
+def effective_pdf_config(record: dict) -> dict:
+    """A snapshot's saved PDF layout merged over the defaults (all keys present)."""
+    return {**PDF_CONFIG_DEFAULTS, **sanitize_pdf_config(record.get("pdf_config"))}
+
 
 def _dir() -> Path:
     # Read the setting fresh each call so tests can monkeypatch it cleanly.

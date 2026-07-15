@@ -2,11 +2,30 @@ import { useEffect, useRef, useState } from 'react'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
 import { fmtLap } from '../lib/format'
 
+/** The chrono-timesheet layout options, matching the export endpoint params.
+ * Persisted per snapshot (as `pdf_config`) to become the public download's
+ * default. */
+export interface PdfConfig {
+  charts?: boolean
+  grid?: boolean
+  pits?: boolean
+  stints?: boolean
+  pitest?: boolean
+  penalties?: boolean
+  event?: string
+  session?: string
+  accent?: string
+}
+
 /**
  * The chrono-timesheet PDF options panel. Reused for live export and for saved
  * snapshots by swapping `pdfBase` (the endpoint that builds the PDF); pass a
  * `safeword` when the endpoint is safeword-gated (the download is a plain
  * navigation, so it travels as a query param like the backgrounds serve).
+ *
+ * For a saved snapshot, `initialConfig` seeds the toggles from the persisted
+ * layout and `onSaveConfig` adds a "Save as public default" button that stores
+ * the current selection (what the public download then uses).
  */
 export function TimesheetPanel({
   pdfBase,
@@ -19,6 +38,8 @@ export function TimesheetPanel({
   leaderName,
   leaderKart,
   fastest,
+  initialConfig,
+  onSaveConfig,
 }: {
   pdfBase: string
   safeword?: string
@@ -30,27 +51,47 @@ export function TimesheetPanel({
   leaderName: string
   leaderKart: string
   fastest: { ms: number; kart: string } | null
+  initialConfig?: PdfConfig
+  onSaveConfig?: (config: PdfConfig) => Promise<void> | void
 }) {
-  const [charts, setCharts] = useState(false)
-  const [grid, setGrid] = useState(true)
-  const [pits, setPits] = useState(false)
-  const [stints, setStints] = useState(false)
-  const [pitEstimate, setPitEstimate] = useState(false)
-  const [penalties, setPenalties] = useState(false)
-  const [accent, setAccent] = useState(DEFAULT_ACCENT)
-  const [eventOverride, setEventOverride] = useState('')
-  const [sessionOverride, setSessionOverride] = useState('')
+  const [charts, setCharts] = useState(initialConfig?.charts ?? false)
+  const [grid, setGrid] = useState(initialConfig?.grid ?? true)
+  const [pits, setPits] = useState(initialConfig?.pits ?? false)
+  const [stints, setStints] = useState(initialConfig?.stints ?? false)
+  const [pitEstimate, setPitEstimate] = useState(initialConfig?.pitest ?? false)
+  const [penalties, setPenalties] = useState(initialConfig?.penalties ?? false)
+  const [accent, setAccent] = useState(initialConfig?.accent || DEFAULT_ACCENT)
+  const [eventOverride, setEventOverride] = useState(initialConfig?.event ?? '')
+  const [sessionOverride, setSessionOverride] = useState(initialConfig?.session ?? '')
+  const [savedConfig, setSavedConfig] = useState('')
 
-  // Seed the editable fields once from the session, then the user owns them.
+  // Seed the editable name fields once from the session (unless a saved config
+  // already supplied them), then the user owns them.
   const seeded = useRef(false)
   useEffect(() => {
     if (seeded.current) return
     if (eventName || runType) {
-      if (eventName) setEventOverride(eventName)
-      if (runType) setSessionOverride(runType)
+      if (eventName && !initialConfig?.event) setEventOverride(eventName)
+      if (runType && !initialConfig?.session) setSessionOverride(runType)
       seeded.current = true
     }
-  }, [eventName, runType])
+  }, [eventName, runType, initialConfig])
+
+  const currentConfig = (): PdfConfig => ({
+    charts, grid, pits, stints,
+    pitest: pits && pitEstimate,
+    penalties, accent,
+    event: eventOverride.trim(),
+    session: sessionOverride.trim(),
+  })
+
+  const saveConfig = () => {
+    if (!onSaveConfig) return
+    void Promise.resolve(onSaveConfig(currentConfig())).then(() => {
+      setSavedConfig('Saved as public default ✓')
+      setTimeout(() => setSavedConfig(''), 2500)
+    })
+  }
 
   // Append a per-click timestamp so no cache ever hands back a stale copy, then
   // download it programmatically.
@@ -165,13 +206,30 @@ export function TimesheetPanel({
           <AccentPicker value={accent} onChange={setAccent} />
         </div>
 
-        <button
-          type="button"
-          onClick={downloadPdf}
-          className="mt-5 inline-block rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110"
-        >
-          Download PDF
-        </button>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={downloadPdf}
+            className="inline-block rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110"
+          >
+            Download PDF
+          </button>
+          {onSaveConfig && (
+            <button
+              type="button"
+              onClick={saveConfig}
+              className="inline-block rounded bg-pit-700 px-4 py-2 text-sm font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600"
+            >
+              Save as public default
+            </button>
+          )}
+          {savedConfig && <span className="text-xs text-race-green">{savedConfig}</span>}
+        </div>
+        {onSaveConfig && (
+          <p className="mt-2 text-[0.65rem] text-ink-500">
+            The public results page downloads the PDF with this layout.
+          </p>
+        )}
         {!kartCount && (
           <p className="mt-3 text-xs text-ink-500">
             No timing data yet — connect a source (or replay a recording) first.

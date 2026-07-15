@@ -415,6 +415,7 @@ class SnapshotPatch(BaseModel):
     published: bool | None = None
     private_notes: str | None = Field(default=None, max_length=5000)
     public_notes: str | None = Field(default=None, max_length=5000)
+    pdf_config: dict | None = None
 
 
 @router.patch("/api/admin/snapshots/{snapshot_id}")
@@ -424,6 +425,8 @@ def patch_snapshot(snapshot_id: str, body: SnapshotPatch) -> dict:
     for field in ("name", "track", "tags", "private_notes", "public_notes"):
         if data.get(field) is not None:
             rec[field] = data[field]
+    if data.get("pdf_config") is not None:
+        rec["pdf_config"] = snapshots.sanitize_pdf_config(data["pdf_config"])
     if data.get("published") is not None:
         rec["published"] = data["published"]
         if data["published"]:

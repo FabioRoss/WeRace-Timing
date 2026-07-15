@@ -15,8 +15,9 @@ export function ResultsDetail() {
 
   const snapshot = record?.snapshot ?? null
   const race = snapshot?.race
+  // No params -> the backend applies the snapshot's saved public PDF layout.
   const pdfUrl = useMemo(
-    () => `/api/results/${id}/timesheet.pdf?penalties=1&t=${Date.now()}`,
+    () => `/api/results/${id}/timesheet.pdf?t=${Date.now()}`,
     [id],
   )
   const [downloading, setDownloading] = useState(false)

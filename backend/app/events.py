@@ -172,6 +172,7 @@ class Event:
             "tags": [],
             "private_notes": "",
             "public_notes": "",
+            "pdf_config": {},
             **self.state.export_state(self.source_status()),
             "messages": [m.model_dump() for m in self.messages],
             # As-finished penalties, so amendments can be reverted later.

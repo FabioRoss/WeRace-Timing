@@ -165,6 +165,23 @@ def test_rollover_rearms_auto_save(snap_dir):
     assert len(snapshots.list_records()) == 2
 
 
+def test_pdf_config_sanitize_and_effective():
+    # Unknown keys dropped, bools coerced, strings clamped.
+    cleaned = snapshots.sanitize_pdf_config(
+        {"charts": 1, "grid": 0, "penalties": True, "bogus": "x",
+         "accent": "#123456", "event": "E" * 500}
+    )
+    assert cleaned == {"charts": True, "grid": False, "penalties": True,
+                       "accent": "#123456", "event": "E" * 120}
+    # effective_pdf_config fills every key from the defaults, saved values win.
+    eff = snapshots.effective_pdf_config({"pdf_config": {"grid": False, "pits": True}})
+    assert eff["grid"] is False and eff["pits"] is True
+    assert eff["penalties"] is True and eff["accent"] == "#e10600"
+    assert set(eff) == set(snapshots.PDF_CONFIG_DEFAULTS)
+    # A record with no saved config is exactly the defaults.
+    assert snapshots.effective_pdf_config({}) == snapshots.PDF_CONFIG_DEFAULTS
+
+
 def _src_with_terminal(flags):
     from app.models import SourceStatus
 
