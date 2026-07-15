@@ -7,7 +7,7 @@ import time
 from . import snapshots
 from .config import get_settings
 from .hub import Hub
-from .models import DriverRow, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
+from .models import DriverRow, Flag, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
 from .recorder import FrameRecorder
 from .sources.apex import ApexSource
 from .sources.base import BaseSource
@@ -59,6 +59,9 @@ class Event:
         self._broadcast_task: asyncio.Task | None = None
         self._last_broadcast_state = -1.0
         self._last_source_status: dict | None = None
+        # End-of-session auto-save fires once per session; re-armed on rollover.
+        self._auto_saved = False
+        self._last_generation = self.state.session_generation
 
     # ---------------------------------------------------------------- source
 
@@ -97,14 +100,38 @@ class Event:
         return status
 
     async def _on_data(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> None:
-        was_ended = self.state.race.ended
         self.state.update(race, drivers)
-        # Auto-save a snapshot on the session-end edge (false -> true), once.
-        if not was_ended and self.state.race.ended and self.state.drivers:
-            try:
-                self.save_snapshot("auto")
-            except Exception:
-                log.exception("slot %d: auto-save snapshot failed", self.slot)
+        # A new session (rollover) re-arms the one-shot end-of-session auto-save.
+        if self.state.session_generation != self._last_generation:
+            self._last_generation = self.state.session_generation
+            self._auto_saved = False
+        self._auto_save_if_ended(time.time(), idle=False)
+
+    # ------------------------------------------------- end-of-session auto-save
+
+    def _worth_saving(self) -> bool:
+        """Only archive a session that actually ran — never an empty or
+        never-started one (the guard against saving bad/empty data)."""
+        return bool(self.state.drivers) and any(d.laps > 0 for d in self.state.drivers)
+
+    def _auto_save_if_ended(self, now: float, *, idle: bool) -> None:
+        """Auto-save once when the session looks finished. Most feeds never set
+        `ended`, so we also infer it from the checkered flag and — when `idle`
+        (checked each broadcast tick) — from the feed going quiet while still
+        connected."""
+        if self._auto_saved or not self._worth_saving():
+            return
+        ended = self.state.race.ended or self.state.race.flag == Flag.FINISH
+        if not ended and idle and self.source and self.source.status.connected:
+            quiet_for = now - self.state.updated_at
+            ended = quiet_for > get_settings().autosave_idle_s
+        if not ended:
+            return
+        try:
+            self.save_snapshot("auto")
+            self._auto_saved = True
+        except Exception:
+            log.exception("slot %d: auto-save snapshot failed", self.slot)
 
     # -------------------------------------------------------------- snapshots
 
@@ -141,6 +168,9 @@ class Event:
     def save_snapshot(self, trigger: str) -> str:
         record = self.build_record(trigger)
         snapshots.write_record(record)
+        # Any save (manual too) arms the once-guard so the inferred end-of-race
+        # save can't duplicate this session; a rollover/reset re-arms it.
+        self._auto_saved = True
         log.info("slot %d: saved snapshot %s (%s)", self.slot, record["id"], trigger)
         return record["id"]
 
@@ -247,6 +277,9 @@ class Event:
         while True:
             await asyncio.sleep(BROADCAST_INTERVAL)
             try:
+                # Runs every tick even when nothing changed, so a session whose
+                # feed has gone quiet still gets its inferred end-of-race save.
+                self._auto_save_if_ended(time.time(), idle=True)
                 # Broadcast on data updates AND on source-status transitions
                 # (connect, disconnect, errors) — a failing source produces no
                 # frames, so status changes must trigger pushes on their own.
@@ -294,6 +327,8 @@ class Event:
     def reset(self) -> None:
         self.state.reset()
         self.messages.clear()
+        self._auto_saved = False
+        self._last_generation = self.state.session_generation
         for task in self._pending_notify.values():
             task.cancel()
         self._pending_notify.clear()

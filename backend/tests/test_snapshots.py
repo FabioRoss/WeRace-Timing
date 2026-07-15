@@ -106,6 +106,65 @@ def test_auto_save_on_ended_edge(snap_dir):
     assert len(snapshots.list_records()) == 1
 
 
+def test_auto_save_on_finish_flag(snap_dir):
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    running = RaceInfo(run_type="R", flag=Flag.GREEN)
+    asyncio.run(ev._on_data(running, [DriverRow(kart_no="7", position=1, laps=8)]))
+    assert snapshots.list_records() == []
+    # Checkered flag (no `ended`) is inferred as the end — saves once.
+    finish = running.model_copy(update={"flag": Flag.FINISH})
+    asyncio.run(ev._on_data(finish, None))
+    assert len(snapshots.list_records()) == 1
+    asyncio.run(ev._on_data(finish, None))
+    assert len(snapshots.list_records()) == 1
+
+
+def test_auto_save_on_idle_but_not_empty(snap_dir, monkeypatch):
+    from app.config import get_settings
+    from app.events import Event
+    from app.models import SourceStatus
+    monkeypatch.setattr(get_settings(), "autosave_idle_s", 5.0)
+    ev = Event(1)
+
+    class _Src:  # stand-in for a connected source
+        status = SourceStatus(connected=True)
+    ev.source = _Src()
+
+    # A session with no laps is never saved on idle (guards empty/bad data).
+    ev.state.update(RaceInfo(run_type="R"), [DriverRow(kart_no="7", position=1, laps=0)])
+    ev.state.updated_at = time.time() - 999
+    ev._auto_save_if_ended(time.time(), idle=True)
+    assert snapshots.list_records() == []
+
+    # Real racing that has gone quiet past the window -> inferred end, one save.
+    ev.state.update(RaceInfo(run_type="R"), [DriverRow(kart_no="7", position=1, laps=9)])
+    ev.state.updated_at = time.time() - 10
+    ev._auto_save_if_ended(time.time(), idle=True)
+    assert len(snapshots.list_records()) == 1
+    # Fresh data (not idle) does not add a second record for the same session.
+    ev.state.updated_at = time.time()
+    ev._auto_save_if_ended(time.time(), idle=True)
+    assert len(snapshots.list_records()) == 1
+
+
+def test_rollover_rearms_auto_save(snap_dir):
+    import asyncio
+    from app.events import Event
+    ev = Event(1)
+    # Session 1 ends -> one save.
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", ended=True),
+                            [DriverRow(kart_no="7", position=1, laps=6)]))
+    assert len(snapshots.list_records()) == 1
+    # A new session (run_type changes) bumps session_generation and re-arms.
+    asyncio.run(ev._on_data(RaceInfo(run_type="F"),
+                            [DriverRow(kart_no="7", position=1, laps=3)]))
+    asyncio.run(ev._on_data(RaceInfo(run_type="F", ended=True), None))
+    assert len(snapshots.list_records()) == 2
+
+
 def test_build_record_shape(snap_dir):
     from app.events import Event
     ev = Event(2)

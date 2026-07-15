@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     snapshot_ttl_days: int = 30
     # How often the background GC sweeps for expired snapshots (seconds).
     snapshot_gc_interval_s: float = 21600.0  # 6h
+    # Most feeds never flag a session as ended — they just stop streaming at the
+    # finish. If a session that had real racing goes quiet (no new data) for this
+    # long while still connected, infer it ended and auto-save once.
+    autosave_idle_s: float = 150.0
 
     host: str = "0.0.0.0"
     port: int = 8000

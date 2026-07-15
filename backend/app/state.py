@@ -71,6 +71,9 @@ class EventState:
         self.recompute_positions: bool = False
         self.auto_pitlane: bool = True
         self.updated_at: float = 0.0
+        # Bumped on every session rollover; the Event uses it to re-arm the
+        # one-shot end-of-session auto-save for each new session.
+        self.session_generation: int = 0
         # Fallback stint tracking when the source has no since-pit field
         self._pit_counts: dict[str, int] = {}
         self._stint_started: dict[str, float] = {}
@@ -235,6 +238,7 @@ class EventState:
 
     def _reset_session_state(self, reason: str) -> None:
         log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
+        self.session_generation += 1
         self.lap_history.clear()
         self.pit_stops.clear()
         self._lap_pits.clear()
