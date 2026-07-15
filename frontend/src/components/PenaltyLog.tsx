@@ -3,15 +3,18 @@ import type { Penalty } from '../lib/types'
 import { penaltyBadgeClass, penaltyKindLabel, penaltyLabel } from '../lib/penalties'
 
 /**
- * Shared read-only penalties & warnings log. Rendered on every dashboard
+ * Shared penalties & warnings log. Rendered on every dashboard
  * (control / team / driver / general). `filterKart` narrows to one kart;
- * `compact` tightens the rows for the driver phone view.
+ * `compact` tightens the rows for the driver phone view. Race Control passes
+ * `onServe` / `onRemove` to turn each row into an actionable entry.
  */
-export function PenaltyLog({ penalties, filterKart, compact, empty }: {
+export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onRemove }: {
   penalties: Penalty[]
   filterKart?: string
   compact?: boolean
   empty?: string
+  onServe?: (id: number, served: boolean) => void
+  onRemove?: (id: number) => void
 }) {
   const rows = useMemo(() => {
     const list = filterKart ? penalties.filter((p) => p.kart_no === filterKart) : penalties
@@ -37,15 +40,35 @@ export function PenaltyLog({ penalties, filterKart, compact, empty }: {
             <span className="text-ink-300">{penaltyKindLabel(p)}</span>
             {p.reason && <span className="text-ink-100"> — {p.reason}</span>}
           </span>
-          {p.kind === 'time' && (
+          {p.kind === 'time' && !onServe && (
             <span className={`text-[0.65rem] font-semibold uppercase ${
               p.served ? 'text-race-green' : 'text-race-yellow'
             }`}>
               {p.served ? 'served' : 'to serve'}
             </span>
           )}
-          {p.kind === 'lap' && (
+          {p.kind === 'lap' && !onRemove && (
             <span className="text-[0.65rem] font-semibold uppercase text-ink-500">results</span>
+          )}
+          {onServe && p.kind === 'time' && (
+            <button
+              type="button"
+              onClick={() => onServe(p.id, !p.served)}
+              className={`rounded px-2 py-0.5 text-[0.65rem] font-bold uppercase ${
+                p.served ? 'bg-pit-700 text-ink-300' : 'bg-race-green text-pit-950'
+              }`}
+            >
+              {p.served ? 'unserve' : 'serve'}
+            </button>
+          )}
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(p.id)}
+              className="rounded bg-pit-700 px-2 py-0.5 text-[0.65rem] font-bold uppercase text-ink-300 hover:bg-race-red hover:text-white"
+            >
+              ✕
+            </button>
           )}
         </li>
       ))}
