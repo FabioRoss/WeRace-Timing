@@ -290,9 +290,15 @@ penalty_seq, original_penalties}`.
   collections the PDF needs but the live snapshot omits. `EventState.export_state(source)` builds
   the record payload; `EventState.hydrate(dict)` rebuilds a static state that drives
   `build_timesheet_pdf` unchanged (the eight `_`-tracking dicts are live-frame scratch — dropped).
-- **Triggers**: auto-save on the **ended false→true edge** in `Event._on_data` (once, provider-
-  agnostic), plus a manual `POST /e/{slot}/api/admin/snapshots` (Race Control "Save snapshot"
-  button — christel/MyWeR by-laps may never flag `ended`). `Event.build_record(trigger)` folds in
+- **Triggers / end inference**: `Event._auto_save_if_ended(now, idle=…)` saves **once per session**.
+  Most feeds never set `race.ended`, so end is inferred from `race.ended` OR `Flag.FINISH` (checkered,
+  from `_on_data`) OR the feed going quiet — `now - state.updated_at > autosave_idle_s` (150 s),
+  checked every tick in `_broadcast_loop` (`idle=True`). Guards: `_auto_saved` (one save/session, set
+  by any save incl. manual, re-armed on rollover via `EventState.session_generation` bump or
+  `Event.reset`) and `_worth_saving()` (drivers with `laps>0` — never an empty/never-started or, thus,
+  bad save). The idle path intentionally does **not** require a connected source (a replay hits EOF /
+  a live feed can drop at the finish). Manual `POST /e/{slot}/api/admin/snapshots` also saves + arms.
+  **No supersede** (deferred): every save is a new record. `Event.build_record(trigger)` folds in
   messages + defaults (name = `event — session — date`, `track = race.track_name`).
 - **TTL**: `main.py` lifespan runs a startup sweep + a periodic `asyncio` GC loop deleting records
   past `expires_at` unless `keep`. `snapshot_ttl_days` (30) / `snapshot_gc_interval_s` (6h).
@@ -313,6 +319,12 @@ penalty_seq, original_penalties}`.
   toggles, delete-confirm) + `/admin/snapshots/:id` (SnapshotEditor: notes, PenaltyEditor, PDF via
   TimesheetPanel, StoryStudio); public `/results` + `/results/:id` (read-only summary + PDF).
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
+- **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
+  `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into
+  `index.html` for **published** `results/{id}` paths only (else the plain shell). `snapshots.og_meta`
+  builds title/description(podium+track)/image+url paths, feeding both the injection and a Pillow
+  1200×630 card at `GET /api/results/{id}/card.png` (published only; `_load_font` uses DejaVu, added
+  to the Docker image via `fonts-dejavu-core`). `ResultsDetail` also sets `document.title`.
 
 ## Development workflow
 
