@@ -235,7 +235,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     serve). POST is **multipart `UploadFile`** (needs **`python-multipart`** — in BOTH
     `requirements.txt` and `pyproject.toml`, the reportlab-502 lesson), Pillow-validated,
     downscaled ≤2000px + re-encoded, **max 5** (6th → 409), non-image → 422, path-safe
-    `_resolve_background`. `Settings.backgrounds_dir` (gitignored). StoryStudio shows a
+    `_resolve_background`. `Settings.backgrounds_dir` (gitignored) → `/app/backend/backgrounds`,
+    persisted across `docker compose up -d --build` via the **`backgrounds` named volume** in
+    `docker-compose.yml` (mirrors `recordings`; without it a rebuild wipes saved backgrounds).
+    StoryStudio shows a
     thumbnail strip (served via `?safeword=`), click loads (server-sourced → no re-save
     prompt), × deletes **behind a `window.confirm`** (matches `RaceControl.tsx` recording
     deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
