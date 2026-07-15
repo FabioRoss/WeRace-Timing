@@ -122,9 +122,11 @@ class Event:
         if self._auto_saved or not self._worth_saving():
             return
         ended = self.state.race.ended or self.state.race.flag == Flag.FINISH
-        if not ended and idle and self.source and self.source.status.connected:
-            quiet_for = now - self.state.updated_at
-            ended = quiet_for > get_settings().autosave_idle_s
+        if not ended and idle:
+            # A session that actually ran (guarded by _worth_saving) whose feed
+            # has gone quiet is finished — whether the source is still connected,
+            # dropped at the finish, or a replay that reached its end.
+            ended = now - self.state.updated_at > get_settings().autosave_idle_s
         if not ended:
             return
         try:
