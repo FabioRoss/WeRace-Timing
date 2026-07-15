@@ -49,6 +49,18 @@ export interface StoryModel {
   fastestLap: string
 }
 
+/** How the background photo is framed behind the card. `scale` multiplies the
+ * base cover-fit (1 == fills the frame like before); `x`/`y` pan in canvas px;
+ * `rot` rotates in degrees. The default is exactly the old cover-fit. */
+export interface BgTransform {
+  scale: number
+  x: number
+  y: number
+  rot: number
+}
+
+export const DEFAULT_BG_TRANSFORM: BgTransform = { scale: 1, x: 0, y: 0, rot: 0 }
+
 export interface StoryOptions {
   perPage: number      // standings rows per page
   pageIndex?: number   // 0-based page to render
@@ -130,6 +142,7 @@ export function drawStory(
   reveal: number,
   background: CanvasImageSource | null,
   accent: string = '#e10600',
+  bgTransform: BgTransform = DEFAULT_BG_TRANSFORM,
 ) {
   const [ar, ag, ab] = hexToRgb(accent)
   const ACCENT = `rgb(${ar}, ${ag}, ${ab})`
@@ -144,10 +157,15 @@ export function drawStory(
   if (background) {
     const bw = (background as { width?: number }).width ?? STORY_W
     const bh = (background as { height?: number }).height ?? STORY_H
-    const scale = Math.max(STORY_W / bw, STORY_H / bh)
-    const dw = bw * scale
-    const dh = bh * scale
-    ctx.drawImage(background, (STORY_W - dw) / 2, (STORY_H - dh) / 2, dw, dh)
+    // Base cover-fit, then the user's zoom / pan / rotate on top of it.
+    const cover = Math.max(STORY_W / bw, STORY_H / bh)
+    const s = cover * Math.max(0.05, bgTransform.scale)
+    ctx.save()
+    ctx.translate(STORY_W / 2 + bgTransform.x, STORY_H / 2 + bgTransform.y)
+    ctx.rotate((bgTransform.rot * Math.PI) / 180)
+    ctx.scale(s, s)
+    ctx.drawImage(background, -bw / 2, -bh / 2, bw, bh)
+    ctx.restore()
     ctx.fillStyle = 'rgba(7, 8, 12, 0.74)'
     ctx.fillRect(0, 0, STORY_W, STORY_H)
   } else {

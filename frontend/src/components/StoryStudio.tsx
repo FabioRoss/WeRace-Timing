@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Snapshot } from '../lib/types'
 import {
   STORY_W, STORY_H, buildStoryModel, storyPageCount, drawStory, pickVideoMime,
-  mimeExtension, downloadBlob, type StoryModel, type StoryStat,
+  mimeExtension, downloadBlob, DEFAULT_BG_TRANSFORM,
+  type StoryModel, type StoryStat, type BgTransform,
 } from '../lib/story'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
 
@@ -15,14 +16,14 @@ const HOLD_MS = 1600    // pause on a full page before the clip/page ends
 /** Animate one page's rows revealing in, then hold. Resolves when done. */
 function animatePage(
   ctx: CanvasRenderingContext2D, model: StoryModel, bg: CanvasImageSource | null,
-  accent: string,
+  accent: string, bgTransform: BgTransform,
 ): Promise<void> {
   return new Promise((resolve) => {
     const total = model.rows.length * REVEAL_MS + HOLD_MS
     const start = performance.now()
     const tick = () => {
       const t = performance.now() - start
-      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg, accent)
+      drawStory(ctx, model, Math.min(model.rows.length, t / REVEAL_MS), bg, accent, bgTransform)
       if (t >= total) resolve()
       else requestAnimationFrame(tick)
     }
@@ -41,6 +42,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [videoScope, setVideoScope] = useState<VideoScope>('page')
   const [bg, setBg] = useState<CanvasImageSource | null>(null)
   const [bgName, setBgName] = useState('')
+  const [bgTransform, setBgTransform] = useState<BgTransform>(DEFAULT_BG_TRANSFORM)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
@@ -72,8 +74,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   // Live preview: fully-revealed still of the current page.
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
-  }, [model, bg, accent])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
+  }, [model, bg, accent, bgTransform])
 
   const onPickBackground = useCallback(async (file: File | undefined) => {
     setError('')
@@ -82,6 +84,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       const bitmap = await createImageBitmap(file)
       setBg(bitmap)
       setBgName(file.name)
+      setBgTransform(DEFAULT_BG_TRANSFORM) // fresh frame starts cover-fit
     } catch {
       setError('Could not read that image.')
     }
@@ -90,22 +93,23 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const clearBackground = useCallback(() => {
     setBg(null)
     setBgName('')
+    setBgTransform(DEFAULT_BG_TRANSFORM)
   }, [])
 
   const restorePreview = useCallback(() => {
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent)
-  }, [model, bg, accent])
+    if (ctx) drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
+  }, [model, bg, accent, bgTransform])
 
   const downloadPng = useCallback(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
-    drawStory(ctx, model, model.rows.length, bg, accent)
+    drawStory(ctx, model, model.rows.length, bg, accent, bgTransform)
     canvas.toBlob((blob) => {
       if (blob) downloadBlob(blob, `story-p${pageIndex + 1}-${stamp()}.png`)
     }, 'image/png')
-  }, [model, bg, accent, pageIndex])
+  }, [model, bg, accent, bgTransform, pageIndex])
 
   const downloadAllPages = useCallback(async () => {
     const canvas = canvasRef.current
@@ -117,7 +121,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        drawStory(ctx, m, m.rows.length, bg, accent)
+        drawStory(ctx, m, m.rows.length, bg, accent, bgTransform)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
         await new Promise((r) => setTimeout(r, 200))
@@ -127,7 +131,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, title, stat, bg, accent, pageCount, restorePreview])
+  }, [snapshot, perPage, title, stat, bg, accent, bgTransform, pageCount, restorePreview])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -152,7 +156,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat })
-        await animatePage(ctx, m, bg, accent)
+        await animatePage(ctx, m, bg, accent, bgTransform)
       }
       recorder.stop()
       await done
@@ -166,7 +170,33 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBusy(false)
       restorePreview()
     }
-  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, videoMime, videoScope, pageCount, restorePreview])
+  }, [snapshot, perPage, pageIndex, title, stat, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview])
+
+  // Drag the preview to pan the background. Pointer deltas are in on-screen px;
+  // scale them to canvas px so a drag tracks the cursor 1:1.
+  const drag = useRef<{ x: number; y: number } | null>(null)
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!bg) return
+    drag.current = { x: e.clientX, y: e.clientY }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }, [bg])
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drag.current) return
+    const k = STORY_W / e.currentTarget.clientWidth
+    const dx = (e.clientX - drag.current.x) * k
+    const dy = (e.clientY - drag.current.y) * k
+    drag.current = { x: e.clientX, y: e.clientY }
+    setBgTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+  }, [])
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    drag.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+  }, [])
+  const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!bg) return
+    const factor = Math.exp(-e.deltaY * 0.0015)
+    setBgTransform((t) => ({ ...t, scale: clampScale(t.scale * factor) }))
+  }, [bg])
 
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
@@ -176,7 +206,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           ref={canvasRef}
           width={STORY_W}
           height={STORY_H}
-          className="w-full max-w-[280px] rounded-xl ring-1 ring-pit-700"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onWheel={onWheel}
+          className={`w-full max-w-[280px] rounded-xl ring-1 ring-pit-700 ${bg ? 'cursor-move touch-none' : ''}`}
           style={{ aspectRatio: `${STORY_W} / ${STORY_H}` }}
         />
         {pageCount > 1 && (
@@ -276,6 +311,47 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 <button type="button" onClick={clearBackground} className="text-race-red">
                   remove
                 </button>
+              </div>
+            )}
+            {bg && (
+              <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-pit-800">
+                <div className="flex items-center justify-between">
+                  <span className="label-race">Frame the photo</span>
+                  <button
+                    type="button"
+                    onClick={() => setBgTransform(DEFAULT_BG_TRANSFORM)}
+                    className="text-[0.7rem] font-bold uppercase tracking-wider text-ink-300 hover:text-ink-100"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <label className="block text-xs text-ink-400">
+                  <span className="flex justify-between">
+                    <span>Zoom</span>
+                    <span className="timing">{bgTransform.scale.toFixed(2)}×</span>
+                  </span>
+                  <input
+                    type="range" min={0.2} max={5} step={0.01}
+                    value={bgTransform.scale}
+                    onChange={(e) => setBgTransform((t) => ({ ...t, scale: Number(e.target.value) }))}
+                    className="mt-1 w-full"
+                  />
+                </label>
+                <label className="block text-xs text-ink-400">
+                  <span className="flex justify-between">
+                    <span>Rotate</span>
+                    <span className="timing">{Math.round(bgTransform.rot)}°</span>
+                  </span>
+                  <input
+                    type="range" min={-180} max={180} step={1}
+                    value={bgTransform.rot}
+                    onChange={(e) => setBgTransform((t) => ({ ...t, rot: Number(e.target.value) }))}
+                    className="mt-1 w-full"
+                  />
+                </label>
+                <p className="text-[0.65rem] text-ink-500">
+                  Drag the preview to move · scroll to zoom.
+                </p>
               </div>
             )}
             <p className="text-[0.65rem] text-ink-500">
@@ -392,4 +468,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function stamp(): string {
   return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+}
+
+function clampScale(s: number): number {
+  return Math.min(5, Math.max(0.2, s))
 }
