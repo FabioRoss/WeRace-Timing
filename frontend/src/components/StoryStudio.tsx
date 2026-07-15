@@ -15,7 +15,7 @@ const bgSrc = (name: string) => `${BG_API}/${name}?safeword=${encodeURIComponent
 
 type Mode = 'image' | 'video'
 type VideoScope = 'page' | 'all'
-type LabelChoice = 'Free Practice' | 'Qualifying' | 'Race' | 'Custom'
+type LabelChoice = 'Free Practice' | 'Qualifying' | 'Race Result' | 'Custom'
 
 const REVEAL_MS = 320   // per standings row
 const HOLD_MS = 1600    // pause on a full page before the clip/page ends
@@ -44,7 +44,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
   const [stat, setStat] = useState<StoryStat>('interval')
-  const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race')
+  const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race Result')
   const [customLabel, setCustomLabel] = useState('')
   const [showFastest, setShowFastest] = useState(true)
   const [accent, setAccent] = useState(DEFAULT_ACCENT)
@@ -74,7 +74,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     }
   }, [snapshot])
 
-  const label = labelChoice === 'Custom' ? customLabel.trim() || 'Race' : labelChoice
+  const label = labelChoice === 'Custom' ? customLabel.trim() || 'Race Result' : labelChoice
 
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
@@ -351,7 +351,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Race Result"
+            placeholder="Event Name"
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
@@ -363,7 +363,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               onChange={(e) => setLabelChoice(e.target.value as LabelChoice)}
               className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             >
-              {(['Free Practice', 'Qualifying', 'Race', 'Custom'] as const).map((c) => (
+              {(['Free Practice', 'Qualifying', 'Race Result', 'Custom'] as const).map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
