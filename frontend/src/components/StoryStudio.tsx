@@ -45,6 +45,17 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
 
+  // Seed the title once from the live event name, then let the user own it.
+  const titleSeeded = useRef(false)
+  useEffect(() => {
+    if (titleSeeded.current) return
+    const name = snapshot?.race.event_name
+    if (name) {
+      setTitle(name)
+      titleSeeded.current = true
+    }
+  }, [snapshot])
+
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
     () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat }),
@@ -213,7 +224,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={snapshot?.race.event_name || 'Race Result'}
+            placeholder="Race Result"
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>

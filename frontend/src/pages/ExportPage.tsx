@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { SafewordGate } from '../components/SafewordGate'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
@@ -112,6 +112,17 @@ function TimesheetPanel({
   const [eventOverride, setEventOverride] = useState('')
   const [sessionOverride, setSessionOverride] = useState('')
 
+  // Seed the editable fields once from the live session, then the user owns them.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current) return
+    if (eventName || runType) {
+      if (eventName) setEventOverride(eventName)
+      if (runType) setSessionOverride(runType)
+      seeded.current = true
+    }
+  }, [eventName, runType])
+
   // The PDF reflects the current standings, which change as a session runs (or
   // as you replay different recordings). Append a per-click timestamp so no
   // cache ever hands back a stale copy, then download it programmatically.
@@ -161,7 +172,7 @@ function TimesheetPanel({
             <input
               value={eventOverride}
               onChange={(e) => setEventOverride(e.target.value)}
-              placeholder={eventName || 'Event'}
+              placeholder="Event"
               className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             />
           </label>
@@ -170,7 +181,7 @@ function TimesheetPanel({
             <input
               value={sessionOverride}
               onChange={(e) => setSessionOverride(e.target.value)}
-              placeholder={runType || 'Session'}
+              placeholder="Session"
               className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             />
           </label>
