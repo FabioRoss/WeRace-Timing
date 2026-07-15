@@ -41,6 +41,7 @@ export interface StoryRow {
 }
 
 export interface StoryModel {
+  label: string       // kicker above the title (session type), e.g. "RACE"
   title: string
   subtitle: string
   rows: StoryRow[]
@@ -94,10 +95,12 @@ function clamp(v: number, lim: number): number {
 }
 
 export interface StoryOptions {
-  perPage: number      // standings rows per page
-  pageIndex?: number   // 0-based page to render
-  title?: string       // overrides the event name; blank falls back to it
-  stat?: StoryStat     // which metric each kart shows (default 'best')
+  perPage: number       // standings rows per page
+  pageIndex?: number    // 0-based page to render
+  title?: string        // overrides the event name; blank falls back to it
+  stat?: StoryStat      // which metric each kart shows (default 'best')
+  label?: string        // kicker (session type); blank falls back to 'Race'
+  showFastest?: boolean // draw the fastest-lap footer (default true)
 }
 
 /** How many pages the whole field spans at `perPage` rows each (min 1). */
@@ -134,13 +137,16 @@ export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): 
   const title = opts.title?.trim() || snapshot?.race.event_name || 'Race Result'
   const pageLabel =
     pageCount > 1 && rows.length ? `POS ${rows[0].pos}–${rows[rows.length - 1].pos}` : ''
+  const showFastest = opts.showFastest ?? true
   return {
+    label: opts.label?.trim() || 'Race',
     title,
     subtitle: snapshot?.race.track_name || '',
     rows,
     pageLabel,
-    fastestKart: snapshot?.session_best_kart ?? '',
-    fastestLap: snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : '',
+    // Clearing these hides the footer AND reclaims its row space in drawStory.
+    fastestKart: showFastest ? (snapshot?.session_best_kart ?? '') : '',
+    fastestLap: showFastest && snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : '',
   }
 }
 
@@ -215,9 +221,15 @@ export function drawStory(
   // ---- Header (laid out dynamically so long titles never overlap) ----
   drawChecker(ctx, M, SAFE_TOP, 240, 26, 26)
   ctx.textBaseline = 'alphabetic'
+  // Reserve room for the page chip (drawn below) so a long kicker never overlaps it.
+  let kickerMaxW = maxW
+  if (model.pageLabel) {
+    ctx.font = `800 30px ${FONT}`
+    kickerMaxW = maxW - (ctx.measureText(model.pageLabel).width + 44) - 24
+  }
   ctx.fillStyle = ACCENT
   ctx.font = `800 34px ${FONT}`
-  ctx.fillText('RACE CLASSIFICATION', M, SAFE_TOP + 78)
+  ctx.fillText(fitText(ctx, model.label.toUpperCase(), kickerMaxW), M, SAFE_TOP + 78)
 
   // Page range chip (multi-page grid), right-aligned on the label baseline.
   if (model.pageLabel) {
