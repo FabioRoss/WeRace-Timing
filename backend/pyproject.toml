@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "qrcode[pil]>=8.0",
     "reportlab>=4.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

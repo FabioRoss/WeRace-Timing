@@ -81,6 +81,87 @@ def test_recording_in_progress_is_not_deletable(client, tmp_path, monkeypatch):
     assert any(c["kind"] == "simulator" for c in ok.json()["catalog"])
 
 
+def _png_bytes(w: int = 32, h: int = 32, color=(200, 40, 40)) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_backgrounds_round_trip(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "backgrounds_dir", tmp_path)
+
+    assert client.get("/api/admin/backgrounds", headers=SAFEWORD).json()["backgrounds"] == []
+
+    # Save an oversized image → it is accepted and downscaled to <= 2000px.
+    r = client.post(
+        "/api/admin/backgrounds",
+        headers=SAFEWORD,
+        files={"file": ("shot.png", _png_bytes(3000, 1500), "image/png")},
+    )
+    assert r.status_code == 200
+    saved = r.json()["backgrounds"]
+    assert len(saved) == 1
+    name = saved[0]["name"]
+
+    # Serve it back and confirm it is a real, bounded image.
+    got = client.get(f"/api/admin/backgrounds/{name}", headers=SAFEWORD)
+    assert got.status_code == 200 and got.content[:4] in (b"\xff\xd8\xff\xe0", b"\x89PNG")
+    import io
+
+    from PIL import Image
+
+    assert max(Image.open(io.BytesIO(got.content)).size) <= 2000
+
+    # Delete → the store empties.
+    d = client.delete(f"/api/admin/backgrounds/{name}", headers=SAFEWORD)
+    assert d.status_code == 200 and d.json()["backgrounds"] == []
+
+
+def test_backgrounds_limit_and_validation(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, "backgrounds_dir", tmp_path)
+
+    for _ in range(5):
+        r = client.post(
+            "/api/admin/backgrounds",
+            headers=SAFEWORD,
+            files={"file": ("s.png", _png_bytes(), "image/png")},
+        )
+        assert r.status_code == 200
+    # The sixth is refused until one is deleted.
+    r = client.post(
+        "/api/admin/backgrounds",
+        headers=SAFEWORD,
+        files={"file": ("s.png", _png_bytes(), "image/png")},
+    )
+    assert r.status_code == 409
+
+    # A non-image body is rejected.
+    monkeypatch.setattr(settings, "backgrounds_dir", tmp_path / "empty")
+    r = client.post(
+        "/api/admin/backgrounds",
+        headers=SAFEWORD,
+        files={"file": ("evil.png", b"not really an image", "image/png")},
+    )
+    assert r.status_code == 422
+
+    # Traversal / bad names never resolve to a file outside the dir.
+    assert client.delete("/api/admin/backgrounds/..%2Fsecret.png", headers=SAFEWORD).status_code in (404, 405, 422)
+    assert client.delete("/api/admin/backgrounds/notes.txt", headers=SAFEWORD).status_code == 422
+    assert client.get("/api/admin/backgrounds/missing.png", headers=SAFEWORD).status_code == 404
+
+
+def test_backgrounds_require_safeword(client):
+    assert client.get("/api/admin/backgrounds").status_code == 401
+
+
 def test_links_and_team_flow(client):
     seed()
     links = client.get("/e/1/api/admin/links", headers={"X-Safeword": "boxbox"}).json()

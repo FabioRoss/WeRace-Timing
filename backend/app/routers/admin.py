@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import time
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..config import get_settings
@@ -13,6 +16,11 @@ from ..tracks import TRACK_CATALOG
 from .public import get_event
 
 router = APIRouter(dependencies=[Depends(check_safeword)])
+
+# Story backgrounds the operator can optionally save on the server for reuse.
+MAX_BACKGROUNDS = 5
+MAX_BG_DIM = 2000  # longest edge, px — downscale bigger uploads to bound size.
+_BG_EXTS = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
 
 
 @router.post("/api/admin/validate")
@@ -74,6 +82,97 @@ def delete_recording(name: str) -> dict:
             raise HTTPException(status_code=409, detail="recording is in progress")
     target.unlink()
     return {"ok": True, "deleted": target.name}
+
+
+def _list_backgrounds(directory: Path) -> list[dict]:
+    items = []
+    if directory.is_dir():
+        for p in sorted(
+            (p for p in directory.iterdir() if p.suffix.lstrip(".").lower() in _BG_EXTS),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        ):
+            st = p.stat()
+            items.append({"name": p.name, "size_bytes": st.st_size, "modified": st.st_mtime})
+    return items
+
+
+@router.get("/api/admin/backgrounds")
+def list_backgrounds() -> dict:
+    """Story backgrounds saved on the server (newest first), for the reuse strip."""
+    directory = get_settings().backgrounds_dir
+    return {"backgrounds": _list_backgrounds(directory), "max": MAX_BACKGROUNDS}
+
+
+def _resolve_background(name: str) -> Path:
+    """Resolve a background filename to a path inside the backgrounds dir,
+    rejecting traversal and anything that isn't an existing image there."""
+    directory = get_settings().backgrounds_dir.resolve()
+    safe = Path(name).name
+    if safe != name or safe.rsplit(".", 1)[-1].lower() not in _BG_EXTS:
+        raise HTTPException(status_code=422, detail="invalid background name")
+    target = (directory / safe).resolve()
+    if target.parent != directory or not target.is_file():
+        raise HTTPException(status_code=404, detail="background not found")
+    return target
+
+
+@router.post("/api/admin/backgrounds")
+async def save_background(file: UploadFile) -> dict:
+    """Save an uploaded story background for later reuse (max 5). The image is
+    validated + downscaled + re-encoded with Pillow, so only real, size-bounded
+    images ever land on disk. Saving is an explicit opt-in — day to day a
+    background stays only in the operator's browser."""
+    from PIL import Image, UnidentifiedImageError
+
+    directory = get_settings().backgrounds_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    if len(_list_backgrounds(directory)) >= MAX_BACKGROUNDS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"background store is full ({MAX_BACKGROUNDS}) — delete one first",
+        )
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=422, detail="empty upload")
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.verify()  # detect truncated/garbage before decoding
+        img = Image.open(io.BytesIO(raw))  # verify() leaves the image unusable
+        img.load()
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise HTTPException(status_code=422, detail="not a readable image")
+
+    keep_alpha = img.mode in ("RGBA", "LA", "P") and "transparency" in img.info
+    img = img.convert("RGBA" if keep_alpha else "RGB")
+    if max(img.size) > MAX_BG_DIM:
+        img.thumbnail((MAX_BG_DIM, MAX_BG_DIM), Image.LANCZOS)
+
+    ext = "png" if keep_alpha else "jpg"
+    out = io.BytesIO()
+    if ext == "png":
+        img.save(out, format="PNG", optimize=True)
+    else:
+        img.save(out, format="JPEG", quality=88, optimize=True)
+    (directory / f"bg-{uuid.uuid4().hex[:12]}.{ext}").write_bytes(out.getvalue())
+    return {"ok": True, "backgrounds": _list_backgrounds(directory), "max": MAX_BACKGROUNDS}
+
+
+@router.get("/api/admin/backgrounds/{name}")
+def serve_background(name: str) -> Response:
+    """Serve a saved background's bytes for an <img>/fetch (thumbnail + reuse)."""
+    target = _resolve_background(name)
+    media = _BG_EXTS[target.suffix.lstrip(".").lower()]
+    return Response(content=target.read_bytes(), media_type=media)
+
+
+@router.delete("/api/admin/backgrounds/{name}")
+def delete_background(name: str) -> dict:
+    target = _resolve_background(name)
+    target.unlink()
+    directory = get_settings().backgrounds_dir
+    return {"ok": True, "deleted": target.name, "backgrounds": _list_backgrounds(directory)}
 
 
 @router.get("/e/{slot}/api/admin/status")
