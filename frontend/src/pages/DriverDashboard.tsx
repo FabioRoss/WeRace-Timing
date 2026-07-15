@@ -5,6 +5,7 @@ import { useJsonSocket } from '../lib/ws'
 import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { MessageOverlay } from '../components/MessageOverlay'
+import { PenaltyLog } from '../components/PenaltyLog'
 import { flagAccent } from '../components/FlagBanner'
 
 const FLAG_LABEL: Record<string, string> = {
@@ -152,6 +153,14 @@ export function DriverDashboard() {
           sub={view?.name}
         />
       </div>
+
+      {/* Penalties & warnings — only shown when the driver has any */}
+      {view?.penalties && view.penalties.length > 0 && (
+        <div className="px-4 pb-3">
+          <div className="label-race mb-1 text-race-red">Penalties &amp; warnings</div>
+          <PenaltyLog penalties={view.penalties} filterKart={view.kart_no} compact />
+        </div>
+      )}
     </Shell>
   )
 }

@@ -5,7 +5,7 @@ import logging
 
 from .config import get_settings
 from .hub import Hub
-from .models import DriverRow, Message, RaceInfo, SourceConfig, SourceStatus
+from .models import DriverRow, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
 from .recorder import FrameRecorder
 from .sources.apex import ApexSource
 from .sources.base import BaseSource
@@ -26,6 +26,18 @@ BROADCAST_INTERVAL = 1.0
 MAX_MESSAGES = 200
 
 
+def _penalty_message_text(penalty: Penalty) -> str:
+    """Team-facing notification text for a penalty/warning."""
+    reason = penalty.reason.strip()
+    if penalty.kind == "warning":
+        base = "Warning"
+    elif penalty.kind == "lap":
+        base = f"Penalty: -{penalty.laps} lap" + ("s" if penalty.laps != 1 else "")
+    else:
+        base = f"Penalty: +{penalty.seconds}s"
+    return f"{base} - {reason}" if reason else base
+
+
 class Event:
     """One independent event slot: source connection, state, clients, messages."""
 
@@ -39,6 +51,9 @@ class Event:
         self.source: BaseSource | None = None
         self.messages: list[Message] = []
         self._msg_id = 0
+        # Pending (delayed) team notifications for freshly-assigned penalties,
+        # keyed by penalty id, so a quick delete can cancel one before it fires.
+        self._pending_notify: dict[int, asyncio.Task] = {}
         self._broadcast_task: asyncio.Task | None = None
         self._last_broadcast_state = -1.0
         self._last_source_status: dict | None = None
@@ -129,6 +144,40 @@ class Event:
         await self.hub.broadcast_live(payload)
         return msg
 
+    # ------------------------------------------------- penalty notifications
+
+    def schedule_penalty_notify(self, penalty: Penalty) -> None:
+        """Notify the penalized kart's team after a short grace delay, so Race
+        Control can delete a mistake first (cancel_penalty_notify)."""
+        delay = get_settings().penalty_notify_delay_s
+        task = asyncio.create_task(
+            self._notify_penalty_after(penalty, delay),
+            name=f"penalty-notify-{self.slot}-{penalty.id}",
+        )
+        self._pending_notify[penalty.id] = task
+
+    def cancel_penalty_notify(self, penalty_id: int) -> None:
+        task = self._pending_notify.pop(penalty_id, None)
+        if task is not None:
+            task.cancel()
+
+    async def _notify_penalty_after(self, penalty: Penalty, delay: float) -> None:
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            # The penalty may have been deleted during the grace window.
+            if self.state.find_penalty(penalty.id) is None:
+                return
+            text = _penalty_message_text(penalty)
+            priority = "warning" if penalty.kind == "warning" else "urgent"
+            await self.send_message("race_control", text, [penalty.kart_no], priority)
+            penalty.notified = True
+            await self.broadcast_now()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._pending_notify.pop(penalty.id, None)
+
     # ------------------------------------------------------------ broadcast
 
     def start_broadcasting(self) -> None:
@@ -198,6 +247,9 @@ class Event:
     def reset(self) -> None:
         self.state.reset()
         self.messages.clear()
+        for task in self._pending_notify.values():
+            task.cancel()
+        self._pending_notify.clear()
 
 
 class EventManager:

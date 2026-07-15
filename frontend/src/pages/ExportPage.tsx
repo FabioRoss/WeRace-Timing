@@ -108,6 +108,7 @@ function TimesheetPanel({
   const [pits, setPits] = useState(false)
   const [stints, setStints] = useState(false)
   const [pitEstimate, setPitEstimate] = useState(false)
+  const [penalties, setPenalties] = useState(false)
   const [accent, setAccent] = useState(DEFAULT_ACCENT)
   const [eventOverride, setEventOverride] = useState('')
   const [sessionOverride, setSessionOverride] = useState('')
@@ -133,6 +134,7 @@ function TimesheetPanel({
       pits: pits ? '1' : '0',
       stints: stints ? '1' : '0',
       pitest: pits && pitEstimate ? '1' : '0',
+      penalties: penalties ? '1' : '0',
       accent,
       t: String(Date.now()),
     })
@@ -218,6 +220,15 @@ function TimesheetPanel({
             <input type="checkbox" checked={stints} onChange={(e) => setStints(e.target.checked)} />
             Stint times
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={penalties} onChange={(e) => setPenalties(e.target.checked)} />
+            Apply penalties (final result)
+          </label>
+          {penalties && (
+            <p className="ml-6 text-[0.65rem] text-ink-500">
+              Recomputes the classification with outstanding penalties applied and adds a summary.
+            </p>
+          )}
         </div>
 
         <div className="mt-4">

@@ -11,6 +11,7 @@ import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { TrackRing } from '../components/TrackRing'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { PenaltyLog } from '../components/PenaltyLog'
 import { COMPARE_COLORS, GapEvolutionChart, LapTimeChart, SERIES_COLORS, type ChartSeries } from '../components/LapCharts'
 
 interface TeamInfo {
@@ -302,6 +303,22 @@ export function TeamDashboard() {
                 </li>
               ))}
             </ul>
+          </div>
+
+          {/* Your penalties & warnings */}
+          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+            <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
+            <PenaltyLog
+              penalties={snapshot?.penalties ?? []}
+              filterKart={kart}
+              empty="None — clean so far."
+            />
+          </div>
+
+          {/* All penalties & warnings */}
+          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
+            <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
+            <PenaltyLog penalties={snapshot?.penalties ?? []} />
           </div>
 
           {/* Analysis: track position ring + charts */}

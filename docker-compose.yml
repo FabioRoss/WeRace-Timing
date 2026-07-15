@@ -6,6 +6,7 @@ services:
     env_file: backend/.env
     volumes:
       - recordings:/app/backend/recordings
+      - backgrounds:/app/backend/backgrounds
     expose:
       - "8000"
 
@@ -28,5 +29,6 @@ services:
 
 volumes:
   recordings:
+  backgrounds:
   caddy_data:
   caddy_config:

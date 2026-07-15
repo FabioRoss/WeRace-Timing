@@ -82,9 +82,11 @@ connect the Simulator, open the dashboards.
 ```bash
 docker compose logs -f app        # app logs (source connections, decode errors)
 git pull && WRB_DOMAIN=... docker compose up -d --build    # update
-docker compose down               # stop (recordings survive in a named volume)
+docker compose down               # stop (recordings + saved backgrounds survive in named volumes)
 docker run --rm -v werace-bridge_recordings:/r -v $PWD:/out alpine \
     tar czf /out/recordings-backup.tgz -C /r .             # backup recordings
+docker run --rm -v werace-bridge_backgrounds:/b -v $PWD:/out alpine \
+    tar czf /out/backgrounds-backup.tgz -C /b .            # backup saved backgrounds
 ```
 
 Notes:
@@ -93,7 +95,9 @@ Notes:
   split the race state across processes. One process comfortably handles a
   full endurance grid across all three event slots.
 - Recordings land in the `recordings` named volume
-  (`/app/backend/recordings` inside the container).
+  (`/app/backend/recordings` inside the container). Optionally-saved story
+  backgrounds land in the `backgrounds` named volume
+  (`/app/backend/backgrounds`) and likewise survive rebuilds.
 
 ## Development
 
@@ -160,4 +164,5 @@ REST (see `backend/app/routers/`): `/e/{slot}/api/state`, `/e/{slot}/api/laps`,
 reset/message/links) and token-gated `/e/{slot}/api/team/{token}[/message]`.
 
 State is in-memory by design (a restart just re-syncs from the live feed);
-recordings are the only thing persisted to disk.
+recordings and optionally-saved story backgrounds are the only things
+persisted to disk (each in its own named volume).

@@ -4,6 +4,7 @@
 // the live preview, the PNG snapshot and the MediaRecorder video.
 import type { Snapshot } from './types'
 import { fmtLap, fmtGap } from './format'
+import { penaltyAdjustedDrivers } from './penalties'
 
 export const STORY_W = 1080
 export const STORY_H = 1920
@@ -30,7 +31,7 @@ function accentTextOn([r, g, b]: [number, number, number]): string {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.6 ? WHITE : BLACK
 }
 
-export type StoryStat = 'best' | 'gap' | 'interval'
+export type StoryStat = 'best' | 'gap' | 'interval' | 'pits'
 
 export interface StoryRow {
   pos: number
@@ -101,6 +102,7 @@ export interface StoryOptions {
   stat?: StoryStat      // which metric each kart shows (default 'best')
   label?: string        // kicker (session type); blank falls back to 'Race'
   showFastest?: boolean // draw the fastest-lap footer (default true)
+  penalties?: boolean   // apply outstanding penalties to the standings (default off)
 }
 
 /** How many pages the whole field spans at `perPage` rows each (min 1). */
@@ -110,7 +112,7 @@ export function storyPageCount(snapshot: Snapshot | null, perPage: number): numb
 }
 
 export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): StoryModel {
-  const drivers = snapshot?.drivers ?? []
+  const drivers = opts.penalties ? penaltyAdjustedDrivers(snapshot) : (snapshot?.drivers ?? [])
   const perPage = Math.max(1, opts.perPage)
   const pageCount = Math.max(1, Math.ceil(drivers.length / perPage))
   const page = Math.min(Math.max(0, opts.pageIndex ?? 0), pageCount - 1)
@@ -128,6 +130,9 @@ export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): 
     } else if (stat === 'gap') {
       statValue = isLeader ? 'LEADER' : fmtGap(d.gap_leader)
       statCaption = isLeader ? '' : 'TO LEADER'
+    } else if (stat === 'pits') {
+      statValue = String(d.pits ?? 0)
+      statCaption = 'PIT STOPS'
     } else {
       statValue = isLeader ? 'LEADER' : fmtGap(d.gap_ahead)
       statCaption = isLeader ? '' : 'INTERVAL'

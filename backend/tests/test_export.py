@@ -152,3 +152,84 @@ def test_timesheet_pdf_503_when_reportlab_missing(client, monkeypatch):
     monkeypatch.setattr(export, "_REPORTLAB_OK", False)
     r = client.get("/e/1/api/export/timesheet.pdf")
     assert r.status_code == 503
+
+
+def _seed_two_close(slot: int = 1):
+    """Two karts on the same lap, kart 7 leading by 0.5s."""
+    event = get_manager().get(slot)
+    event.state.update(
+        RaceInfo(event_name="Test", track_name="Christel", run_type="R"),
+        [
+            DriverRow(kart_no="7", name="ALPHA", position=1, laps=20, total_time_ms=1_000_000),
+            DriverRow(kart_no="12", name="BRAVO", position=2, laps=20, total_time_ms=1_000_500),
+        ],
+    )
+    return event
+
+
+def test_penalty_time_penalty_reorders_same_lap(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()
+    pen = event.state.add_penalty("7", "time", seconds=10, reason="Contact")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+    assert adj[0].position == 1 and adj[1].position == 2
+    # A served penalty is no longer applied to the result.
+    event.state.set_penalty_served(pen.id, True)
+    assert [d.kart_no for d in _penalty_adjusted_drivers(event.state)] == ["7", "12"]
+
+
+def test_penalty_lap_penalty_drops_kart(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()
+    event.state.add_penalty("7", "lap", laps=1, reason="Cutting")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+    assert adj[1].kart_no == "7" and adj[1].laps == 19
+
+
+def test_penalty_warning_and_served_excluded_from_summary(client):
+    from app.routers.export import _outstanding_penalties
+    event = _seed_two_close()
+    event.state.add_penalty("7", "warning", reason="Track limits")
+    served = event.state.add_penalty("12", "time", seconds=5, reason="Contact")
+    event.state.set_penalty_served(served.id, True)
+    event.state.add_penalty("7", "time", seconds=10, reason="Contact")
+    out = _outstanding_penalties(event.state)
+    assert set(out) == {"7"} and out["7"]["seconds"] == 10
+
+
+def test_timesheet_penalties_param_renders(client):
+    event = _seed_two_close()
+    # Kart 7 carries two time penalties + a lap penalty → exercises the grouped
+    # summary path (one tinted driver row + a detail row per penalty).
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    event.state.add_penalty("7", "time", seconds=10, reason="Aggressive driving")
+    event.state.add_penalty("7", "lap", laps=1, reason="Jump start")
+    event.state.add_penalty("12", "lap", laps=1, reason="Jump start")
+    r = client.get("/e/1/api/export/timesheet.pdf?penalties=1")
+    assert r.status_code == 200
+    assert r.content[:5] == b"%PDF-"
+    assert len(r.content) > 1000
+
+
+def test_penalties_summary_groups_by_kart(client):
+    from app.routers.export import _penalties_summary_table, _accent_kit
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    event = _seed_two_close()
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    event.state.add_penalty("7", "time", seconds=10, reason="Aggressive driving")
+    base = getSampleStyleSheet()
+    kit = _accent_kit("#e10600")
+    styles = {
+        "Cell": ParagraphStyle("Cell", parent=base["Normal"], fontSize=9),
+        "SectionHead": base["Heading2"], "Legend": base["Normal"],
+        "accent": kit["accent"], "accent_text": kit["text"], "accent_tint": kit["tint"],
+    }
+    flow = _penalties_summary_table(event.state, styles)
+    table = flow[-1]
+    rows = table._cellvalues
+    # header + 1 summary row + 2 detail rows
+    assert len(rows) == 4
+    assert rows[1][0] == "7" and rows[1][2] == "+15s"        # summed total
+    assert [rows[2][2], rows[3][2]] == ["+5s", "+10s"]        # per-penalty detail

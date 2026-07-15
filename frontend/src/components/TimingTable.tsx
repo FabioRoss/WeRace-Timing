@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { DriverDetail } from './DriverDetail'
 import { SERIES_COLORS } from './LapCharts'
@@ -42,6 +42,18 @@ export function TimingTable({
 }: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
+
+  // Karts carrying an outstanding, result-affecting penalty (unserved time
+  // penalty or any lap penalty) get a PEN badge in the table.
+  const penalizedKarts = useMemo(() => {
+    const s = new Set<string>()
+    for (const p of snapshot.penalties ?? []) {
+      if (p.kind === 'warning') continue
+      if (p.kind === 'time' && p.served) continue
+      s.add(p.kart_no)
+    }
+    return s
+  }, [snapshot.penalties])
   const [detailKart, setDetailKart] = useState<string | null>(null)
 
   // ~3 fps waypoints for the progress bars; CSS transitions glide between them
@@ -154,7 +166,10 @@ export function TimingTable({
                 className={`cursor-pointer border-b border-pit-800 ${
                   flashing.has(d.kart_no) ? 'lap-glow' : ''
                 } ${
-                  own ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60' : ''
+                  // Own-row highlight wins over the zebra (both set background-color).
+                  own
+                    ? 'bg-race-blue/15 outline outline-1 -outline-offset-1 outline-race-blue/60'
+                    : (index % 2 === 1 ? 'bg-pit-850' : '')
                 } ${d.finished ? 'opacity-60' : ''}`}
               >
                 {selectable && (
@@ -199,6 +214,12 @@ export function TimingTable({
                   ) : null}
                   {d.finished && (
                     <span className="ml-2 text-[0.6rem] text-ink-500 align-middle">FIN</span>
+                  )}
+                  {penalizedKarts.has(d.kart_no) && (
+                    <span className="ml-2 rounded bg-race-red px-1 text-[0.6rem] font-bold text-white align-middle"
+                      title="Outstanding penalty">
+                      PEN
+                    </span>
                   )}
                 </td>
                 {hasSectors && (

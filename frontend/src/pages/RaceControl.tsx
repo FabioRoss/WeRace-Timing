@@ -11,6 +11,8 @@ import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
+import { PenaltyLog } from '../components/PenaltyLog'
+import { LAP_PENALTY_PRESETS, PENALTY_REASONS, TIME_PENALTY_PRESETS } from '../lib/penalties'
 import type { RaceMessage, SourceStatus } from '../lib/types'
 
 interface CatalogEntry {
@@ -58,6 +60,14 @@ function RaceControlInner() {
   const [text, setText] = useState('')
   const [priority, setPriority] = useState<'info' | 'warning' | 'urgent'>('info')
   const [sent, setSent] = useState('')
+
+  // Penalties & warnings
+  const [penKart, setPenKart] = useState('')
+  const [penKind, setPenKind] = useState<'time' | 'lap' | 'warning'>('time')
+  const [penSeconds, setPenSeconds] = useState(10)
+  const [penLaps, setPenLaps] = useState(1)
+  const [penReason, setPenReason] = useState('')
+  const [penSent, setPenSent] = useState('')
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -207,6 +217,43 @@ function RaceControlInner() {
     })
   }
 
+  const assignPenalty = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!penKart) { setError('Select a kart for the penalty'); return }
+    if (penKind === 'time' && penSeconds <= 0) { setError('Enter penalty seconds'); return }
+    if (penKind === 'lap' && penLaps <= 0) { setError('Enter penalty laps'); return }
+    const body = {
+      kart_no: penKart,
+      kind: penKind,
+      seconds: penKind === 'time' ? penSeconds : 0,
+      laps: penKind === 'lap' ? penLaps : 0,
+      reason: penReason.trim(),
+    }
+    void act(async () => {
+      await api(`/e/${slot}/api/admin/penalty`, { body, safeword: true })
+      const label = penKind === 'warning' ? 'Warning' : 'Penalty'
+      setPenSent(`${label} assigned to #${penKart}`)
+      setPenReason('')
+      setTimeout(() => setPenSent(''), 3000)
+    })
+  }
+
+  const servePenalty = (id: number, served: boolean) => void act(() =>
+    api(`/e/${slot}/api/admin/penalty/${id}/served`, { body: { served }, safeword: true }))
+
+  // Mark every penalty that made up a kart's summed pit time as served at once.
+  const serveKartTimePenalties = (ids: number[]) => void act(() =>
+    Promise.all(ids.map((id) =>
+      api(`/e/${slot}/api/admin/penalty/${id}/served`, { body: { served: true }, safeword: true }))))
+
+  const removePenalty = (id: number) => {
+    const p = (snapshot?.penalties ?? []).find((x) => x.id === id)
+    const what = p ? `the ${p.kind === 'warning' ? 'warning' : 'penalty'} for #${p.kart_no}` : 'this penalty'
+    if (!window.confirm(`Remove ${what}? This cannot be undone.`)) return
+    void act(() =>
+      api(`/e/${slot}/api/admin/penalty/${id}`, { method: 'DELETE', safeword: true }))
+  }
+
   const race = snapshot?.race
   // The messaging selector lists karts by number (easier to find one to
   // message) rather than by race order, which shuffles every lap.
@@ -221,6 +268,35 @@ function RaceControlInner() {
     () => [...messages].sort((a: RaceMessage, b: RaceMessage) => b.id - a.id).slice(0, 30),
     [messages],
   )
+
+  const penalties = snapshot?.penalties ?? []
+  // Outstanding TIME penalties are the ones drivers physically serve in the
+  // pit. Pull karts currently in the pit lane to the top and flag them, so RC
+  // can clear them while the kart is stationary.
+  const inPit = useMemo(
+    () => new Set((snapshot?.drivers ?? []).filter((d) => d.in_pit).map((d) => d.kart_no)),
+    [snapshot?.drivers],
+  )
+  // Outstanding time penalties grouped per kart: a kart's 5s + 10s show as one
+  // "+15s" to serve, and serving it clears every penalty that made up the sum.
+  const toServeGroups = useMemo(() => {
+    const byKart = new Map<string, { kart: string; seconds: number; ids: number[]; reasons: string[] }>()
+    for (const p of penalties) {
+      if (p.kind !== 'time' || p.served) continue
+      const g = byKart.get(p.kart_no) ?? { kart: p.kart_no, seconds: 0, ids: [], reasons: [] }
+      g.seconds += p.seconds
+      g.ids.push(p.id)
+      if (p.reason) g.reasons.push(p.reason)
+      byKart.set(p.kart_no, g)
+    }
+    return [...byKart.values()].sort((a, b) => {
+      const ap = inPit.has(a.kart) ? 1 : 0
+      const bp = inPit.has(b.kart) ? 1 : 0
+      return bp - ap
+        || (parseInt(a.kart, 10) || 0) - (parseInt(b.kart, 10) || 0)
+        || a.kart.localeCompare(b.kart)
+    })
+  }, [penalties, inPit])
 
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
@@ -499,6 +575,137 @@ function RaceControlInner() {
               </li>
             ))}
           </ul>
+        </div>
+
+        {/* Penalties & warnings */}
+        <div className="lg:col-span-3 rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+          <h3 className="label-race mb-3">Penalties &amp; warnings</h3>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {/* Assign */}
+            <form onSubmit={assignPenalty} className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="label-race text-ink-500">Kart</span>
+                <select
+                  value={penKart}
+                  onChange={(e) => setPenKart(e.target.value)}
+                  className="rounded bg-pit-950 px-2 py-1.5 ring-1 ring-pit-600 focus:ring-race-blue"
+                >
+                  <option value="">Select…</option>
+                  {messageKarts.map((d) => (
+                    <option key={d.kart_no} value={d.kart_no}>
+                      #{d.kart_no}{d.name ? ` — ${d.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {([['time', 'Time'], ['lap', 'Lap'], ['warning', 'Warning']] as const).map(([k, lbl]) => (
+                  <button key={k} type="button" onClick={() => setPenKind(k)}
+                    className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
+                      penKind === k ? 'bg-race-red text-white' : 'bg-pit-700'
+                    }`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {penKind === 'time' && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {TIME_PENALTY_PRESETS.map((s) => (
+                    <button key={s} type="button" onClick={() => setPenSeconds(s)}
+                      className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
+                        penSeconds === s ? 'bg-race-yellow text-pit-950' : 'bg-pit-700'
+                      }`}>
+                      +{s}s
+                    </button>
+                  ))}
+                  <input type="number" min={1} max={3600} value={penSeconds}
+                    onChange={(e) => setPenSeconds(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
+                  <span className="text-xs text-ink-500">seconds</span>
+                </div>
+              )}
+              {penKind === 'lap' && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {LAP_PENALTY_PRESETS.map((l) => (
+                    <button key={l} type="button" onClick={() => setPenLaps(l)}
+                      className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
+                        penLaps === l ? 'bg-race-yellow text-pit-950' : 'bg-pit-700'
+                      }`}>
+                      −{l}
+                    </button>
+                  ))}
+                  <input type="number" min={1} max={100} value={penLaps}
+                    onChange={(e) => setPenLaps(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
+                  <span className="text-xs text-ink-500">laps</span>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {PENALTY_REASONS.map((r) => (
+                  <button key={r} type="button" onClick={() => setPenReason(r)}
+                    className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <input value={penReason} onChange={(e) => setPenReason(e.target.value)} maxLength={120}
+                placeholder="Reason (optional)…"
+                className="w-full rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue" />
+              <button type="submit" disabled={busy || !penKart}
+                className="rounded bg-race-red px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110">
+                Assign
+              </button>
+              {penSent && <p className="text-xs text-race-green">{penSent}</p>}
+              <p className="text-[0.7rem] text-ink-500">
+                The team is notified a few seconds after assigning, so a mistake can be removed first.
+              </p>
+            </form>
+
+            {/* To serve in pit (outstanding time penalties, summed per kart) */}
+            <div>
+              <h4 className="label-race mb-2 text-race-yellow">To serve in pit</h4>
+              {toServeGroups.length === 0 ? (
+                <p className="text-sm text-ink-500">No time penalties outstanding.</p>
+              ) : (
+                <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+                  {toServeGroups.map((g) => (
+                    <li key={g.kart}
+                      className={`flex items-center gap-2 rounded px-3 py-2 ${
+                        inPit.has(g.kart)
+                          ? 'bg-pit-850 ring-1 ring-race-red'
+                          : 'bg-pit-850'
+                      }`}>
+                      <span className="min-w-[2.5rem] font-timing font-bold">#{g.kart}</span>
+                      {inPit.has(g.kart) && (
+                        <span className="rounded bg-race-red px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
+                          IN PIT
+                        </span>
+                      )}
+                      <span className="flex-1 truncate">
+                        <span className="font-bold text-race-red">+{g.seconds}s</span>
+                        {g.reasons.length > 0 && (
+                          <span className="text-ink-300"> — {[...new Set(g.reasons)].join(', ')}</span>
+                        )}
+                        {g.ids.length > 1 && (
+                          <span className="ml-1 text-[0.65rem] text-ink-500">({g.ids.length} penalties)</span>
+                        )}
+                      </span>
+                      <button type="button" onClick={() => serveKartTimePenalties(g.ids)}
+                        className="rounded bg-race-green px-2 py-0.5 text-[0.65rem] font-bold uppercase text-pit-950">
+                        serve
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Full log */}
+            <div>
+              <h4 className="label-race mb-2">All penalties &amp; warnings</h4>
+              <PenaltyLog penalties={penalties} onServe={servePenalty} onRemove={removePenalty} />
+            </div>
+          </div>
         </div>
 
         {/* Standings */}

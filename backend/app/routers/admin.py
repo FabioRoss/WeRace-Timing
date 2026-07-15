@@ -309,6 +309,64 @@ async def message(slot: int, body: AdminMessage) -> dict:
     return {"ok": True, "message": msg.model_dump()}
 
 
+class AdminPenalty(BaseModel):
+    kart_no: str = Field(min_length=1, max_length=10)
+    kind: str                                       # time | lap | warning
+    seconds: int = Field(default=0, ge=0, le=3600)  # time penalties
+    laps: int = Field(default=0, ge=0, le=100)      # lap penalties
+    reason: str = Field(default="", max_length=120)
+
+
+@router.post("/e/{slot}/api/admin/penalty")
+async def add_penalty(slot: int, body: AdminPenalty) -> dict:
+    event = get_event(slot)
+    kind = body.kind
+    if kind not in ("time", "lap", "warning"):
+        raise HTTPException(status_code=422, detail="kind must be time, lap or warning")
+    if kind == "time" and body.seconds <= 0:
+        raise HTTPException(status_code=422, detail="time penalty needs seconds > 0")
+    if kind == "lap" and body.laps <= 0:
+        raise HTTPException(status_code=422, detail="lap penalty needs laps > 0")
+    seconds = body.seconds if kind == "time" else 0
+    laps = body.laps if kind == "lap" else 0
+    pen = event.state.add_penalty(
+        body.kart_no.strip(), kind, seconds=seconds, laps=laps, reason=body.reason.strip()
+    )
+    event.state.updated_at = time.time()
+    # Notify the team after a short grace window (staff can delete a mistake).
+    event.schedule_penalty_notify(pen)
+    await event.broadcast_now()
+    return {"ok": True, "penalty": pen.model_dump()}
+
+
+class AdminPenaltyServed(BaseModel):
+    served: bool = True
+
+
+@router.post("/e/{slot}/api/admin/penalty/{penalty_id}/served")
+async def set_penalty_served(slot: int, penalty_id: int, body: AdminPenaltyServed) -> dict:
+    event = get_event(slot)
+    pen = event.state.set_penalty_served(penalty_id, body.served)
+    if pen is None:
+        raise HTTPException(status_code=404, detail="penalty not found")
+    event.state.updated_at = time.time()
+    await event.broadcast_now()
+    return {"ok": True, "penalty": pen.model_dump()}
+
+
+@router.delete("/e/{slot}/api/admin/penalty/{penalty_id}")
+async def remove_penalty(slot: int, penalty_id: int) -> dict:
+    event = get_event(slot)
+    # Cancel any pending team notification before the penalty is gone.
+    event.cancel_penalty_notify(penalty_id)
+    pen = event.state.remove_penalty(penalty_id)
+    if pen is None:
+        raise HTTPException(status_code=404, detail="penalty not found")
+    event.state.updated_at = time.time()
+    await event.broadcast_now()
+    return {"ok": True, "penalty": pen.model_dump()}
+
+
 def _base_url(request: Request) -> str:
     configured = get_settings().public_base_url.rstrip("/")
     if configured:

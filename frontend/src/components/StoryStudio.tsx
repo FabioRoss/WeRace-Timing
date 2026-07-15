@@ -15,7 +15,7 @@ const bgSrc = (name: string) => `${BG_API}/${name}?safeword=${encodeURIComponent
 
 type Mode = 'image' | 'video'
 type VideoScope = 'page' | 'all'
-type LabelChoice = 'Free Practice' | 'Qualifying' | 'Race' | 'Custom'
+type LabelChoice = 'Free Practice' | 'Qualifying' | 'Race Result' | 'Custom'
 
 const REVEAL_MS = 320   // per standings row
 const HOLD_MS = 1600    // pause on a full page before the clip/page ends
@@ -44,9 +44,10 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
   const [stat, setStat] = useState<StoryStat>('interval')
-  const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race')
+  const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race Result')
   const [customLabel, setCustomLabel] = useState('')
   const [showFastest, setShowFastest] = useState(true)
+  const [penalties, setPenalties] = useState(false)
   const [accent, setAccent] = useState(DEFAULT_ACCENT)
   const [mode, setMode] = useState<Mode>('image')
   const [videoScope, setVideoScope] = useState<VideoScope>('page')
@@ -74,12 +75,18 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     }
   }, [snapshot])
 
-  const label = labelChoice === 'Custom' ? customLabel.trim() || 'Race' : labelChoice
+  const label = labelChoice === 'Custom' ? customLabel.trim() || 'Race Result' : labelChoice
+
+  // Only offer the penalties toggle when there's an outstanding one to apply.
+  const hasPenalties = useMemo(
+    () => (snapshot?.penalties ?? []).some((p) => p.kind !== 'warning' && !p.served),
+    [snapshot?.penalties],
+  )
 
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
-    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat, label, showFastest }),
-    [snapshot, perPage, pageIndex, title, stat, label, showFastest],
+    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat, label, showFastest, penalties }),
+    [snapshot, perPage, pageIndex, title, stat, label, showFastest, penalties],
   )
   const videoMime = useMemo(() => pickVideoMime(), [])
   const hasData = model.rows.length > 0
@@ -199,7 +206,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     try {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest, penalties })
         drawStory(ctx, m, m.rows.length, bg, accent, bgTransform)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
@@ -211,7 +218,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, title, stat, label, showFastest, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, title, stat, label, showFastest, penalties, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -235,7 +242,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
         : [pageIndex]
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest, penalties })
         await animatePage(ctx, m, bg, accent, bgTransform)
       }
       recorder.stop()
@@ -251,7 +258,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, pageIndex, title, stat, label, showFastest, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, pageIndex, title, stat, label, showFastest, penalties, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
 
   // Apply a transform update, snapped to defaults near them and clamped so the
   // photo always fully covers the frame (no empty corners).
@@ -351,7 +358,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Race Result"
+            placeholder="Event Name"
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
@@ -363,7 +370,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               onChange={(e) => setLabelChoice(e.target.value as LabelChoice)}
               className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             >
-              {(['Free Practice', 'Qualifying', 'Race', 'Custom'] as const).map((c) => (
+              {(['Free Practice', 'Qualifying', 'Race Result', 'Custom'] as const).map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -391,6 +398,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             <option value="best">Best lap</option>
             <option value="gap">Gap to leader</option>
             <option value="interval">Interval (to kart ahead)</option>
+            <option value="pits">Pit stops</option>
           </select>
         </Field>
 
@@ -404,6 +412,19 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             <option value="hide">Hide</option>
           </select>
         </Field>
+
+        {hasPenalties && (
+          <Field label="Penalties">
+            <select
+              value={penalties ? 'apply' : 'off'}
+              onChange={(e) => setPenalties(e.target.value === 'apply')}
+              className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+            >
+              <option value="off">Ignore</option>
+              <option value="apply">Apply (final result)</option>
+            </select>
+          </Field>
+        )}
 
         <Field label="Rows per page">
           <select

@@ -1,4 +1,4 @@
-from app.models import DriverRow, Flag, RaceInfo
+from app.models import DriverRow, Flag, RaceInfo, SourceStatus
 from app.security import make_token, resolve_token
 from app.state import EventState
 
@@ -86,3 +86,47 @@ def test_stint_prefers_source_value():
     driver = DriverRow(kart_no="7", position=1, laps=5, stint_time="00:25:11")
     state.update(None, [driver])
     assert state.driver_view("7")["stint_seconds"] == 25 * 60 + 11
+
+
+def test_penalty_store_add_serve_remove():
+    state = EventState(1)
+    p1 = state.add_penalty("7", "time", seconds=10, reason="Contact")
+    p2 = state.add_penalty("12", "lap", laps=1, reason="Track limits")
+    p3 = state.add_penalty("7", "warning", reason="Aggressive driving")
+    assert [p.id for p in state.penalties] == [1, 2, 3]
+    assert p1.seconds == 10 and p2.laps == 1 and p3.kind == "warning"
+    assert state.find_penalty(2) is p2
+
+    state.set_penalty_served(1, True)
+    assert state.find_penalty(1).served is True
+    state.set_penalty_served(1, False)
+    assert state.find_penalty(1).served is False
+
+    assert state.remove_penalty(3) is p3
+    assert [p.id for p in state.penalties] == [1, 2]
+    assert state.remove_penalty(999) is None
+
+
+def test_penalties_in_snapshot_and_driver_view():
+    state = EventState(1)
+    state.update(None, rows(("7", 1, 5, 52000, 51000, "", 0), ("12", 2, 5, 53000, 51500, "", 0)))
+    state.add_penalty("7", "time", seconds=5, reason="Contact")
+    state.add_penalty("12", "warning", reason="Track limits")
+
+    snap = state.snapshot(SourceStatus())
+    assert [p.kart_no for p in snap.penalties] == ["7", "12"]
+
+    # driver_view carries only that kart's penalties
+    own = state.driver_view("7")["penalties"]
+    assert len(own) == 1 and own[0]["kart_no"] == "7"
+    assert state.driver_view("12")["penalties"][0]["kind"] == "warning"
+
+
+def test_penalties_cleared_on_session_rollover():
+    state = EventState(1)
+    state.update(RaceInfo(run_type="R", session_kind="race"),
+                 rows(("7", 1, 40, 52000, 51000, "", 0)))
+    state.add_penalty("7", "time", seconds=10, reason="Contact")
+    assert state.penalties
+    state._reset_session_state("test")
+    assert state.penalties == []

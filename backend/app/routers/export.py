@@ -141,7 +141,8 @@ try:
 except ImportError:  # pragma: no cover - only when the dep is absent
     _REPORTLAB_OK = False
 
-from ..state import EventState
+from ..models import DriverRow
+from ..state import EventState, _classify_gap
 from .public import get_event
 
 router = APIRouter()
@@ -184,19 +185,23 @@ def fmt_stop(ms: int | None) -> str:
     return f"{ms / 1000:.1f} s"
 
 
-def _classification_table(state: EventState, styles) -> Table:
+def _classification_table(state: EventState, styles, drivers: list | None = None) -> Table:
     """Modern card-style classification. Position is a dark badge, the leader row
     is accent-tinted, the overall fastest lap is accent-bold. The Interval column
     shows the time to the car directly ahead (derived from cumulative times), so
     two karts on the same lap — including both lapped — see their real gap, not
-    just '+N L'."""
+    just '+N L'.
+
+    `drivers` overrides the ordered field (e.g. the penalty-adjusted order); it
+    defaults to the live standings."""
+    drivers = drivers if drivers is not None else state.drivers
     accent, a_text = styles["accent"], styles["accent_text"]
     a_tint, a_dark = styles["accent_tint"], styles["accent_dark"]
     header = ["Pos", "Kart", "Driver", "Laps", "Best lap", "Total time", "Gap", "Interval"]
     rows = [header]
     best_row_idx: int | None = None
     prev = None
-    for i, d in enumerate(state.drivers):
+    for i, d in enumerate(drivers):
         if state.session_best_kart and d.kart_no == state.session_best_kart:
             best_row_idx = i + 1  # +1 for the header row
         interval = "—"
@@ -248,7 +253,7 @@ def _classification_table(state: EventState, styles) -> Table:
         ("ROUNDEDCORNERS", [5, 5, 5, 5]),
     ]
     # Leader row accent-tinted (skip the badge cell so it stays a dark chip).
-    if len(state.drivers) >= 1:
+    if len(drivers) >= 1:
         style.append(("BACKGROUND", (1, 1), (-1, 1), a_tint))
         style.append(("FONTNAME", (2, 1), (2, 1), "Helvetica-Bold"))
     if best_row_idx is not None:
@@ -258,17 +263,131 @@ def _classification_table(state: EventState, styles) -> Table:
     return table
 
 
+def _outstanding_penalties(state: EventState) -> dict[str, dict]:
+    """Per-kart outstanding (unserved) penalty totals: seconds added, laps
+    subtracted, and the individual penalties. Served time penalties and
+    warnings are excluded — the result only reflects penalties still standing."""
+    out: dict[str, dict] = {}
+    for p in state.penalties:
+        if p.kind == "warning" or p.served:
+            continue
+        agg = out.setdefault(p.kart_no, {"seconds": 0, "laps": 0, "items": []})
+        agg["seconds"] += p.seconds if p.kind == "time" else 0
+        agg["laps"] += p.laps if p.kind == "lap" else 0
+        agg["items"].append(p)
+    return out
+
+
+def _penalty_adjusted_drivers(state: EventState) -> list[DriverRow]:
+    """The classification recomputed with outstanding penalties applied: time
+    penalties add to total time, lap penalties subtract laps. Re-sorted by
+    (-laps, total time) — mirroring EventState._recompute_order — with fresh
+    positions and gap-to-leader."""
+    pens = _outstanding_penalties(state)
+    adjusted: list[DriverRow] = []
+    for d in state.drivers:
+        nd = d.model_copy()
+        agg = pens.get(d.kart_no)
+        if agg:
+            nd.laps = max(0, d.laps - agg["laps"])
+            if d.total_time_ms is not None:
+                nd.total_time_ms = d.total_time_ms + agg["seconds"] * 1000
+        adjusted.append(nd)
+    adjusted.sort(key=lambda d: (
+        -d.laps,
+        d.total_time_ms if d.total_time_ms is not None else float("inf"),
+    ))
+    leader = adjusted[0] if adjusted else None
+    for i, d in enumerate(adjusted):
+        d.position = i + 1
+        d.gap_leader = _classify_gap(d, leader)
+    return adjusted
+
+
+def _penalties_summary_table(state: EventState, styles) -> list:
+    """A per-driver summary of the outstanding penalties folded into the
+    classification, so the reader can see exactly what was applied. Ordered by
+    kart number; only karts with an outstanding penalty appear.
+
+    Each driver gets a tinted summary row (kart, name, combined totals) followed
+    by one white detail row per penalty (amount + reason), matching the
+    classification card's accent header + rounded corners. Amounts use an ASCII
+    '-' — the base-14 PDF fonts only render Latin-1."""
+    pens = _outstanding_penalties(state)
+    if not pens:
+        return []
+    names = {d.kart_no: d.name for d in state.drivers}
+    accent, a_text, a_tint = styles["accent"], styles["accent_text"], styles["accent_tint"]
+
+    def _kart_key(k: str) -> tuple:
+        try:
+            return (0, int(k))
+        except ValueError:
+            return (1, 0)
+
+    rows: list = [["Kart", "Driver", "Penalty", "Reason"]]
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), accent),
+        ("TEXTCOLOR", (0, 0), (-1, 0), a_text),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (2, 0), (2, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+    ]
+    r = 1  # current row index (0 is the header)
+    for kart in sorted(pens, key=lambda k: (_kart_key(k), k)):
+        agg = pens[kart]
+        totals = []
+        if agg["seconds"]:
+            totals.append(f"+{agg['seconds']}s")
+        if agg["laps"]:
+            totals.append(f"-{agg['laps']} lap" + ("s" if agg["laps"] != 1 else ""))
+        # Driver summary row (accent-tinted, bold).
+        rows.append([kart, Paragraph(names.get(kart, "") or "", styles["Cell"]),
+                     "  ·  ".join(totals), ""])
+        style.append(("BACKGROUND", (0, r), (-1, r), a_tint))
+        style.append(("FONTNAME", (0, r), (2, r), "Helvetica-Bold"))
+        if r > 1:
+            style.append(("LINEABOVE", (0, r), (-1, r), 0.6, LINE_GREY))
+        r += 1
+        # One white detail row per penalty (amount in mono + reason).
+        for p in agg["items"]:
+            amount = f"+{p.seconds}s" if p.kind == "time" else f"-{p.laps} lap"
+            rows.append(["", "", amount, Paragraph(p.reason or "—", styles["Cell"])])
+            style.append(("FONTNAME", (2, r), (2, r), "Courier"))
+            style.append(("TEXTCOLOR", (2, r), (2, r), SOFT_GREY))
+            r += 1
+
+    table = Table(rows, colWidths=[14 * mm, 46 * mm, 26 * mm, 100 * mm], repeatRows=1)
+    table.setStyle(TableStyle(style))
+    return [
+        Spacer(1, 5 * mm),
+        Paragraph("Penalties applied", styles["SectionHead"]),
+        Paragraph(
+            "These outstanding penalties are already included in the classification "
+            "above — the result is final.", styles["Legend"]),
+        table,
+    ]
+
+
 def _lap_grid_tables(state: EventState, styles) -> list:
     """Chrono-style lap-by-lap grid: one row per lap, one column per kart.
-    Fastest lap per kart is red-bold; pit laps are tinted and marked with a small
-    ᴾ. Wraps karts across blocks so a wide field doesn't overflow the page."""
+    Fastest lap per kart is filled with the accent colour (contrast text); pit
+    laps are filled dark. Wraps karts across blocks so a wide field doesn't
+    overflow the page."""
     chart = state.lap_chart(last_n=100000)  # full history
     karts = [d.kart_no for d in state.drivers if chart.get(d.kart_no)]
     if not karts:
         return [Paragraph("No lap data recorded yet.", styles["ReportSmall"])]
 
     out: list = [Paragraph(
-        f"<font color='{styles['accent_dark_hex']}'><b>coloured</b></font> = fastest lap "
+        f"<font color='{styles['accent_dark_hex']}'><b>accent cell</b></font> = fastest lap "
         "&nbsp;·&nbsp; <font color='#14161f'><b>dark cell</b></font> = pit lap",
         styles["Legend"],
     )]
@@ -326,8 +445,11 @@ def _lap_grid_tables(state: EventState, styles) -> list:
             style.append(("TEXTCOLOR", (ci, lap), (ci, lap), colors.white))
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
         for ci, lap in best_cells:
+            # Fastest lap per kart: accent-filled cell (like pit laps are filled),
+            # with contrast text (white/ink) chosen for legibility on the accent.
+            style.append(("BACKGROUND", (ci, lap), (ci, lap), styles["accent"]))
+            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), styles["accent_text"]))
             style.append(("FONTNAME", (ci, lap), (ci, lap), "Courier-Bold"))
-            style.append(("TEXTCOLOR", (ci, lap), (ci, lap), styles["accent_dark"]))
         table.setStyle(TableStyle(style))
         out.append(Paragraph(
             f"Karts {', '.join('#' + k for k in block)}", styles["SectionHead"]
@@ -538,6 +660,7 @@ def _pace_trend(state: EventState, accent=RACE_RED) -> Drawing:
 def build_timesheet_pdf(
     state: EventState, include_charts: bool = False, include_grid: bool = True,
     include_pits: bool = False, include_stints: bool = False, pit_estimate: bool = False,
+    include_penalties: bool = False,
     event_name: str = "", session_name: str = "", accent: str = "#e10600",
 ) -> bytes:
     buf = io.BytesIO()
@@ -608,12 +731,19 @@ def build_timesheet_pdf(
         cnv.line(12 * mm, y - 2.5 * mm, A4[0] - 12 * mm, y - 2.5 * mm)
         cnv.restoreState()
 
+    # With penalties on, the classification is recomputed with outstanding
+    # penalties applied, so page 1 shows the final result; a summary of what
+    # was applied follows it.
+    adjusted = _penalty_adjusted_drivers(state) if include_penalties else None
+    summary = _penalties_summary_table(state, styles) if include_penalties else []
+    class_title = "Classification (penalties applied)" if summary else "Classification"
     story: list = [
         HeaderBand(event, meta, accent=kit["accent"]),
         Spacer(1, 6 * mm),
-        Paragraph("Classification", styles["SectionHead"]),
-        _classification_table(state, styles),
+        Paragraph(class_title, styles["SectionHead"]),
+        _classification_table(state, styles, drivers=adjusted),
     ]
+    story += summary
 
     # Keep page 1 for the classification alone; charts + pit/stint start on the
     # next page. (The grid already begins on its own page, so don't add a break
@@ -664,6 +794,7 @@ def _clean_accent(value: str) -> str:
 def timesheet_pdf(
     slot: int, charts: bool = False, grid: bool = True,
     pits: bool = False, stints: bool = False, pitest: bool = False,
+    penalties: bool = False,
     event: str = "", session: str = "", accent: str = "#e10600",
 ) -> Response:
     """Downloadable chrono timesheet: modern classification + optional charts,
@@ -676,6 +807,7 @@ def timesheet_pdf(
     pdf = build_timesheet_pdf(
         evt.state, include_charts=charts, include_grid=grid,
         include_pits=pits, include_stints=stints, pit_estimate=pitest,
+        include_penalties=penalties,
         accent=_clean_accent(accent),
         event_name=event, session_name=session,
     )
