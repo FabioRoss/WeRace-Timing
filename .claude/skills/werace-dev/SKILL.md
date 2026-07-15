@@ -177,7 +177,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   race | timed | unknown, from titles/runtype/duralaps or the inversion heuristic.
 - **RC config (per event, survive reconnect/reset)**: `recompute_positions` rebuilds
   order from laps + total time (uploaders that never reorder — christel), `auto_pitlane`
-  off infers pits/stint from lap times (venues with no pit-lane gates). Recommended for
+  off infers pits/stint from lap times (venues with no pit-lane gates), `hide_team_penalties`
+  drops the team dashboard's two penalty panels (race control still sees everything — e.g.
+  hold penalties from teams until official). All three are `EventState` flags preserved
+  across reset, surfaced on `EventSnapshot`, set via `POST /e/{slot}/api/admin/settings`,
+  reported by the status endpoint, toggled in the RC config tab. Recommended for
   christel/MyWeR by-laps races: recompute ON, auto pit lane OFF.
 - **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
   deliverables built from *live* EventState (no server-side archive — generate before
@@ -291,33 +295,60 @@ penalty_seq, original_penalties}`.
   the record payload; `EventState.hydrate(dict)` rebuilds a static state that drives
   `build_timesheet_pdf` unchanged (the eight `_`-tracking dicts are live-frame scratch — dropped).
 - **Triggers / end inference**: `Event._auto_save_if_ended(now, idle=…)` saves **once per session**.
-  Most feeds never set `race.ended`, so end is inferred from `race.ended` OR `Flag.FINISH` (checkered,
-  from `_on_data`) OR the feed going quiet — `now - state.updated_at > autosave_idle_s` (150 s),
-  checked every tick in `_broadcast_loop` (`idle=True`). Guards: `_auto_saved` (one save/session, set
-  by any save incl. manual, re-armed on rollover via `EventState.session_generation` bump or
-  `Event.reset`) and `_worth_saving()` (drivers with `laps>0` — never an empty/never-started or, thus,
-  bad save). The idle path intentionally does **not** require a connected source (a replay hits EOF /
-  a live feed can drop at the finish). Manual `POST /e/{slot}/api/admin/snapshots` also saves + arms.
-  **No supersede** (deferred): every save is a new record. `Event.build_record(trigger)` folds in
-  messages + defaults (name = `event — session — date`, `track = race.track_name`).
+  Most feeds never set `race.ended`, so end is inferred from `race.ended` OR any of the source's
+  **`terminal_flags`** OR the feed going quiet — `now - state.updated_at > autosave_idle_s` (150 s),
+  checked every tick in `_broadcast_loop` (`idle=True`). `BaseSource.terminal_flags = {FINISH}`;
+  **`MyWerSource` adds `STOPPED`** because MyWeR never sets `endrace` and its flag never reaches
+  FINISH — Rozzano sessions run W→G→S and the feed streams continuously, so before this neither the
+  checkered nor the idle path ever fired (0 auto-saves on a real capture; now one per stopped
+  session). `ReplaySource` inherits the replayed protocol's set. Guards: `_auto_saved` (one
+  save/session, set by any save incl. manual) re-armed on rollover (`session_generation` bump) **and
+  on the edge into `WARMUP`** in `_on_data` (MyWeR runs back-to-back sessions in one generation:
+  …S then W), plus `_worth_saving()` (drivers with `laps>0`). Apex's STOPPED is NOT terminal (its
+  stop can be mid-race; it sets `ended`/FINISH explicitly). The idle path intentionally does **not**
+  require a connected source (a replay hits EOF / a live feed can drop at the finish). Manual
+  `POST /e/{slot}/api/admin/snapshots` also saves + arms. **No supersede** (deferred): every save is
+  a new record. `Event.build_record(trigger)` folds in messages + defaults (name = `event — session
+  — date`, `track = race.track_name`) and seeds `pdf_config={}` + `group_id=None`/`group_name=""`.
 - **TTL**: `main.py` lifespan runs a startup sweep + a periodic `asyncio` GC loop deleting records
   past `expires_at` unless `keep`. `snapshot_ttl_days` (30) / `snapshot_gc_interval_s` (6h).
   **Publishing sets keep=true** (public links must not expire); unkeep recomputes expiry.
+- **Saved public PDF layout**: a record carries `pdf_config` (the TimesheetPanel toggles:
+  charts/grid/pits/stints/pitest/penalties + event/session/accent). `snapshots.sanitize_pdf_config`
+  keeps only known keys; `effective_pdf_config` merges it over `PDF_CONFIG_DEFAULTS` (grid+penalties
+  on). The public `timesheet.pdf` applies it as the **default**, explicit query params still override
+  (so `ResultsDetail` downloads with no params). The editor's PDF tab has a **"Save as public
+  default"** button (`TimesheetPanel` `initialConfig`+`onSaveConfig` → PATCH `pdf_config`).
+- **Events (snapshot groups)**: a record carries `group_id`/`group_name`; an event bundles the
+  snapshots sharing a `group_id`, **on one track**. `snapshots.list_groups(published_only)` derives
+  events (sessions oldest-first, events newest-first). Public opens an event → its sessions as tabs.
+- **Surfacing lap data**: snapshots already store the full `lap_history`; the `laps` endpoints expose
+  it. Frontend factors `components/SessionResult.tsx` (the public body: notes + classification **with
+  no track ring** + penalties + `SnapshotLapCharts` + PDF) reused by `ResultsDetail` and every
+  `EventDetail` tab; `components/SnapshotLapCharts.tsx` picks karts and draws the lap-time trend
+  from `{base}/laps` (reuses `LapCharts.LapTimeChart`).
 - **Admin API** (safeword, `admin.py`): `GET/PATCH/DELETE /api/admin/snapshots[/{id}]`
-  (name/track/tags/notes/keep/published), penalty amend on a stored record
+  (name/track/tags/notes/keep/published/**pdf_config**), penalty amend on a stored record
   (`.../{id}/penalty[...]` add/serve/remove/`revert` to `original_penalties`; validation shared
-  with the live path via `_penalty_fields`), and `GET .../{id}/timesheet.pdf` (hydrate →
-  `snapshot_pdf_response` in `export.py`, the factored PDF builder; safeword via `?safeword=`).
+  with the live path via `_penalty_fields`), `GET .../{id}/laps` + `GET .../{id}/timesheet.pdf`
+  (hydrate → `snapshot_pdf_response`; safeword via `?safeword=`), and events:
+  `GET /api/admin/snapshot-groups` + `POST /api/admin/snapshot-groups/assign`
+  (`{snapshot_ids, group_id?|group_name?}` → group/regroup; empty → ungroup; **cross-track rejected**).
 - **Public API** (ungated, `routers/results.py`): `GET /api/results` (published list, machine-
   readable w/ track/tags/podium — the future-integration seam), `GET /api/results/{id}` (public
-  view, **private notes stripped, 404 if unpublished**), `GET /api/results/{id}/timesheet.pdf`.
+  view, **private notes stripped, 404 if unpublished**), `GET /api/results/{id}/laps`,
+  `GET /api/results/{id}/timesheet.pdf`, `GET /api/events` (`{events:[…], loose:[…]}` — published
+  events + ungrouped published sessions), `GET /api/events/{id}` (an event's sessions as full public
+  views for the tabs; 404 if none published).
 - **Frontend**: `lib/useSnapshot.ts` (`useSnapshotRecord` — static `Snapshot` fetch, a drop-in for
-  `useLive`'s snapshot). Reuse seams: `components/TimesheetPanel.tsx` (lifted from ExportPage,
-  `pdfBase` + optional `safeword` props) and `components/PenaltyEditor.tsx` (lifted from
-  RaceControl, `apiBase` prop + `onChanged` refetch + `canRevert`; RaceControl now consumes it).
-  Pages: gated `/admin/snapshots` (SnapshotManager: list, podium, track filter, keep/publish
-  toggles, delete-confirm) + `/admin/snapshots/:id` (SnapshotEditor: notes, PenaltyEditor, PDF via
-  TimesheetPanel, StoryStudio); public `/results` + `/results/:id` (read-only summary + PDF).
+  `useLive`'s snapshot; exports `SnapshotMeta`/`EventGroup`). Reuse seams: `components/TimesheetPanel.tsx`
+  (lifted from ExportPage, `pdfBase` + optional `safeword`/`initialConfig`/`onSaveConfig` props) and
+  `components/PenaltyEditor.tsx` (`apiBase` + `onChanged` + `canRevert`; RaceControl consumes it).
+  Pages: gated `/admin/snapshots` (SnapshotManager: list, podium, track filter, keep/publish toggles,
+  delete-confirm, **row checkboxes + "Group into event" bar + event badge**) + `/admin/snapshots/:id`
+  (SnapshotEditor: notes, **EventPicker**, PenaltyEditor, lap charts, PDF via TimesheetPanel,
+  StoryStudio); public `/results` (event cards → `/events/:id` + loose session cards → `/results/:id`),
+  `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults).
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
 - **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
   `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into
