@@ -391,6 +391,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             <option value="best">Best lap</option>
             <option value="gap">Gap to leader</option>
             <option value="interval">Interval (to kart ahead)</option>
+            <option value="pits">Pit stops</option>
           </select>
         </Field>
 
