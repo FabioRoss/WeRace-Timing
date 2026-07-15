@@ -273,6 +273,47 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
     POSTs the kept `File`.
 
+## Saved snapshots (results archive)
+
+Persistent results archive so a finished session survives reboots + docker rebuilds and can be
+re-exported / published later. **Store**: `backend/app/snapshots.py` — one JSON record per
+snapshot in `Settings.snapshots_dir` (`snapshots/{slug}-{hash6}.json`), a **named docker volume**
+(`docker-compose.yml`, mirrors recordings/backgrounds), path-safe ids (`resolve_path`), **atomic
+writes** (temp + `os.replace`), `list/load/write/delete_record`, `gc_expired`, and `meta_of` /
+`public_view` projections (podium = top-3, private notes stripped for public). A record =
+`{version, id, slot, created_at, expires_at|None, keep, published, trigger, name, track, tags[],
+private_notes, public_notes, snapshot:{<EventSnapshot>}, lap_history, pit_stops, messages,
+penalty_seq, original_penalties}`.
+
+- **What's persisted / why**: the `snapshot` block is exactly the frontend `Snapshot` (feeds
+  TimingTable/StoryStudio/PenaltyLog unchanged); `lap_history`+`pit_stops` are the only extra
+  collections the PDF needs but the live snapshot omits. `EventState.export_state(source)` builds
+  the record payload; `EventState.hydrate(dict)` rebuilds a static state that drives
+  `build_timesheet_pdf` unchanged (the eight `_`-tracking dicts are live-frame scratch — dropped).
+- **Triggers**: auto-save on the **ended false→true edge** in `Event._on_data` (once, provider-
+  agnostic), plus a manual `POST /e/{slot}/api/admin/snapshots` (Race Control "Save snapshot"
+  button — christel/MyWeR by-laps may never flag `ended`). `Event.build_record(trigger)` folds in
+  messages + defaults (name = `event — session — date`, `track = race.track_name`).
+- **TTL**: `main.py` lifespan runs a startup sweep + a periodic `asyncio` GC loop deleting records
+  past `expires_at` unless `keep`. `snapshot_ttl_days` (30) / `snapshot_gc_interval_s` (6h).
+  **Publishing sets keep=true** (public links must not expire); unkeep recomputes expiry.
+- **Admin API** (safeword, `admin.py`): `GET/PATCH/DELETE /api/admin/snapshots[/{id}]`
+  (name/track/tags/notes/keep/published), penalty amend on a stored record
+  (`.../{id}/penalty[...]` add/serve/remove/`revert` to `original_penalties`; validation shared
+  with the live path via `_penalty_fields`), and `GET .../{id}/timesheet.pdf` (hydrate →
+  `snapshot_pdf_response` in `export.py`, the factored PDF builder; safeword via `?safeword=`).
+- **Public API** (ungated, `routers/results.py`): `GET /api/results` (published list, machine-
+  readable w/ track/tags/podium — the future-integration seam), `GET /api/results/{id}` (public
+  view, **private notes stripped, 404 if unpublished**), `GET /api/results/{id}/timesheet.pdf`.
+- **Frontend**: `lib/useSnapshot.ts` (`useSnapshotRecord` — static `Snapshot` fetch, a drop-in for
+  `useLive`'s snapshot). Reuse seams: `components/TimesheetPanel.tsx` (lifted from ExportPage,
+  `pdfBase` + optional `safeword` props) and `components/PenaltyEditor.tsx` (lifted from
+  RaceControl, `apiBase` prop + `onChanged` refetch + `canRevert`; RaceControl now consumes it).
+  Pages: gated `/admin/snapshots` (SnapshotManager: list, podium, track filter, keep/publish
+  toggles, delete-confirm) + `/admin/snapshots/:id` (SnapshotEditor: notes, PenaltyEditor, PDF via
+  TimesheetPanel, StoryStudio); public `/results` + `/results/:id` (read-only summary + PDF).
+  `PageNav` gains a Snapshots chip; `Landing` a Results link.
+
 ## Development workflow
 
 - Backend tests: `cd backend && pip install -e ".[dev]" && python -m pytest`
