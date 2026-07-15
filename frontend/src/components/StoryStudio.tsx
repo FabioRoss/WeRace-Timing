@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Snapshot } from '../lib/types'
 import {
   STORY_W, STORY_H, buildStoryModel, storyPageCount, drawStory, pickVideoMime,
-  mimeExtension, downloadBlob, DEFAULT_BG_TRANSFORM,
+  mimeExtension, downloadBlob, DEFAULT_BG_TRANSFORM, clampBgTransform,
   type StoryModel, type StoryStat, type BgTransform,
 } from '../lib/story'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
@@ -142,6 +142,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   }, [])
 
   const deleteSaved = useCallback(async (name: string) => {
+    if (!window.confirm("Delete this saved background? This can't be undone.")) return
     try {
       await fetch(`${BG_API}/${name}`, { method: 'DELETE', headers: { 'X-Safeword': getSafeword() } })
     } catch { /* ignore */ }
@@ -246,6 +247,17 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     }
   }, [snapshot, perPage, pageIndex, title, stat, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
 
+  // Apply a transform update, snapped to defaults near them and clamped so the
+  // photo always fully covers the frame (no empty corners).
+  const applyTransform = useCallback((fn: (t: BgTransform) => BgTransform) => {
+    setBgTransform((prev) => {
+      const next = snapTransform(fn(prev))
+      const dims = bg as { width?: number; height?: number } | null
+      if (!dims?.width || !dims?.height) return next
+      return clampBgTransform(dims.width, dims.height, STORY_W, STORY_H, next)
+    })
+  }, [bg])
+
   // Drag the preview to pan the background. Pointer deltas are in on-screen px;
   // scale them to canvas px so a drag tracks the cursor 1:1.
   const drag = useRef<{ x: number; y: number } | null>(null)
@@ -260,8 +272,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     const dx = (e.clientX - drag.current.x) * k
     const dy = (e.clientY - drag.current.y) * k
     drag.current = { x: e.clientX, y: e.clientY }
-    setBgTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
-  }, [])
+    applyTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
+  }, [applyTransform])
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     drag.current = null
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
@@ -269,8 +281,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     if (!bg) return
     const factor = Math.exp(-e.deltaY * 0.0015)
-    setBgTransform((t) => ({ ...t, scale: clampScale(t.scale * factor) }))
-  }, [bg])
+    applyTransform((t) => ({ ...t, scale: t.scale * factor }))
+  }, [bg, applyTransform])
 
   return (
     <div className="grid gap-6 md:grid-cols-[300px_1fr]">
@@ -393,7 +405,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                   <span className="label-race">Frame the photo</span>
                   <button
                     type="button"
-                    onClick={() => setBgTransform(DEFAULT_BG_TRANSFORM)}
+                    onClick={() => applyTransform(() => DEFAULT_BG_TRANSFORM)}
                     className="text-[0.7rem] font-bold uppercase tracking-wider text-ink-300 hover:text-ink-100"
                   >
                     Reset
@@ -405,11 +417,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                     <span className="timing">{bgTransform.scale.toFixed(2)}×</span>
                   </span>
                   <input
-                    type="range" min={0.2} max={5} step={0.01}
+                    type="range" min={1} max={5} step={0.01} list="bg-zoom-ticks"
                     value={bgTransform.scale}
-                    onChange={(e) => setBgTransform((t) => ({ ...t, scale: Number(e.target.value) }))}
+                    onChange={(e) => applyTransform((t) => ({ ...t, scale: Number(e.target.value) }))}
                     className="mt-1 w-full"
                   />
+                  <datalist id="bg-zoom-ticks"><option value="1" /></datalist>
                 </label>
                 <label className="block text-xs text-ink-400">
                   <span className="flex justify-between">
@@ -417,14 +430,15 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                     <span className="timing">{Math.round(bgTransform.rot)}°</span>
                   </span>
                   <input
-                    type="range" min={-180} max={180} step={1}
+                    type="range" min={-180} max={180} step={1} list="bg-rot-ticks"
                     value={bgTransform.rot}
-                    onChange={(e) => setBgTransform((t) => ({ ...t, rot: Number(e.target.value) }))}
+                    onChange={(e) => applyTransform((t) => ({ ...t, rot: Number(e.target.value) }))}
                     className="mt-1 w-full"
                   />
+                  <datalist id="bg-rot-ticks"><option value="0" /></datalist>
                 </label>
                 <p className="text-[0.65rem] text-ink-500">
-                  Drag the preview to move · scroll to zoom.
+                  Drag the preview to move · scroll to zoom. The photo always fills the frame.
                 </p>
               </div>
             )}
@@ -599,6 +613,10 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
 }
 
-function clampScale(s: number): number {
-  return Math.min(5, Math.max(0.2, s))
+/** Snap zoom/rotate to their defaults (1× / 0°) when they land close, so the
+ * baseline is easy to return to without a modifier key. */
+function snapTransform(t: BgTransform): BgTransform {
+  const scale = Math.abs(t.scale - 1) < 0.05 ? 1 : t.scale
+  const rot = Math.abs(t.rot) < 4 ? 0 : t.rot
+  return t.scale === scale && t.rot === rot ? t : { ...t, scale, rot }
 }

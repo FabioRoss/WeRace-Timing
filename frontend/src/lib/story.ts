@@ -61,6 +61,38 @@ export interface BgTransform {
 
 export const DEFAULT_BG_TRANSFORM: BgTransform = { scale: 1, x: 0, y: 0, rot: 0 }
 
+/** Constrain a background transform so the image always fully covers the WxH
+ * frame — no empty corners. Zoom is raised to the minimum the current rotation
+ * needs (auto-zoom-to-fill), then panning is clamped so no edge enters the
+ * frame. Pure + framework-free so it can be unit-tested directly. */
+export function clampBgTransform(
+  bw: number, bh: number, W: number, H: number, t: BgTransform,
+): BgTransform {
+  const cover = Math.max(W / bw, H / bh)
+  const th = (t.rot * Math.PI) / 180
+  const c = Math.abs(Math.cos(th))
+  const s = Math.abs(Math.sin(th))
+  // Canvas extent projected onto the image's rotated axes.
+  const cwU = W * c + H * s
+  const cwV = W * s + H * c
+  // Smallest scale that still covers the frame at this rotation (== 1 at rot 0).
+  const sMin = Math.max(cwU / (bw * cover), cwV / (bh * cover))
+  const scale = Math.min(Math.max(t.scale, sMin), Math.max(5, sMin))
+  const dw = bw * cover * scale
+  const dh = bh * cover * scale
+  // Pan offset in rotated coords, each bounded by the cover slack on that axis.
+  const cos = Math.cos(th)
+  const sin = Math.sin(th)
+  const a = clamp(t.x * cos + t.y * sin, (dw - cwU) / 2)
+  const b = clamp(-t.x * sin + t.y * cos, (dh - cwV) / 2)
+  return { scale, x: a * cos - b * sin, y: a * sin + b * cos, rot: t.rot }
+}
+
+function clamp(v: number, lim: number): number {
+  const m = Math.max(0, lim)
+  return Math.min(m, Math.max(-m, v))
+}
+
 export interface StoryOptions {
   perPage: number      // standings rows per page
   pageIndex?: number   // 0-based page to render
