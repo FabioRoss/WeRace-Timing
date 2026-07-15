@@ -305,13 +305,19 @@ def _penalty_adjusted_drivers(state: EventState) -> list[DriverRow]:
 
 
 def _penalties_summary_table(state: EventState, styles) -> list:
-    """A per-kart summary of the outstanding penalties folded into the
+    """A per-driver summary of the outstanding penalties folded into the
     classification, so the reader can see exactly what was applied. Ordered by
-    kart number; only karts with an outstanding penalty appear."""
+    kart number; only karts with an outstanding penalty appear.
+
+    Each driver gets a tinted summary row (kart, name, combined totals) followed
+    by one white detail row per penalty (amount + reason), matching the
+    classification card's accent header + rounded corners. Amounts use an ASCII
+    '-' — the base-14 PDF fonts only render Latin-1."""
     pens = _outstanding_penalties(state)
     if not pens:
         return []
     names = {d.kart_no: d.name for d in state.drivers}
+    accent, a_text, a_tint = styles["accent"], styles["accent_text"], styles["accent_tint"]
 
     def _kart_key(k: str) -> tuple:
         try:
@@ -319,43 +325,47 @@ def _penalties_summary_table(state: EventState, styles) -> list:
         except ValueError:
             return (1, 0)
 
-    header = ["Kart", "Driver", "Time added", "Laps lost", "Penalties"]
-    rows = [header]
-    for kart in sorted(pens, key=lambda k: (_kart_key(k), k)):
-        agg = pens[kart]
-        details = "; ".join(
-            (f"+{p.seconds}s" if p.kind == "time" else f"-{p.laps} lap")
-            + (f" — {p.reason}" if p.reason else "")
-            for p in agg["items"]
-        )
-        rows.append([
-            kart,
-            Paragraph(names.get(kart, "") or "", styles["Cell"]),
-            f"+{agg['seconds']}s" if agg["seconds"] else "—",
-            f"-{agg['laps']}" if agg["laps"] else "—",
-            Paragraph(details, styles["Cell"]),
-        ])
-    table = Table(
-        rows,
-        colWidths=[14 * mm, 40 * mm, 24 * mm, 18 * mm, 90 * mm],
-        repeatRows=1,
-    )
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), styles["accent"]),
-        ("TEXTCOLOR", (0, 0), (-1, 0), styles["accent_text"]),
+    rows: list = [["Kart", "Driver", "Penalty", "Reason"]]
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), accent),
+        ("TEXTCOLOR", (0, 0), (-1, 0), a_text),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-        ("FONTNAME", (2, 1), (3, -1), "Courier"),
         ("ALIGN", (0, 0), (0, -1), "CENTER"),
-        ("ALIGN", (2, 0), (3, -1), "CENTER"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROW_ALT]),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE_GREY),
+        ("ALIGN", (2, 0), (2, 0), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-    ]))
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+    ]
+    r = 1  # current row index (0 is the header)
+    for kart in sorted(pens, key=lambda k: (_kart_key(k), k)):
+        agg = pens[kart]
+        totals = []
+        if agg["seconds"]:
+            totals.append(f"+{agg['seconds']}s")
+        if agg["laps"]:
+            totals.append(f"-{agg['laps']} lap" + ("s" if agg["laps"] != 1 else ""))
+        # Driver summary row (accent-tinted, bold).
+        rows.append([kart, Paragraph(names.get(kart, "") or "", styles["Cell"]),
+                     "  ·  ".join(totals), ""])
+        style.append(("BACKGROUND", (0, r), (-1, r), a_tint))
+        style.append(("FONTNAME", (0, r), (2, r), "Helvetica-Bold"))
+        if r > 1:
+            style.append(("LINEABOVE", (0, r), (-1, r), 0.6, LINE_GREY))
+        r += 1
+        # One white detail row per penalty (amount in mono + reason).
+        for p in agg["items"]:
+            amount = f"+{p.seconds}s" if p.kind == "time" else f"-{p.laps} lap"
+            rows.append(["", "", amount, Paragraph(p.reason or "—", styles["Cell"])])
+            style.append(("FONTNAME", (2, r), (2, r), "Courier"))
+            style.append(("TEXTCOLOR", (2, r), (2, r), SOFT_GREY))
+            r += 1
+
+    table = Table(rows, colWidths=[14 * mm, 46 * mm, 26 * mm, 100 * mm], repeatRows=1)
+    table.setStyle(TableStyle(style))
     return [
         Spacer(1, 5 * mm),
         Paragraph("Penalties applied", styles["SectionHead"]),

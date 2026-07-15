@@ -201,9 +201,35 @@ def test_penalty_warning_and_served_excluded_from_summary(client):
 
 def test_timesheet_penalties_param_renders(client):
     event = _seed_two_close()
-    event.state.add_penalty("7", "time", seconds=10, reason="Contact")
+    # Kart 7 carries two time penalties + a lap penalty → exercises the grouped
+    # summary path (one tinted driver row + a detail row per penalty).
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    event.state.add_penalty("7", "time", seconds=10, reason="Aggressive driving")
+    event.state.add_penalty("7", "lap", laps=1, reason="Jump start")
     event.state.add_penalty("12", "lap", laps=1, reason="Jump start")
     r = client.get("/e/1/api/export/timesheet.pdf?penalties=1")
     assert r.status_code == 200
     assert r.content[:5] == b"%PDF-"
     assert len(r.content) > 1000
+
+
+def test_penalties_summary_groups_by_kart(client):
+    from app.routers.export import _penalties_summary_table, _accent_kit
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    event = _seed_two_close()
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    event.state.add_penalty("7", "time", seconds=10, reason="Aggressive driving")
+    base = getSampleStyleSheet()
+    kit = _accent_kit("#e10600")
+    styles = {
+        "Cell": ParagraphStyle("Cell", parent=base["Normal"], fontSize=9),
+        "SectionHead": base["Heading2"], "Legend": base["Normal"],
+        "accent": kit["accent"], "accent_text": kit["text"], "accent_tint": kit["tint"],
+    }
+    flow = _penalties_summary_table(event.state, styles)
+    table = flow[-1]
+    rows = table._cellvalues
+    # header + 1 summary row + 2 detail rows
+    assert len(rows) == 4
+    assert rows[1][0] == "7" and rows[1][2] == "+15s"        # summed total
+    assert [rows[2][2], rows[3][2]] == ["+5s", "+10s"]        # per-penalty detail
