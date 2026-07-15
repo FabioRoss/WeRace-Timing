@@ -48,7 +48,7 @@ export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onR
             </span>
           )}
           {p.kind === 'lap' && !onRemove && (
-            <span className="text-[0.65rem] font-semibold uppercase text-ink-500">results</span>
+            <span className="text-[0.65rem] font-semibold uppercase text-ink-500">after race</span>
           )}
           {onServe && p.kind === 'time' && (
             <button
