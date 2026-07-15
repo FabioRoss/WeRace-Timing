@@ -217,7 +217,14 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     Canva-style: base cover-fit × `scale`, panned by `x`/`y` (canvas px), rotated `rot`°;
     the default `DEFAULT_BG_TRANSFORM` reproduces the old plain cover-fit. StoryStudio pans
     on canvas drag, zooms on wheel, plus Zoom/Rotate sliders + Reset (shown only with a bg);
-    threaded through preview / PNG / all-pages / video renders.
+    threaded through preview / PNG / all-pages / video renders. Every mutation routes through
+    an `applyTransform` setter that **snaps** (zoom→1× within 0.05, rotate→0° within 4°; a
+    `<datalist>` tick marks each default) then **clamps** via pure `clampBgTransform(bw,bh,W,H,t)`
+    so the image always fully covers the frame — **no empty corners**. The clamp auto-raises
+    zoom to the min the rotation needs (auto-zoom-to-fill; ==1 at rot 0) then bounds the pan on
+    the rotated axes. It's framework-free/unit-testable (verify by asserting all 4 canvas
+    corners project inside the image rect over an aspect/rot/pan/zoom sweep; bundle the module
+    with `node_modules/.bin/rolldown src/lib/story.ts --format esm` to import it in Node).
   - **Optional saved backgrounds** (opt-in, privacy-preserving) — safeword-guarded CRUD in
     `admin.py` mirroring recordings: `GET/POST/DELETE /api/admin/backgrounds` (+`{name}`
     serve). POST is **multipart `UploadFile`** (needs **`python-multipart`** — in BOTH
@@ -225,8 +232,9 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     downscaled ≤2000px + re-encoded, **max 5** (6th → 409), non-image → 422, path-safe
     `_resolve_background`. `Settings.backgrounds_dir` (gitignored). StoryStudio shows a
     thumbnail strip (served via `?safeword=`), click loads (server-sourced → no re-save
-    prompt), × deletes; after a download of a **fresh** upload an inline "Save this
-    background?" prompt POSTs the kept `File`.
+    prompt), × deletes **behind a `window.confirm`** (matches `RaceControl.tsx` recording
+    deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
+    POSTs the kept `File`.
 
 ## Development workflow
 
