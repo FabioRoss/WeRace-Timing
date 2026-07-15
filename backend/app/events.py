@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
+from . import snapshots
 from .config import get_settings
 from .hub import Hub
 from .models import DriverRow, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
@@ -95,7 +97,52 @@ class Event:
         return status
 
     async def _on_data(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> None:
+        was_ended = self.state.race.ended
         self.state.update(race, drivers)
+        # Auto-save a snapshot on the session-end edge (false -> true), once.
+        if not was_ended and self.state.race.ended and self.state.drivers:
+            try:
+                self.save_snapshot("auto")
+            except Exception:
+                log.exception("slot %d: auto-save snapshot failed", self.slot)
+
+    # -------------------------------------------------------------- snapshots
+
+    def build_record(self, trigger: str) -> dict:
+        """A full, self-contained saved-snapshot record (see app/snapshots.py)."""
+        race = self.state.race
+        now = time.time()
+        session = race.run_type
+        date = time.strftime("%d %b %Y", time.localtime(now))
+        name = " — ".join(
+            p for p in (race.event_name or f"Event {self.slot}", session, date) if p
+        )
+        ttl_days = get_settings().snapshot_ttl_days
+        return {
+            "version": snapshots.SNAPSHOT_VERSION,
+            "id": snapshots.make_id(name),
+            "slot": self.slot,
+            "created_at": now,
+            "expires_at": now + ttl_days * 86400,
+            "keep": False,
+            "published": False,
+            "trigger": trigger,
+            "name": name,
+            "track": race.track_name,
+            "tags": [],
+            "private_notes": "",
+            "public_notes": "",
+            **self.state.export_state(self.source_status()),
+            "messages": [m.model_dump() for m in self.messages],
+            # As-finished penalties, so amendments can be reverted later.
+            "original_penalties": [p.model_dump() for p in self.state.penalties],
+        }
+
+    def save_snapshot(self, trigger: str) -> str:
+        record = self.build_record(trigger)
+        snapshots.write_record(record)
+        log.info("slot %d: saved snapshot %s (%s)", self.slot, record["id"], trigger)
+        return record["id"]
 
     def _on_frame(self, text: str) -> None:
         if self.recorder.active and text and self.source:

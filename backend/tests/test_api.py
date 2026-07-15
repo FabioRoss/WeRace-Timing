@@ -288,6 +288,20 @@ def test_penalty_notification_delivered_after_delay(client, monkeypatch):
         assert frame["priority"] == "urgent"
 
 
+def test_manual_snapshot_save(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    # No data yet -> 422
+    assert client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).status_code == 422
+    seed()
+    r = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD)
+    assert r.status_code == 200
+    meta = r.json()["snapshot"]
+    assert meta["trigger"] == "manual" and meta["driver_count"] == 2
+    assert snapshots.load_record(meta["id"])["snapshot"]["drivers"][0]["kart_no"] == "7"
+
+
 def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     from app.config import get_settings
     monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)

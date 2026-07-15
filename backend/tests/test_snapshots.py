@@ -88,6 +88,37 @@ def test_gc_only_removes_expired_unkept(snap_dir):
     assert remaining == {"fresh-000001", "kept-0000003", "noexp-000004"}
 
 
+def test_auto_save_on_ended_edge(snap_dir):
+    import asyncio
+    from app.events import Event
+    ev = Event(1)
+    running = RaceInfo(event_name="Cup", track_name="T", run_type="R", ended=False)
+    asyncio.run(ev._on_data(running, [DriverRow(kart_no="7", position=1, laps=5)]))
+    assert snapshots.list_records() == []            # not ended yet
+    asyncio.run(ev._on_data(running, None))          # still running: no save
+    assert snapshots.list_records() == []
+    # The ended edge saves exactly one record
+    ended = running.model_copy(update={"ended": True})
+    asyncio.run(ev._on_data(ended, None))
+    recs = snapshots.list_records()
+    assert len(recs) == 1 and recs[0]["trigger"] == "auto"
+    asyncio.run(ev._on_data(ended, None))            # staying ended: no re-save
+    assert len(snapshots.list_records()) == 1
+
+
+def test_build_record_shape(snap_dir):
+    from app.events import Event
+    ev = Event(2)
+    ev.state = _seed_state()
+    rec = ev.build_record("manual")
+    assert rec["version"] == snapshots.SNAPSHOT_VERSION
+    assert rec["trigger"] == "manual" and rec["keep"] is False and rec["published"] is False
+    assert rec["expires_at"] > rec["created_at"]
+    assert rec["track"] == "Christel"
+    assert rec["snapshot"]["drivers"][0]["kart_no"] == "7"
+    assert rec["original_penalties"][0]["seconds"] == 10
+
+
 def test_meta_and_public_view_strip_private():
     st = _seed_state()
     rec = {

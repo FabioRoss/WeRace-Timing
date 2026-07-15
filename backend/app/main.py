@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,19 +10,45 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import snapshots
+from .config import get_settings
 from .events import get_manager
 from .routers import admin, export, live, public, team
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+async def _snapshot_gc_loop() -> None:
+    """Periodically delete saved snapshots past their 30-day expiry (unless
+    flagged to keep). Runs once at startup, then on an interval."""
+    interval = get_settings().snapshot_gc_interval_s
+    while True:
+        try:
+            snapshots.gc_expired(time.time())
+        except Exception:
+            log.exception("snapshot GC sweep failed")
+        await asyncio.sleep(max(60.0, interval))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     manager = get_manager()
     manager.start()
+    # One-shot startup sweep + a long-lived periodic GC task (single worker).
+    try:
+        snapshots.gc_expired(time.time())
+    except Exception:
+        log.exception("startup snapshot GC failed")
+    gc_task = asyncio.create_task(_snapshot_gc_loop(), name="snapshot-gc")
     yield
+    gc_task.cancel()
+    try:
+        await gc_task
+    except asyncio.CancelledError:
+        pass
     await manager.stop()
 
 

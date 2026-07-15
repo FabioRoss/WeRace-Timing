@@ -367,6 +367,18 @@ async def remove_penalty(slot: int, penalty_id: int) -> dict:
     return {"ok": True, "penalty": pen.model_dump()}
 
 
+@router.post("/e/{slot}/api/admin/snapshots")
+def save_snapshot_now(slot: int) -> dict:
+    """Manually save a snapshot of the slot's current live state (for feeds that
+    never flag the session as ended)."""
+    event = get_event(slot)
+    if not event.state.drivers:
+        raise HTTPException(status_code=422, detail="no session data to save yet")
+    sid = event.save_snapshot("manual")
+    from ..snapshots import load_record, meta_of
+    return {"ok": True, "snapshot": meta_of(load_record(sid))}
+
+
 def _base_url(request: Request) -> str:
     configured = get_settings().public_base_url.rstrip("/")
     if configured:
