@@ -234,3 +234,69 @@ def test_live_ws_snapshot(client):
         snap = ws.receive_json()
         assert snap["type"] == "snapshot"
         assert len(snap["drivers"]) == 2
+
+
+def test_penalty_crud_and_validation(client):
+    seed()
+    # bad kind / missing amount are rejected
+    assert client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                       json={"kart_no": "7", "kind": "bogus"}).status_code == 422
+    assert client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                       json={"kart_no": "7", "kind": "time", "seconds": 0}).status_code == 422
+    assert client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                       json={"kart_no": "7", "kind": "lap", "laps": 0}).status_code == 422
+
+    r = client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                    json={"kart_no": "7", "kind": "time", "seconds": 10, "reason": "Contact"})
+    assert r.status_code == 200
+    pid = r.json()["penalty"]["id"]
+
+    snap = client.get("/e/1/api/state").json()
+    assert [p["kart_no"] for p in snap["penalties"]] == ["7"]
+    assert snap["penalties"][0]["seconds"] == 10 and snap["penalties"][0]["served"] is False
+
+    # mark served
+    assert client.post(f"/e/1/api/admin/penalty/{pid}/served", headers=SAFEWORD,
+                       json={"served": True}).status_code == 200
+    assert client.get("/e/1/api/state").json()["penalties"][0]["served"] is True
+
+    # delete
+    assert client.delete(f"/e/1/api/admin/penalty/{pid}", headers=SAFEWORD).status_code == 200
+    assert client.get("/e/1/api/state").json()["penalties"] == []
+    # deleting / serving a missing penalty 404s
+    assert client.delete(f"/e/1/api/admin/penalty/{pid}", headers=SAFEWORD).status_code == 404
+    assert client.post(f"/e/1/api/admin/penalty/{pid}/served", headers=SAFEWORD,
+                       json={"served": True}).status_code == 404
+
+
+def test_penalty_notification_delivered_after_delay(client, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 0.05)
+    seed()
+    token = make_token(1, "driver", "7")
+    with client.websocket_connect(f"/e/1/ws/driver/{token}") as ws:
+        assert ws.receive_json()["type"] == "driver"
+        client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                    json={"kart_no": "7", "kind": "time", "seconds": 10, "reason": "Contact"})
+        # After the grace delay the team gets a targeted message frame.
+        for _ in range(10):
+            frame = ws.receive_json()
+            if frame["type"] == "message":
+                break
+        assert frame["type"] == "message"
+        assert "Penalty: +10s" in frame["text"] and "Contact" in frame["text"]
+        assert frame["priority"] == "urgent"
+
+
+def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)
+    seed()
+    event = get_manager().get(1)
+    pid = client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                      json={"kart_no": "7", "kind": "warning", "reason": "Track limits"}
+                      ).json()["penalty"]["id"]
+    assert pid in event._pending_notify
+    client.delete(f"/e/1/api/admin/penalty/{pid}", headers=SAFEWORD)
+    # The pending notification is cancelled and forgotten (team never notified).
+    assert pid not in event._pending_notify

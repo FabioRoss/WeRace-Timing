@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     recordings_dir: Path = Path("recordings")
     # Directory where optionally-saved story backgrounds are kept (max 5).
     backgrounds_dir: Path = Path("backgrounds")
+    # Grace window (seconds) before a newly-assigned penalty/warning notifies the
+    # team, so Race Control can delete a mistake first. Deleting before it fires
+    # cancels the notification.
+    penalty_notify_delay_s: float = 12.0
 
     host: str = "0.0.0.0"
     port: int = 8000
