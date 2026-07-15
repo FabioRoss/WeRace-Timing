@@ -4,6 +4,7 @@ import { FlagBanner } from '../components/FlagBanner'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { PenaltyLog } from '../components/PenaltyLog'
 import { fmtLap } from '../lib/format'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 
@@ -63,6 +64,12 @@ export function GeneralDashboard() {
             <div className="p-10 text-center text-ink-500">Connecting…</div>
           )}
         </div>
+        {snapshot && snapshot.penalties.length > 0 && (
+          <div className="mt-4 rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+            <h3 className="label-race mb-3">Penalties &amp; warnings</h3>
+            <PenaltyLog penalties={snapshot.penalties} />
+          </div>
+        )}
       </main>
     </div>
   )
