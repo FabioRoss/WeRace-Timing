@@ -133,3 +133,77 @@ def test_meta_and_public_view_strip_private():
     pub = snapshots.public_view(rec)
     assert pub["public_notes"] == "hello" and "private_notes" not in pub
     assert pub["snapshot"]["drivers"][0]["kart_no"] == "7"
+
+
+# ------------------------------------------------------ admin snapshot API
+
+from fastapi.testclient import TestClient  # noqa: E402
+from app.main import app  # noqa: E402
+from app.events import get_manager  # noqa: E402
+
+SAFE = {"X-Safeword": "boxbox"}
+
+
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    with TestClient(app) as c:
+        yield c
+    for ev in get_manager().events.values():
+        ev.reset()
+
+
+def _save_one(api) -> str:
+    ev = get_manager().get(1)
+    ev.state = _seed_state()
+    return api.post("/e/1/api/admin/snapshots", headers=SAFE).json()["snapshot"]["id"]
+
+
+def test_admin_snapshot_crud_and_patch(api):
+    sid = _save_one(api)
+    assert [s["id"] for s in api.get("/api/admin/snapshots", headers=SAFE).json()["snapshots"]] == [sid]
+    full = api.get(f"/api/admin/snapshots/{sid}", headers=SAFE).json()
+    assert full["snapshot"]["drivers"][0]["kart_no"] == "7"
+
+    # publish -> keep True, expiry cleared
+    r = api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE,
+                  json={"published": True, "name": "Grand Final", "public_notes": "gg"})
+    meta = r.json()["snapshot"]
+    assert meta["published"] and meta["keep"] and meta["name"] == "Grand Final"
+    assert snapshots.load_record(sid)["expires_at"] is None
+    # unkeep -> expiry restored
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"keep": False})
+    assert snapshots.load_record(sid)["expires_at"] is not None
+
+    assert api.delete(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 200
+    assert api.get(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 404
+    assert api.delete(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 404
+
+
+def test_admin_snapshot_penalty_amend_and_revert(api):
+    sid = _save_one(api)   # seeded state already has one +10s penalty (id 1)
+    # add a lap penalty
+    r = api.post(f"/api/admin/snapshots/{sid}/penalty", headers=SAFE,
+                 json={"kart_no": "12", "kind": "lap", "laps": 1, "reason": "Cut"})
+    assert r.status_code == 200 and r.json()["penalty"]["id"] == 2
+    pens = snapshots.load_record(sid)["snapshot"]["penalties"]
+    assert len(pens) == 2
+    # serve the first, then remove it
+    api.post(f"/api/admin/snapshots/{sid}/penalty/1/served", headers=SAFE, json={"served": True})
+    assert snapshots.load_record(sid)["snapshot"]["penalties"][0]["served"] is True
+    api.delete(f"/api/admin/snapshots/{sid}/penalty/1", headers=SAFE)
+    assert [p["id"] for p in snapshots.load_record(sid)["snapshot"]["penalties"]] == [2]
+    assert api.delete(f"/api/admin/snapshots/{sid}/penalty/1", headers=SAFE).status_code == 404
+    # revert -> back to the single as-finished penalty
+    api.post(f"/api/admin/snapshots/{sid}/penalty/revert", headers=SAFE)
+    reverted = snapshots.load_record(sid)["snapshot"]["penalties"]
+    assert [p["id"] for p in reverted] == [1] and reverted[0]["seconds"] == 10
+
+
+def test_admin_snapshot_pdf(api):
+    sid = _save_one(api)
+    r = api.get(f"/api/admin/snapshots/{sid}/timesheet.pdf?penalties=1", headers=SAFE)
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+    assert api.get("/api/admin/snapshots/missing/timesheet.pdf", headers=SAFE).status_code == 404
+    # safeword required
+    assert api.get(f"/api/admin/snapshots/{sid}/timesheet.pdf").status_code == 401

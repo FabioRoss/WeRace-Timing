@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from .. import snapshots
 from ..config import get_settings
-from ..models import Flag, SourceConfig
+from ..models import Flag, Penalty, SourceConfig
 from ..security import check_safeword, make_token
 from ..tracks import TRACK_CATALOG
 from .public import get_event
@@ -317,9 +318,9 @@ class AdminPenalty(BaseModel):
     reason: str = Field(default="", max_length=120)
 
 
-@router.post("/e/{slot}/api/admin/penalty")
-async def add_penalty(slot: int, body: AdminPenalty) -> dict:
-    event = get_event(slot)
+def _penalty_fields(body: AdminPenalty) -> tuple[str, int, int]:
+    """Validate a penalty body → (kind, seconds, laps). Shared by the live and
+    saved-snapshot penalty endpoints."""
     kind = body.kind
     if kind not in ("time", "lap", "warning"):
         raise HTTPException(status_code=422, detail="kind must be time, lap or warning")
@@ -327,8 +328,13 @@ async def add_penalty(slot: int, body: AdminPenalty) -> dict:
         raise HTTPException(status_code=422, detail="time penalty needs seconds > 0")
     if kind == "lap" and body.laps <= 0:
         raise HTTPException(status_code=422, detail="lap penalty needs laps > 0")
-    seconds = body.seconds if kind == "time" else 0
-    laps = body.laps if kind == "lap" else 0
+    return kind, (body.seconds if kind == "time" else 0), (body.laps if kind == "lap" else 0)
+
+
+@router.post("/e/{slot}/api/admin/penalty")
+async def add_penalty(slot: int, body: AdminPenalty) -> dict:
+    event = get_event(slot)
+    kind, seconds, laps = _penalty_fields(body)
     pen = event.state.add_penalty(
         body.kart_no.strip(), kind, seconds=seconds, laps=laps, reason=body.reason.strip()
     )
@@ -375,8 +381,121 @@ def save_snapshot_now(slot: int) -> dict:
     if not event.state.drivers:
         raise HTTPException(status_code=422, detail="no session data to save yet")
     sid = event.save_snapshot("manual")
-    from ..snapshots import load_record, meta_of
-    return {"ok": True, "snapshot": meta_of(load_record(sid))}
+    return {"ok": True, "snapshot": snapshots.meta_of(snapshots.load_record(sid))}
+
+
+# ------------------------------------------------ saved snapshots management
+
+def _load_snapshot_or_404(snapshot_id: str) -> dict:
+    rec = snapshots.load_record(snapshot_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return rec
+
+
+def _snapshot_penalties(rec: dict) -> list[dict]:
+    return rec.setdefault("snapshot", {}).setdefault("penalties", [])
+
+
+@router.get("/api/admin/snapshots")
+def list_snapshots() -> dict:
+    return {"snapshots": [snapshots.meta_of(r) for r in snapshots.list_records()]}
+
+
+@router.get("/api/admin/snapshots/{snapshot_id}")
+def get_snapshot(snapshot_id: str) -> dict:
+    return _load_snapshot_or_404(snapshot_id)
+
+
+class SnapshotPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    track: str | None = Field(default=None, max_length=120)
+    tags: list[str] | None = None
+    keep: bool | None = None
+    published: bool | None = None
+    private_notes: str | None = Field(default=None, max_length=5000)
+    public_notes: str | None = Field(default=None, max_length=5000)
+
+
+@router.patch("/api/admin/snapshots/{snapshot_id}")
+def patch_snapshot(snapshot_id: str, body: SnapshotPatch) -> dict:
+    rec = _load_snapshot_or_404(snapshot_id)
+    data = body.model_dump(exclude_unset=True)
+    for field in ("name", "track", "tags", "private_notes", "public_notes"):
+        if data.get(field) is not None:
+            rec[field] = data[field]
+    if data.get("published") is not None:
+        rec["published"] = data["published"]
+        if data["published"]:
+            rec["keep"] = True   # published links must not silently expire
+    if data.get("keep") is not None:
+        rec["keep"] = data["keep"]
+    # Expiry follows the keep flag.
+    if rec.get("keep"):
+        rec["expires_at"] = None
+    elif rec.get("expires_at") is None:
+        ttl = get_settings().snapshot_ttl_days
+        rec["expires_at"] = rec.get("created_at", time.time()) + ttl * 86400
+    snapshots.write_record(rec)
+    return {"ok": True, "snapshot": snapshots.meta_of(rec)}
+
+
+@router.delete("/api/admin/snapshots/{snapshot_id}")
+def delete_snapshot(snapshot_id: str) -> dict:
+    try:
+        ok = snapshots.delete_record(snapshot_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid snapshot id")
+    if not ok:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return {"ok": True}
+
+
+@router.post("/api/admin/snapshots/{snapshot_id}/penalty")
+def snapshot_add_penalty(snapshot_id: str, body: AdminPenalty) -> dict:
+    rec = _load_snapshot_or_404(snapshot_id)
+    kind, seconds, laps = _penalty_fields(body)
+    seq = int(rec.get("penalty_seq", 0)) + 1
+    rec["penalty_seq"] = seq
+    pen = Penalty(id=seq, kart_no=body.kart_no.strip(), kind=kind,
+                  seconds=seconds, laps=laps, reason=body.reason.strip())
+    _snapshot_penalties(rec).append(pen.model_dump())
+    snapshots.write_record(rec)
+    return {"ok": True, "penalty": pen.model_dump()}
+
+
+@router.post("/api/admin/snapshots/{snapshot_id}/penalty/{penalty_id}/served")
+def snapshot_serve_penalty(snapshot_id: str, penalty_id: int, body: AdminPenaltyServed) -> dict:
+    rec = _load_snapshot_or_404(snapshot_id)
+    for pen in _snapshot_penalties(rec):
+        if pen.get("id") == penalty_id:
+            pen["served"] = body.served
+            snapshots.write_record(rec)
+            return {"ok": True, "penalty": pen}
+    raise HTTPException(status_code=404, detail="penalty not found")
+
+
+@router.delete("/api/admin/snapshots/{snapshot_id}/penalty/{penalty_id}")
+def snapshot_remove_penalty(snapshot_id: str, penalty_id: int) -> dict:
+    rec = _load_snapshot_or_404(snapshot_id)
+    pens = _snapshot_penalties(rec)
+    kept = [p for p in pens if p.get("id") != penalty_id]
+    if len(kept) == len(pens):
+        raise HTTPException(status_code=404, detail="penalty not found")
+    rec["snapshot"]["penalties"] = kept
+    snapshots.write_record(rec)
+    return {"ok": True}
+
+
+@router.post("/api/admin/snapshots/{snapshot_id}/penalty/revert")
+def snapshot_revert_penalties(snapshot_id: str) -> dict:
+    """Restore the as-finished penalties, discarding later amendments."""
+    rec = _load_snapshot_or_404(snapshot_id)
+    original = [dict(p) for p in rec.get("original_penalties", [])]
+    rec["snapshot"]["penalties"] = original
+    rec["penalty_seq"] = max((p.get("id", 0) for p in original), default=0)
+    snapshots.write_record(rec)
+    return {"ok": True, "penalties": original}
 
 
 def _base_url(request: Request) -> str:

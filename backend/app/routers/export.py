@@ -4,7 +4,7 @@ import io
 import statistics
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 # reportlab is an optional/heavy dependency. Import it defensively (mirroring the
 # lazy `import qrcode` in public.py) so that if it is ever missing from an image
@@ -141,7 +141,9 @@ try:
 except ImportError:  # pragma: no cover - only when the dep is absent
     _REPORTLAB_OK = False
 
+from .. import snapshots
 from ..models import DriverRow
+from ..security import check_safeword
 from ..state import EventState, _classify_gap
 from .public import get_event
 
@@ -790,6 +792,50 @@ def _clean_accent(value: str) -> str:
     return "#e10600"
 
 
+def _timesheet_response(
+    state: EventState, *, charts: bool, grid: bool, pits: bool, stints: bool,
+    pitest: bool, penalties: bool, event: str, session: str, accent: str,
+    fallback_stem: str,
+) -> Response:
+    """Build a chrono-timesheet PDF Response from any EventState (live or a
+    rehydrated saved snapshot)."""
+    if not _REPORTLAB_OK:
+        raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
+    pdf = build_timesheet_pdf(
+        state, include_charts=charts, include_grid=grid,
+        include_pits=pits, include_stints=stints, pit_estimate=pitest,
+        include_penalties=penalties,
+        accent=_clean_accent(accent),
+        event_name=event, session_name=session,
+    )
+    date = datetime.now().strftime("%Y%m%d")
+    parts = [_slug(event or state.race.event_name), _slug(session or state.race.run_type)]
+    stem = "-".join(p for p in parts if p) or fallback_stem
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}-{date}.pdf"',
+            # Rebuilt per request (live state or an amended snapshot); never cache.
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+def snapshot_pdf_response(
+    record: dict, *, charts: bool, grid: bool, pits: bool, stints: bool,
+    pitest: bool, penalties: bool, event: str, session: str, accent: str,
+) -> Response:
+    """PDF from a saved-snapshot record — reused by the admin + public routes."""
+    state = EventState.hydrate(record)
+    return _timesheet_response(
+        state, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
+        penalties=penalties, event=event, session=session, accent=accent,
+        fallback_stem=_slug(record.get("name", "")) or "snapshot",
+    )
+
+
 @router.get("/e/{slot}/api/export/timesheet.pdf")
 def timesheet_pdf(
     slot: int, charts: bool = False, grid: bool = True,
@@ -797,37 +843,31 @@ def timesheet_pdf(
     penalties: bool = False,
     event: str = "", session: str = "", accent: str = "#e10600",
 ) -> Response:
-    """Downloadable chrono timesheet: modern classification + optional charts,
-    pit-stops table, stint-times table and lap-by-lap grid. Built from live
-    state, so generate it before disconnecting the source. `event`/`session`
-    override the names on the sheet + filename; `accent` recolours it."""
-    if not _REPORTLAB_OK:
-        raise HTTPException(status_code=503, detail="PDF export unavailable: reportlab is not installed")
+    """Downloadable chrono timesheet from live state, so generate it before
+    disconnecting. `event`/`session` override names; `accent` recolours it."""
     evt = get_event(slot)
-    pdf = build_timesheet_pdf(
-        evt.state, include_charts=charts, include_grid=grid,
-        include_pits=pits, include_stints=stints, pit_estimate=pitest,
-        include_penalties=penalties,
-        accent=_clean_accent(accent),
-        event_name=event, session_name=session,
+    return _timesheet_response(
+        evt.state, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
+        penalties=penalties, event=event, session=session, accent=accent,
+        fallback_stem=f"timesheet-event{slot}",
     )
-    # Filename: chosen event + session + date (falls back to the feed's names).
-    date = datetime.now().strftime("%Y%m%d")
-    parts = [
-        _slug(event or evt.state.race.event_name),
-        _slug(session or evt.state.race.run_type),
-    ]
-    stem = "-".join(p for p in parts if p) or f"timesheet-event{slot}"
-    name = f"{stem}-{date}.pdf"
-    return Response(
-        content=pdf,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{name}"',
-            # The PDF is regenerated from live state on every request; the URL is
-            # otherwise identical, so browsers would serve a stale cached copy
-            # (very visible when re-downloading across replays). Never cache it.
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        },
+
+
+@router.get(
+    "/api/admin/snapshots/{snapshot_id}/timesheet.pdf",
+    dependencies=[Depends(check_safeword)],
+)
+def admin_snapshot_pdf(
+    snapshot_id: str, charts: bool = False, grid: bool = True,
+    pits: bool = False, stints: bool = False, pitest: bool = False,
+    penalties: bool = False,
+    event: str = "", session: str = "", accent: str = "#e10600",
+) -> Response:
+    """PDF from any saved snapshot (safeword-gated)."""
+    record = snapshots.load_record(snapshot_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return snapshot_pdf_response(
+        record, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
+        penalties=penalties, event=event, session=session, accent=accent,
     )
