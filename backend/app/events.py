@@ -62,6 +62,9 @@ class Event:
         # End-of-session auto-save fires once per session; re-armed on rollover.
         self._auto_saved = False
         self._last_generation = self.state.session_generation
+        # Previous flag, to re-arm the auto-save when a new session warms up
+        # (MyWeR reuses the same generation across back-to-back W→G→S sessions).
+        self._prev_flag = Flag.NONE
 
     # ---------------------------------------------------------------- source
 
@@ -105,6 +108,13 @@ class Event:
         if self.state.session_generation != self._last_generation:
             self._last_generation = self.state.session_generation
             self._auto_saved = False
+        # MyWeR runs back-to-back sessions within one generation (…S then W for
+        # the next). The edge into WARMUP marks a fresh session, so re-arm there
+        # too — the prior session's STOPPED save stays put, the next one saves.
+        flag = self.state.race.flag
+        if flag == Flag.WARMUP and self._prev_flag != Flag.WARMUP:
+            self._auto_saved = False
+        self._prev_flag = flag
         self._auto_save_if_ended(time.time(), idle=False)
 
     # ------------------------------------------------- end-of-session auto-save
@@ -121,7 +131,8 @@ class Event:
         connected."""
         if self._auto_saved or not self._worth_saving():
             return
-        ended = self.state.race.ended or self.state.race.flag == Flag.FINISH
+        terminal = getattr(self.source, "terminal_flags", {Flag.FINISH})
+        ended = self.state.race.ended or self.state.race.flag in terminal
         if not ended and idle:
             # A session that actually ran (guarded by _worth_saving) whose feed
             # has gone quiet is finished — whether the source is still connected,
@@ -331,6 +342,7 @@ class Event:
         self.messages.clear()
         self._auto_saved = False
         self._last_generation = self.state.session_generation
+        self._prev_flag = Flag.NONE
         for task in self._pending_notify.values():
             task.cancel()
         self._pending_notify.clear()

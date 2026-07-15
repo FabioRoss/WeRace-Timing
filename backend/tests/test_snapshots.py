@@ -165,6 +165,98 @@ def test_rollover_rearms_auto_save(snap_dir):
     assert len(snapshots.list_records()) == 2
 
 
+def _src_with_terminal(flags):
+    from app.models import SourceStatus
+
+    class _Src:
+        status = SourceStatus(connected=True)
+        terminal_flags = flags
+    return _Src()
+
+
+def test_mywer_stopped_saves_once_and_rearms_on_warmup(snap_dir):
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    ev.source = _src_with_terminal({Flag.FINISH, Flag.STOPPED})
+
+    warmup = RaceInfo(run_type="R", flag=Flag.WARMUP)
+    green = RaceInfo(run_type="R", flag=Flag.GREEN)
+    stopped = RaceInfo(run_type="R", flag=Flag.STOPPED)
+
+    asyncio.run(ev._on_data(warmup, [DriverRow(kart_no="7", position=1, laps=0)]))
+    asyncio.run(ev._on_data(green, [DriverRow(kart_no="7", position=1, laps=8)]))
+    assert snapshots.list_records() == []
+    # STOPPED is a session end for MyWeR -> one save.
+    asyncio.run(ev._on_data(stopped, None))
+    assert len(snapshots.list_records()) == 1
+    # Staying stopped does not re-save.
+    asyncio.run(ev._on_data(stopped, None))
+    assert len(snapshots.list_records()) == 1
+    # The next session warms up (same generation) -> re-arm; its STOPPED saves.
+    asyncio.run(ev._on_data(warmup, [DriverRow(kart_no="7", position=1, laps=0)]))
+    asyncio.run(ev._on_data(green, [DriverRow(kart_no="7", position=1, laps=9)]))
+    asyncio.run(ev._on_data(stopped, None))
+    assert len(snapshots.list_records()) == 2
+
+
+def test_apex_stopped_is_not_a_session_end(snap_dir):
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    ev.source = _src_with_terminal({Flag.FINISH})  # Apex: only FINISH ends
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.GREEN),
+                            [DriverRow(kart_no="7", position=1, laps=8)]))
+    # A mid-race stop must NOT auto-save for a FINISH-only source.
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.STOPPED), None))
+    assert snapshots.list_records() == []
+    # But the checkered flag still does.
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.FINISH), None))
+    assert len(snapshots.list_records()) == 1
+
+
+def test_rozzano_capture_autosaves_each_stopped_session(snap_dir):
+    """Real MyWeR capture (Rozzano): endrace is always false and the flag never
+    reaches FINISH, so nothing saved before STOPPED was treated as a session
+    end. Replaying it now yields one snapshot per stopped session, each holding
+    real standings."""
+    import asyncio
+    import json
+    from pathlib import Path
+    from app.events import Event
+    from app.models import Flag
+    from app.sources.mywer import MyWerDecoder
+
+    ev = Event(1)
+    ev.source = _src_with_terminal({Flag.FINISH, Flag.STOPPED})
+    dec = MyWerDecoder()
+    fixture = Path(__file__).parent / "fixtures" / "rozzano.ndjson"
+
+    async def run():
+        for line in fixture.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            payload = (json.loads(line).get("payload") or "")
+            if not payload:
+                continue
+            try:
+                race, drivers = dec.decode(payload)
+            except Exception:
+                continue
+            await ev._on_data(race, drivers)
+
+    asyncio.run(run())
+    recs = snapshots.list_records()
+    assert len(recs) >= 2                       # multiple stopped sessions saved
+    assert all(r["trigger"] == "auto" for r in recs)
+    for r in recs:                              # each holds a real, raced field
+        drivers = r["snapshot"]["drivers"]
+        assert drivers and any(d["laps"] > 0 for d in drivers)
+
+
 def test_build_record_shape(snap_dir):
     from app.events import Event
     ev = Event(2)
