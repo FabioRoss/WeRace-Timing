@@ -316,7 +316,7 @@ export function TeamDashboard() {
           </div>
 
           {/* All penalties & warnings */}
-          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-3">
+          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
             <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
             <PenaltyLog penalties={snapshot?.penalties ?? []} />
           </div>
