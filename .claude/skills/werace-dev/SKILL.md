@@ -179,6 +179,16 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   UNSERVED penalties applied (time→+total_time, lap→−laps), re-sorted `(-laps,total)`
   with fresh pos/gap/interval (reuses `_classify_gap`), titled "penalties applied", plus
   a `_penalties_summary_table` (served + warnings excluded; final-result disclaimer).
+- **Time adjustments** (`Penalty.kind == "adjust"`): a NEUTRAL, non-disciplinary correction of
+  organizer-side timing errors (e.g. an early pit release), with a **signed** `seconds`. Folded
+  into the classification exactly like a time penalty (`_outstanding_penalties` sums time+adjust
+  seconds; always applied — no "served"), but kept apart from penalties everywhere: excluded from
+  `_penalties_summary_table`, listed in a separate neutral `_adjustments_summary_table` (dark
+  header, "Time adjustments"), the classification title reads "(… adjustments applied)"; `lib/
+  penalties.ts` labels it "Time adjustment"/"+24s"/"−10s" with a blue badge; `PenaltyEditor`
+  exposes it behind an **`allowAdjust`** prop (snapshot editor only — `± seconds`, negative
+  credits time back; live Race Control omits it); `TimingTable` shows a neutral **ADJ** badge, not
+  red PEN. `AdminPenalty.seconds` allows negatives; `_penalty_fields` requires adjust `!= 0`.
 - **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
   start/finish line) while the field keeps lapping, so the marker sits at
   (ownFraction − pitTime/pace) mod 1 — the karts near it NOW are the traffic at
