@@ -247,7 +247,9 @@ export function drawTeamStory(
   const ACCENT_TEXT = accentTextOn([ar, ag, ab])
   ctx.clearRect(0, 0, STORY_W, STORY_H)
 
-  // Base + optional background (cover-fit + transform) + legibility scrim.
+  // Base → optional background (cover-fit + transform) → legibility scrim → the
+  // accent gradient on top. The gradient is painted in both cases so a chosen
+  // background keeps the branded accent glow over the photo (not replaced by it).
   ctx.fillStyle = BLACK
   ctx.fillRect(0, 0, STORY_W, STORY_H)
   if (background) {
@@ -261,15 +263,16 @@ export function drawTeamStory(
     ctx.scale(s, s)
     ctx.drawImage(background, -bw / 2, -bh / 2, bw, bh)
     ctx.restore()
+    // Legibility scrim over an arbitrary photo (skipped when there's no photo —
+    // the black base already reads clean).
     ctx.fillStyle = 'rgba(7, 8, 12, 0.72)'
     ctx.fillRect(0, 0, STORY_W, STORY_H)
-  } else {
-    const grad = ctx.createRadialGradient(200, 380, 60, 200, 380, 1000)
-    grad.addColorStop(0, `rgba(${ar}, ${ag}, ${ab}, 0.24)`)
-    grad.addColorStop(1, `rgba(${ar}, ${ag}, ${ab}, 0)`)
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, STORY_W, STORY_H)
   }
+  const grad = ctx.createRadialGradient(200, 380, 60, 200, 380, 1000)
+  grad.addColorStop(0, `rgba(${ar}, ${ag}, ${ab}, 0.24)`)
+  grad.addColorStop(1, `rgba(${ar}, ${ag}, ${ab}, 0)`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, STORY_W, STORY_H)
 
   const maxW = STORY_W - 2 * M
   const eased = 1 - Math.pow(1 - Math.max(0, Math.min(1, reveal)), 3)
