@@ -288,6 +288,142 @@ def test_penalty_notification_delivered_after_delay(client, monkeypatch):
         assert frame["priority"] == "urgent"
 
 
+def test_penalty_notification_suppressed_when_hidden(client):
+    seed()
+    event = get_manager().get(1)
+    event.state.hide_team_penalties = True
+    try:
+        pid = client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                          json={"kart_no": "7", "kind": "time", "seconds": 10, "reason": "Contact"}
+                          ).json()["penalty"]["id"]
+        # No team notification is scheduled while penalties are hidden from teams.
+        assert pid not in event._pending_notify
+        pen = event.state.find_penalty(pid)
+        assert pen is not None and pen.notified is False
+    finally:
+        event.state.hide_team_penalties = False
+
+
+def test_manual_snapshot_save(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    # No data yet -> 422
+    assert client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).status_code == 422
+    seed()
+    r = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD)
+    assert r.status_code == 200
+    meta = r.json()["snapshot"]
+    assert meta["trigger"] == "manual" and meta["driver_count"] == 2
+    assert snapshots.load_record(meta["id"])["snapshot"]["drivers"][0]["kart_no"] == "7"
+
+
+def test_snapshot_pdf_config_saved_and_applied(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    seed()
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    # Persist a public PDF layout; unknown keys are dropped, values coerced.
+    r = client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD,
+                     json={"pdf_config": {"grid": False, "charts": True, "bogus": 1},
+                           "published": True})
+    assert r.status_code == 200
+    assert snapshots.load_record(sid)["pdf_config"] == {"grid": False, "charts": True}
+
+    # Public download works with no params (uses the saved layout as default)…
+    assert client.get(f"/api/results/{sid}/timesheet.pdf").content[:5] == b"%PDF-"
+    # …and an explicit query param still overrides it.
+    assert client.get(f"/api/results/{sid}/timesheet.pdf?grid=1").content[:5] == b"%PDF-"
+
+
+def test_snapshot_laps_endpoints(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    event = seed()
+    # Give kart 7 a couple of tracked laps so lap_chart has points.
+    import time as _t
+    for lap in range(1, 4):
+        row = event.state.find("7")
+        row.laps = lap
+        row.last_lap_ms = 52000 + lap
+        event.state._track_laps(row, _t.time())
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    # Admin laps (safeword) returns per-kart points.
+    r = client.get(f"/api/admin/snapshots/{sid}/laps?karts=7", headers=SAFEWORD)
+    assert r.status_code == 200
+    assert len(r.json()["laps"]["7"]) == 3
+
+    # Public laps are gated on publication.
+    assert client.get(f"/api/results/{sid}/laps").status_code == 404
+    client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD, json={"published": True})
+    pub = client.get(f"/api/results/{sid}/laps?karts=7")
+    assert pub.status_code == 200 and len(pub.json()["laps"]["7"]) == 3
+
+
+def test_snapshot_short_name_patch_and_meta(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    seed()
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    r = client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD,
+                     json={"short_name": "Quali", "published": True})
+    assert r.status_code == 200 and r.json()["snapshot"]["short_name"] == "Quali"
+    assert snapshots.load_record(sid)["short_name"] == "Quali"
+    # Surfaced to the public results list for the event-label.
+    listed = client.get("/api/results").json()["results"]
+    assert next(x for x in listed if x["id"] == sid)["short_name"] == "Quali"
+
+
+def test_event_groups_flow(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+
+    def mkrec(sid, track, created, sess):
+        snapshots.write_record({
+            "id": sid, "created_at": created, "name": sess, "track": track,
+            "published": True, "group_id": None, "group_name": "",
+            "snapshot": {"drivers": [], "race": {"run_type": sess}},
+        })
+    mkrec("aaa-000001", "Rozzano", 100.0, "Practice")
+    mkrec("bbb-000002", "Rozzano", 200.0, "Race")
+    mkrec("ccc-000003", "Cremona", 300.0, "Race")
+
+    # Bundle the two Rozzano sessions into a new event.
+    r = client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                    json={"snapshot_ids": ["aaa-000001", "bbb-000002"],
+                          "group_name": "Club Round 1"})
+    assert r.status_code == 200
+    gid = r.json()["group"]["id"]
+
+    # Events are per-track: a cross-track assignment is rejected.
+    bad = client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                      json={"snapshot_ids": ["bbb-000002", "ccc-000003"], "group_name": "X"})
+    assert bad.status_code == 422
+
+    # Public index: one event (2 ordered sessions) + the Cremona race loose.
+    ev = client.get("/api/events").json()
+    assert len(ev["events"]) == 1 and ev["events"][0]["id"] == gid
+    assert [s["run_type"] for s in ev["events"][0]["sessions"]] == ["Practice", "Race"]
+    assert [x["id"] for x in ev["loose"]] == ["ccc-000003"]
+
+    # Event detail: ordered full public views.
+    detail = client.get(f"/api/events/{gid}").json()
+    assert detail["name"] == "Club Round 1" and detail["track"] == "Rozzano"
+    assert len(detail["sessions"]) == 2 and detail["sessions"][0]["run_type"] == "Practice"
+
+    # Ungroup removes the event again.
+    client.post("/api/admin/snapshot-groups/assign", headers=SAFEWORD,
+                json={"snapshot_ids": ["aaa-000001", "bbb-000002"]})
+    assert client.get("/api/events").json()["events"] == []
+    assert client.get(f"/api/events/{gid}").status_code == 404
+
+
 def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     from app.config import get_settings
     monkeypatch.setattr(get_settings(), "penalty_notify_delay_s", 30.0)

@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     # team, so Race Control can delete a mistake first. Deleting before it fires
     # cancels the notification.
     penalty_notify_delay_s: float = 12.0
+    # Directory where saved session snapshots (JSON results archive) are kept.
+    snapshots_dir: Path = Path("snapshots")
+    # Saved snapshots auto-delete after this many days unless flagged to keep.
+    snapshot_ttl_days: int = 30
+    # How often the background GC sweeps for expired snapshots (seconds).
+    snapshot_gc_interval_s: float = 21600.0  # 6h
+    # Most feeds never flag a session as ended — they just stop streaming at the
+    # finish. If a session that had real racing goes quiet (no new data) for this
+    # long while still connected, infer it ended and auto-save once.
+    autosave_idle_s: float = 150.0
 
     host: str = "0.0.0.0"
     port: int = 8000

@@ -250,21 +250,30 @@ def test_settings_survive_reset():
     state = EventState(1)
     state.recompute_positions = True
     state.auto_pitlane = False
+    state.hide_team_penalties = True
     state.reset()
     assert state.recompute_positions is True
     assert state.auto_pitlane is False
+    assert state.hide_team_penalties is True
 
 
 def test_settings_endpoint():
     with TestClient(app) as client:
         r = client.post("/e/1/api/admin/settings", headers=SAFEWORD,
-                        json={"recompute_positions": True, "auto_pitlane": False})
-        assert r.json() == {"ok": True, "recompute_positions": True, "auto_pitlane": False}
+                        json={"recompute_positions": True, "auto_pitlane": False,
+                              "hide_team_penalties": True})
+        assert r.json() == {"ok": True, "recompute_positions": True, "auto_pitlane": False,
+                            "hide_team_penalties": True}
         status = client.get("/e/1/api/admin/status", headers=SAFEWORD).json()
         assert status["recompute_positions"] is True and status["auto_pitlane"] is False
+        assert status["hide_team_penalties"] is True
+        # The flag reaches the live snapshot the team dashboard reads.
+        snap = get_manager().get(1).state.snapshot(get_manager().get(1).source_status())
+        assert snap.hide_team_penalties is True
         get_manager().get(1).reset()
         get_manager().get(1).state.recompute_positions = False
         get_manager().get(1).state.auto_pitlane = True
+        get_manager().get(1).state.hide_team_penalties = False
 
 
 # ---------------------------------------------- inferred pits (no gates)

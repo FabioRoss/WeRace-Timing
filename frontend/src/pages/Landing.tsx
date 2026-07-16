@@ -24,7 +24,6 @@ export function Landing() {
   return (
     <div className="mx-auto flex h-full max-w-lg flex-col justify-center gap-6 p-6">
       <div>
-        <div className="checker mb-4 h-3 w-full rounded-sm" />
         <h1 className="text-3xl font-extrabold uppercase tracking-widest">WeRace Bridge</h1>
         <p className="mt-1 text-sm text-ink-500">Live timing relay &amp; team dashboards</p>
       </div>
@@ -49,6 +48,13 @@ export function Landing() {
           </Link>
         ))}
       </div>
+      <Link
+        to="/results"
+        className="flex items-center justify-between rounded-xl bg-pit-900 px-5 py-3 ring-1 ring-pit-700 hover:ring-race-red"
+      >
+        <div className="font-bold uppercase tracking-wider">Past results</div>
+        <span className="text-xs text-ink-500">Published sessions →</span>
+      </Link>
       <p className="text-center text-xs text-ink-500">
         Drivers and team managers: use the link or QR code handed out by the staff.
       </p>

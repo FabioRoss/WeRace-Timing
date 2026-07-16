@@ -49,8 +49,10 @@ frontend/src/
   pages/               GeneralDashboard, TeamDashboard (pit wall), RaceControl,
                        DriverDashboard (landscape phone), StaffDashboard (QR sheet),
                        ExportPage (post-session PDF + Instagram-story downloads)
-  components/PageNav.tsx      Control/Staff/Export link chips (staff pages only; fed to
-                       PageHeader's `nav` slot — never on public dashboards)
+  components/PageNav.tsx      Control/Staff/Export + Snapshots link chips (staff pages only; fed to
+                       PageHeader's `nav` slot — never on public dashboards). Remembers the last
+                       /e/N/ slot (lib/nav.ts) so the slot-less Snapshots pages link back to it,
+                       not slot 1
   components/StoryStudio.tsx  client-side Instagram-story generator (see below)
   lib/story.ts         Canvas 2D renderer for the 1080x1920 story + video-mime picker
   components/TimingTable.tsx  the standings table: progress bars, crossing glow,
@@ -58,7 +60,9 @@ frontend/src/
                        (ring={false} where a page mounts its own)
   components/TrackRing.tsx    F1-style position ring; relativeTo/pitPlan/selection
                        props power the team-dashboard version
-  components/DriverDetail.tsx lap-history modal (pace/consistency/pit stats)
+  components/DriverDetail.tsx lap-history modal (pace/consistency/pit stats); reads the live
+                       feed by default, or a saved snapshot's laps when TimingTable is given
+                       `lapsBase` (results/event/editor) — static, no polling
   components/LapCharts.tsx    Recharts lap-time + gap charts (legend click toggles)
   components/OrderToggle.tsx  per-viewer Default/Best-lap ordering (races only)
   lib/lapProgress.ts   useServerNow (clock-skew-corrected ticks) + lapFraction +
@@ -157,8 +161,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   schedules a **delayed team notification** (`Event.schedule_penalty_notify` →
   `asyncio` task sleeping `Settings.penalty_notify_delay_s` ≈12s, then `send_message`
   targeted to the kart + driver banner); **deleting before it fires cancels it**
-  (`_pending_notify[id]`, cleared on reset). "Amend" = delete + re-add (no edit
-  endpoint — the delay is the grace window). Frontend: `lib/penalties.ts` (labels/
+  (`_pending_notify[id]`, cleared on reset). When `hide_team_penalties` is on the notification
+  is **suppressed** — `schedule_penalty_notify` skips scheduling, and `_notify_penalty_after`
+  re-checks the flag after the grace delay (toggle-during-window) — so hiding penalties from
+  teams silences the message too, not just the dashboard panels. "Amend" = delete + re-add (no
+  edit endpoint — the delay is the grace window). Frontend: `lib/penalties.ts` (labels/
   presets) + shared `components/PenaltyLog.tsx` (read-only everywhere; RC passes
   `onServe`/`onRemove` for actions). RC has an assign panel + a **"to serve in pit"**
   list (unserved TIME penalties, in-pit karts pulled to top + red-outlined) + full log;
@@ -177,11 +184,19 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   race | timed | unknown, from titles/runtype/duralaps or the inversion heuristic.
 - **RC config (per event, survive reconnect/reset)**: `recompute_positions` rebuilds
   order from laps + total time (uploaders that never reorder — christel), `auto_pitlane`
-  off infers pits/stint from lap times (venues with no pit-lane gates). Recommended for
+  off infers pits/stint from lap times (venues with no pit-lane gates), `hide_team_penalties`
+  drops the team dashboard's two penalty panels (race control still sees everything — e.g.
+  hold penalties from teams until official). All three are `EventState` flags preserved
+  across reset, surfaced on `EventSnapshot`, set via `POST /e/{slot}/api/admin/settings`,
+  reported by the status endpoint, toggled in the RC config tab. Recommended for
   christel/MyWeR by-laps races: recompute ON, auto pit lane OFF.
 - **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
   deliverables built from *live* EventState (no server-side archive — generate before
   disconnecting/resetting the source; the page banners this while `race.ended` is false).
+  - **Result status pill** — the PDF header shows PROVISIONAL / DEFINITIVE (amber / green). By
+    default it's the auto FINISHED/PROVISIONAL guess from `race.ended`; the export panel's "Result
+    status" selector (`status` param, part of the saved `pdf_config` — `snapshots._PDF_STR_KEYS`)
+    overrides it, threaded through every timesheet endpoint via `build_timesheet_pdf(status=…)`.
   - **PDF chrono timesheet** — server-side, `routers/export.py` + `reportlab` (in BOTH
     `requirements.txt` — Docker installs from that — and `pyproject.toml`; guarded by
     `_REPORTLAB_OK` so a missing dep 503s the endpoint instead of crashing startup; Pillow
@@ -222,8 +237,9 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     Header lays out **dynamically** (`layoutTitle` auto-shrinks the title to ≤2 lines, then
     subtitle + list flow from the real header bottom) so long session names don't overlap;
     a **title** input is **prefilled** (editable) once from the live event name via a
-    `useRef` seeded flag (same pattern seeds the PDF panel's Event/Session inputs from
-    `event_name`/`run_type`). `buildStoryModel(snapshot,
+    `useRef` seeded flag; a **track-name** input is prefilled the same way and overrides the story
+    subtitle (`StoryOptions.subtitle` → `buildStoryModel`). (Same pattern seeds the PDF panel's
+    Event/Session inputs from `event_name`/`run_type`.) `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
     "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
     (`StoryStat` best|gap|interval|pits, **UI default interval**) chooses the per-kart
@@ -273,6 +289,94 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
     POSTs the kept `File`.
 
+## Saved snapshots (results archive)
+
+Persistent results archive so a finished session survives reboots + docker rebuilds and can be
+re-exported / published later. **Store**: `backend/app/snapshots.py` — one JSON record per
+snapshot in `Settings.snapshots_dir` (`snapshots/{slug}-{hash6}.json`), a **named docker volume**
+(`docker-compose.yml`, mirrors recordings/backgrounds), path-safe ids (`resolve_path`), **atomic
+writes** (temp + `os.replace`), `list/load/write/delete_record`, `gc_expired`, and `meta_of` /
+`public_view` projections (podium = top-3, private notes stripped for public). A record =
+`{version, id, slot, created_at, expires_at|None, keep, published, trigger, name, track, tags[],
+private_notes, public_notes, snapshot:{<EventSnapshot>}, lap_history, pit_stops, messages,
+penalty_seq, original_penalties}`.
+
+- **What's persisted / why**: the `snapshot` block is exactly the frontend `Snapshot` (feeds
+  TimingTable/StoryStudio/PenaltyLog unchanged); `lap_history`+`pit_stops` are the only extra
+  collections the PDF needs but the live snapshot omits. `EventState.export_state(source)` builds
+  the record payload; `EventState.hydrate(dict)` rebuilds a static state that drives
+  `build_timesheet_pdf` unchanged (the eight `_`-tracking dicts are live-frame scratch — dropped).
+- **Triggers / end inference**: `Event._auto_save_if_ended(now, idle=…)` saves **once per session**.
+  Most feeds never set `race.ended`, so end is inferred from `race.ended` OR any of the source's
+  **`terminal_flags`** OR the feed going quiet — `now - state.updated_at > autosave_idle_s` (150 s),
+  checked every tick in `_broadcast_loop` (`idle=True`). `BaseSource.terminal_flags = {FINISH}`;
+  **`MyWerSource` adds `STOPPED`** because MyWeR never sets `endrace` and its flag never reaches
+  FINISH — Rozzano sessions run W→G→S and the feed streams continuously, so before this neither the
+  checkered nor the idle path ever fired (0 auto-saves on a real capture; now one per stopped
+  session). `ReplaySource` inherits the replayed protocol's set. Guards: `_auto_saved` (one
+  save/session, set by any save incl. manual) re-armed on rollover (`session_generation` bump) **and
+  on the edge into `WARMUP`** in `_on_data` (MyWeR runs back-to-back sessions in one generation:
+  …S then W), plus `_worth_saving()` (drivers with `laps>0`). Apex's STOPPED is NOT terminal (its
+  stop can be mid-race; it sets `ended`/FINISH explicitly). The idle path intentionally does **not**
+  require a connected source (a replay hits EOF / a live feed can drop at the finish). Manual
+  `POST /e/{slot}/api/admin/snapshots` also saves + arms. **No supersede** (deferred): every save is
+  a new record. `Event.build_record(trigger)` folds in messages + defaults (name = `event — session
+  — date`, `track = race.track_name`) and seeds `pdf_config={}` + `group_id=None`/`group_name=""`.
+- **TTL**: `main.py` lifespan runs a startup sweep + a periodic `asyncio` GC loop deleting records
+  past `expires_at` unless `keep`. `snapshot_ttl_days` (30) / `snapshot_gc_interval_s` (6h).
+  **Publishing sets keep=true** (public links must not expire); unkeep recomputes expiry.
+- **Saved public PDF layout**: a record carries `pdf_config` (the TimesheetPanel toggles:
+  charts/grid/pits/stints/pitest/penalties + event/session/accent). `snapshots.sanitize_pdf_config`
+  keeps only known keys; `effective_pdf_config` merges it over `PDF_CONFIG_DEFAULTS` (grid+penalties
+  on). The public `timesheet.pdf` applies it as the **default**, explicit query params still override
+  (so `ResultsDetail` downloads with no params). The editor's PDF tab has a **"Save as public
+  default"** button (`TimesheetPanel` `initialConfig`+`onSaveConfig` → PATCH `pdf_config`).
+- **Events (snapshot groups)**: a record carries `group_id`/`group_name`; an event bundles the
+  snapshots sharing a `group_id`, **on one track**. `snapshots.list_groups(published_only)` derives
+  events (sessions oldest-first, events newest-first). Public opens an event → its sessions as tabs.
+- **Surfacing lap data**: snapshots already store the full `lap_history`; the `laps` endpoints expose
+  it. Frontend factors `components/SessionResult.tsx` (the public body: notes + classification **with
+  no track ring** + penalties + `SnapshotLapCharts` + PDF) reused by `ResultsDetail` and every
+  `EventDetail` tab; `components/SnapshotLapCharts.tsx` picks karts and draws the lap-time trend
+  from `{base}/laps` (reuses `LapCharts.LapTimeChart`). The classification **row-click modal**
+  (`DriverDetail`) also reads its lap history from `{base}/laps` when `TimingTable`/`SessionResult`
+  pass `lapsBase` (results/event tabs + editor, `safeword` for admin) — otherwise the live feed.
+- **Admin API** (safeword, `admin.py`): `GET/PATCH/DELETE /api/admin/snapshots[/{id}]`
+  (name/track/tags/notes/keep/published/**pdf_config**), penalty amend on a stored record
+  (`.../{id}/penalty[...]` add/serve/remove/`revert` to `original_penalties`; validation shared
+  with the live path via `_penalty_fields`), `GET .../{id}/laps` + `GET .../{id}/timesheet.pdf`
+  (hydrate → `snapshot_pdf_response`; safeword via `?safeword=`), and events:
+  `GET /api/admin/snapshot-groups` + `POST /api/admin/snapshot-groups/assign`
+  (`{snapshot_ids, group_id?|group_name?}` → group/regroup; empty → ungroup; **cross-track rejected**).
+- **Public API** (ungated, `routers/results.py`): `GET /api/results` (published list, machine-
+  readable w/ track/tags/podium — the future-integration seam), `GET /api/results/{id}` (public
+  view, **private notes stripped, 404 if unpublished**), `GET /api/results/{id}/laps`,
+  `GET /api/results/{id}/timesheet.pdf`, `GET /api/events` (`{events:[…], loose:[…]}` — published
+  events + ungrouped published sessions), `GET /api/events/{id}` (an event's sessions as full public
+  views for the tabs; 404 if none published).
+- **Frontend**: `lib/useSnapshot.ts` (`useSnapshotRecord` — static `Snapshot` fetch, a drop-in for
+  `useLive`'s snapshot; exports `SnapshotMeta`/`EventGroup`). Reuse seams: `components/TimesheetPanel.tsx`
+  (lifted from ExportPage, `pdfBase` + optional `safeword`/`initialConfig`/`onSaveConfig` props) and
+  `components/PenaltyEditor.tsx` (`apiBase` + `onChanged` + `canRevert`; RaceControl consumes it).
+  Pages: gated `/admin/snapshots` (SnapshotManager: list, podium, track filter, keep/publish toggles,
+  delete-confirm, **row checkboxes + "Group into event" bar + event badge**) + `/admin/snapshots/:id`
+  (SnapshotEditor: notes, **EventPicker**, PenaltyEditor, PDF via TimesheetPanel, StoryStudio — its
+  lap charts come from the timing-table row-click modal, not a standalone panel); public `/results`
+  (event cards → `/events/:id` + loose session cards → `/results/:id`, with a **← Home** link),
+  `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults). Event tabs + card session
+  chips label with the snapshot's **`short_name`** (editable in the editor's DetailsCard, e.g.
+  Practice/Quali/Race), falling back to `name` then run_type; `short_name` rides in `meta_of` so it
+  reaches `/api/results` + `/api/events`. `SessionResult` opens with a `.checker` chequered-flag strip
+  (the finished-session decoration, replacing the dropped ring's start/finish). `EventDetail`'s header
+  carries the `FlagBanner` chip like `ResultsDetail`.
+  `PageNav` gains a Snapshots chip; `Landing` a Results link.
+- **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
+  `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into
+  `index.html` for **published** `results/{id}` paths only (else the plain shell). `snapshots.og_meta`
+  builds title/description(podium+track)/image+url paths, feeding both the injection and a Pillow
+  1200×630 card at `GET /api/results/{id}/card.png` (published only; `_load_font` uses DejaVu, added
+  to the Docker image via `fonts-dejavu-core`). `ResultsDetail` also sets `document.title`.
+
 ## Development workflow
 
 - Backend tests: `cd backend && pip install -e ".[dev]" && python -m pytest`
@@ -310,3 +414,31 @@ Docker + Caddy (HTTPS via Let's Encrypt) per README/docker-compose.yml. Set
 `WRB_PUBLIC_BASE_URL` (QR links), `WRB_SAFEWORD`, `WRB_SECRET`. The backend serves the
 built frontend from `frontend/dist`. HTTPS matters: driver dashboards use the screen
 wake-lock API which requires a secure context.
+
+**Open Graph previews**: `main.py`'s SPA fallback injects `og:`/`twitter:` tags + `<title>` for
+**every** route — per published result (`snapshots.og_meta`), per published event
+(`snapshots.event_og_meta`), per dashboard slot (live `_dashboard_meta`), else a brand default. Each
+points at a racey 1200×630 PNG from **`app/cards.py`** (`render_card` → checker strip + red chevron
+band + kicker + title + flag pill + podium + WeRace wordmark) served by `routers/results.py`:
+`/api/results/{id}/card.png`, `/api/events/{id}/card.png`, `/api/e/{slot}/card.png` (live),
+`/api/card.png` (brand). Dashboard cards are cached 300s (crawler-friendly, not real-time).
+
+**Notch-safe driver dashboard**: the `DriverDashboard` shell + `MessageOverlay` pad with
+`env(safe-area-inset-*)` (index.html already sets `viewport-fit=cover`) so landscape readouts clear
+the notch / rounded corners / home indicator.
+
+**Team pop-up notifications**: `components/Toast.tsx` (`useToasts` + `ToastStack`) — the team
+dashboard toasts new messages targeted to the kart and new penalties/warnings for it (respecting
+`hide_team_penalties`); "seen" ids are seeded on first data so only fresh items pop.
+
+**Multiple domains**: `WRB_DOMAIN` accepts a **comma-separated list** (Caddy's site-address
+line takes several addresses; `{$WRB_DOMAIN}` is a textual substitution) — Caddy serves +
+certifies each, one deploy. Backend has **no host allowlist** so any Host already resolves.
+The container runs uvicorn with `--proxy-headers --forwarded-allow-ips=*`, so with
+`WRB_PUBLIC_BASE_URL` empty, share links/QRs derive the real `https://<visited-domain>`
+per request (`_base_url`); set it to pin every link to one canonical domain instead.
+
+**Chequered `.checker` décor** is scoped to results + security only: the `SessionResult` strip
+(results/event bodies) and the `SafewordGate` "Restricted" box. It is NOT on the live dashboards
+or Landing (the shared `PageHeader` no longer renders a checker square). `FlagBanner` (race-flag
+status, chequered at `finish`) and the `TrackRing` start/finish block are functional, not décor.

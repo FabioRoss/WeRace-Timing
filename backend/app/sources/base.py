@@ -8,7 +8,7 @@ from typing import Awaitable, Callable
 
 import websockets
 
-from ..models import DriverRow, RaceInfo, SourceConfig, SourceStatus
+from ..models import DriverRow, Flag, RaceInfo, SourceConfig, SourceStatus
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +26,11 @@ def _is_tls_error(exc: BaseException) -> bool:
 
 class BaseSource:
     """A timing feed for one event slot. Subclasses decode frames."""
+
+    # Flags that mark a session as finished for end-of-session auto-save.
+    # Apex sets `ended`/FINISH explicitly; MyWeR (which never does) overrides
+    # this to also treat its STOPPED flag as a session end.
+    terminal_flags: set[Flag] = {Flag.FINISH}
 
     def __init__(
         self,

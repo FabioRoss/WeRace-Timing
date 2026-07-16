@@ -188,6 +188,11 @@ def decode_mywer(text: str) -> tuple[RaceInfo | None, list[DriverRow] | None]:
 
 
 class MyWerSource(WebSocketSource):
+    # MyWeR never sets `endrace` and its flag never reaches FINISH; sessions end
+    # on the STOPPED flag (W→G→S, then the next session begins at W). Treat that
+    # as a session end so each stopped session is auto-saved.
+    terminal_flags = {Flag.FINISH, Flag.STOPPED}
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.decoder = MyWerDecoder()

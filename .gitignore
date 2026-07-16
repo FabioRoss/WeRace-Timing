@@ -7,3 +7,4 @@ frontend/dist/
 backend/.env
 backend/recordings/
 backend/backgrounds/
+backend/snapshots/

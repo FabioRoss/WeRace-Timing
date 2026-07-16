@@ -99,6 +99,7 @@ export interface StoryOptions {
   perPage: number       // standings rows per page
   pageIndex?: number    // 0-based page to render
   title?: string        // overrides the event name; blank falls back to it
+  subtitle?: string     // overrides the track name; blank falls back to it
   stat?: StoryStat      // which metric each kart shows (default 'best')
   label?: string        // kicker (session type); blank falls back to 'Race'
   showFastest?: boolean // draw the fastest-lap footer (default true)
@@ -146,7 +147,7 @@ export function buildStoryModel(snapshot: Snapshot | null, opts: StoryOptions): 
   return {
     label: opts.label?.trim() || 'Race',
     title,
-    subtitle: snapshot?.race.track_name || '',
+    subtitle: opts.subtitle?.trim() || snapshot?.race.track_name || '',
     rows,
     pageLabel,
     // Clearing these hides the footer AND reclaims its row space in drawStory.

@@ -149,6 +149,7 @@ class EventSnapshot(BaseModel):
     # Race-control settings that affect how the feed is interpreted
     recompute_positions: bool = False
     auto_pitlane: bool = True
+    hide_team_penalties: bool = False
     session_best_ms: int | None = None
     session_best_kart: str = ""
     # Race-control penalties & warnings (full current list every broadcast).

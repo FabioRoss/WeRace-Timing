@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
+from . import snapshots
 from .config import get_settings
 from .hub import Hub
-from .models import DriverRow, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
+from .models import DriverRow, Flag, Message, Penalty, RaceInfo, SourceConfig, SourceStatus
 from .recorder import FrameRecorder
 from .sources.apex import ApexSource
 from .sources.base import BaseSource
@@ -57,6 +59,12 @@ class Event:
         self._broadcast_task: asyncio.Task | None = None
         self._last_broadcast_state = -1.0
         self._last_source_status: dict | None = None
+        # End-of-session auto-save fires once per session; re-armed on rollover.
+        self._auto_saved = False
+        self._last_generation = self.state.session_generation
+        # Previous flag, to re-arm the auto-save when a new session warms up
+        # (MyWeR reuses the same generation across back-to-back W→G→S sessions).
+        self._prev_flag = Flag.NONE
 
     # ---------------------------------------------------------------- source
 
@@ -96,6 +104,92 @@ class Event:
 
     async def _on_data(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> None:
         self.state.update(race, drivers)
+        # A new session (rollover) re-arms the one-shot end-of-session auto-save.
+        if self.state.session_generation != self._last_generation:
+            self._last_generation = self.state.session_generation
+            self._auto_saved = False
+        # MyWeR runs back-to-back sessions within one generation (…S then W for
+        # the next). The edge into WARMUP marks a fresh session, so re-arm there
+        # too — the prior session's STOPPED save stays put, the next one saves.
+        flag = self.state.race.flag
+        if flag == Flag.WARMUP and self._prev_flag != Flag.WARMUP:
+            self._auto_saved = False
+        self._prev_flag = flag
+        self._auto_save_if_ended(time.time(), idle=False)
+
+    # ------------------------------------------------- end-of-session auto-save
+
+    def _worth_saving(self) -> bool:
+        """Only archive a session that actually ran — never an empty or
+        never-started one (the guard against saving bad/empty data)."""
+        return bool(self.state.drivers) and any(d.laps > 0 for d in self.state.drivers)
+
+    def _auto_save_if_ended(self, now: float, *, idle: bool) -> None:
+        """Auto-save once when the session looks finished. Most feeds never set
+        `ended`, so we also infer it from the checkered flag and — when `idle`
+        (checked each broadcast tick) — from the feed going quiet while still
+        connected."""
+        if self._auto_saved or not self._worth_saving():
+            return
+        terminal = getattr(self.source, "terminal_flags", {Flag.FINISH})
+        ended = self.state.race.ended or self.state.race.flag in terminal
+        if not ended and idle:
+            # A session that actually ran (guarded by _worth_saving) whose feed
+            # has gone quiet is finished — whether the source is still connected,
+            # dropped at the finish, or a replay that reached its end.
+            ended = now - self.state.updated_at > get_settings().autosave_idle_s
+        if not ended:
+            return
+        try:
+            self.save_snapshot("auto")
+            self._auto_saved = True
+        except Exception:
+            log.exception("slot %d: auto-save snapshot failed", self.slot)
+
+    # -------------------------------------------------------------- snapshots
+
+    def build_record(self, trigger: str) -> dict:
+        """A full, self-contained saved-snapshot record (see app/snapshots.py)."""
+        race = self.state.race
+        now = time.time()
+        session = race.run_type
+        date = time.strftime("%d %b %Y", time.localtime(now))
+        name = " — ".join(
+            p for p in (race.event_name or f"Event {self.slot}", session, date) if p
+        )
+        ttl_days = get_settings().snapshot_ttl_days
+        return {
+            "version": snapshots.SNAPSHOT_VERSION,
+            "id": snapshots.make_id(name),
+            "slot": self.slot,
+            "created_at": now,
+            "expires_at": now + ttl_days * 86400,
+            "keep": False,
+            "published": False,
+            "trigger": trigger,
+            "name": name,
+            "short_name": "",
+            "track": race.track_name,
+            "tags": [],
+            "private_notes": "",
+            "public_notes": "",
+            "pdf_config": {},
+            "group_id": None,
+            "group_name": "",
+            **self.state.export_state(self.source_status()),
+            "messages": [m.model_dump() for m in self.messages],
+            # As-finished penalties, so amendments can be reverted later.
+            "original_penalties": [p.model_dump() for p in self.state.penalties],
+        }
+
+    def save_snapshot(self, trigger: str) -> str:
+        record = self.build_record(trigger)
+        snapshots.write_record(record)
+        # Any save (manual too) arms the once-guard so the inferred end-of-race
+        # save can't duplicate this session; a rollover/reset re-arms it.
+        self._auto_saved = True
+        log.info("slot %d: saved snapshot %s (%s)", self.slot, record["id"], trigger)
+        return record["id"]
 
     def _on_frame(self, text: str) -> None:
         if self.recorder.active and text and self.source:
@@ -149,6 +243,9 @@ class Event:
     def schedule_penalty_notify(self, penalty: Penalty) -> None:
         """Notify the penalized kart's team after a short grace delay, so Race
         Control can delete a mistake first (cancel_penalty_notify)."""
+        # Penalties hidden from teams (RC config): don't notify them either.
+        if self.state.hide_team_penalties:
+            return
         delay = get_settings().penalty_notify_delay_s
         task = asyncio.create_task(
             self._notify_penalty_after(penalty, delay),
@@ -167,6 +264,9 @@ class Event:
                 await asyncio.sleep(delay)
             # The penalty may have been deleted during the grace window.
             if self.state.find_penalty(penalty.id) is None:
+                return
+            # …or penalties may have been hidden from teams during the grace window.
+            if self.state.hide_team_penalties:
                 return
             text = _penalty_message_text(penalty)
             priority = "warning" if penalty.kind == "warning" else "urgent"
@@ -200,6 +300,9 @@ class Event:
         while True:
             await asyncio.sleep(BROADCAST_INTERVAL)
             try:
+                # Runs every tick even when nothing changed, so a session whose
+                # feed has gone quiet still gets its inferred end-of-race save.
+                self._auto_save_if_ended(time.time(), idle=True)
                 # Broadcast on data updates AND on source-status transitions
                 # (connect, disconnect, errors) — a failing source produces no
                 # frames, so status changes must trigger pushes on their own.
@@ -247,6 +350,9 @@ class Event:
     def reset(self) -> None:
         self.state.reset()
         self.messages.clear()
+        self._auto_saved = False
+        self._last_generation = self.state.session_generation
+        self._prev_flag = Flag.NONE
         for task in self._pending_notify.values():
             task.cancel()
         self._pending_notify.clear()

@@ -67,6 +67,9 @@ class ReplaySource(BaseSource):
         self.status.label = self.status.label or f"Replay {path.name}"
         try:
             delegate = _make_decoder(kind, self)
+            # Inherit the replayed protocol's end-of-session semantics (e.g. a
+            # MyWeR recording ends its sessions on STOPPED, not FINISH).
+            self.terminal_flags = delegate.terminal_flags
             i = 0
             prev_ts = None
             while i < len(records):

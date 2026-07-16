@@ -70,7 +70,13 @@ class EventState:
         # whether the venue has automatic pit-lane gates (else pits are inferred).
         self.recompute_positions: bool = False
         self.auto_pitlane: bool = True
+        # Hide the penalty panels on the team dashboard (race control decides
+        # when teams may see penalties, e.g. only after the session).
+        self.hide_team_penalties: bool = False
         self.updated_at: float = 0.0
+        # Bumped on every session rollover; the Event uses it to re-arm the
+        # one-shot end-of-session auto-save for each new session.
+        self.session_generation: int = 0
         # Fallback stint tracking when the source has no since-pit field
         self._pit_counts: dict[str, int] = {}
         self._stint_started: dict[str, float] = {}
@@ -90,9 +96,9 @@ class EventState:
 
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
-        settings = (self.recompute_positions, self.auto_pitlane)
+        settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties)
         self.__init__(self.slot)
-        self.recompute_positions, self.auto_pitlane = settings
+        self.recompute_positions, self.auto_pitlane, self.hide_team_penalties = settings
 
     # ------------------------------------------------------- penalties & warnings
 
@@ -235,6 +241,7 @@ class EventState:
 
     def _reset_session_state(self, reason: str) -> None:
         log.info("slot %d: session rollover (%s) — clearing lap history", self.slot, reason)
+        self.session_generation += 1
         self.lap_history.clear()
         self.pit_stops.clear()
         self._lap_pits.clear()
@@ -351,11 +358,56 @@ class EventState:
             flag_override=self.flag_override,
             recompute_positions=self.recompute_positions,
             auto_pitlane=self.auto_pitlane,
+            hide_team_penalties=self.hide_team_penalties,
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
             penalties=list(self.penalties),
             updated_at=self.updated_at,
         )
+
+    # ----------------------------------------------- snapshot persistence seam
+    # A saved snapshot is the live EventSnapshot plus the two collections the
+    # snapshot omits but the PDF needs (lap_history, pit_stops) and the penalty
+    # id counter (so amendments after a reload don't collide). The eight private
+    # tracking dicts are live-frame scratch only — a static saved snapshot never
+    # processes new frames, so they are deliberately dropped.
+
+    def export_state(self, source: SourceStatus) -> dict:
+        return {
+            "snapshot": self.snapshot(source).model_dump(),
+            "lap_history": {
+                k: [r.model_dump() for r in v] for k, v in self.lap_history.items()
+            },
+            "pit_stops": {k: [list(t) for t in v] for k, v in self.pit_stops.items()},
+            "penalty_seq": self._penalty_id,
+        }
+
+    @classmethod
+    def hydrate(cls, data: dict) -> "EventState":
+        """Rebuild a static EventState from `export_state` output — enough to
+        regenerate the PDF (classification, lap grid, pit/stint, penalties)."""
+        snap = data.get("snapshot", {})
+        st = cls(int(snap.get("slot", 0)))
+        # snap["race"] is already the effective race (flag override folded in),
+        # so leave flag_override at None — it only matters for live frames.
+        st.race = RaceInfo.model_validate(snap.get("race", {}))
+        st.drivers = [DriverRow.model_validate(d) for d in snap.get("drivers", [])]
+        st.session_best_ms = snap.get("session_best_ms")
+        st.session_best_kart = snap.get("session_best_kart", "")
+        st.recompute_positions = snap.get("recompute_positions", False)
+        st.auto_pitlane = snap.get("auto_pitlane", True)
+        st.hide_team_penalties = snap.get("hide_team_penalties", False)
+        st.penalties = [Penalty.model_validate(p) for p in snap.get("penalties", [])]
+        st._penalty_id = int(data.get("penalty_seq", len(st.penalties)))
+        st.lap_history = {
+            k: [LapRecord.model_validate(r) for r in v]
+            for k, v in data.get("lap_history", {}).items()
+        }
+        st.pit_stops = {
+            k: [tuple(t) for t in v] for k, v in data.get("pit_stops", {}).items()
+        }
+        st.updated_at = snap.get("updated_at", 0.0)
+        return st
 
     def kart_numbers(self) -> list[str]:
         return [d.kart_no for d in self.drivers if d.kart_no]

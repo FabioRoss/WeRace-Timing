@@ -1,8 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
+import { ToastStack, useToasts } from '../components/Toast'
+import { penaltyKindLabel, penaltyLabel } from '../lib/penalties'
 import type { DriverRow, LapPoint, RaceMessage } from '../lib/types'
 import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { FlagBanner } from '../components/FlagBanner'
@@ -141,6 +143,54 @@ export function TeamDashboard() {
     return [...unique.values()].sort((a, b) => b.id - a.id).slice(0, 20)
   }, [info, messages, kart])
 
+  // Pop-up notifications for anything sent to this team. "Seen" ids are seeded on
+  // first data so pre-existing items don't fire; only fresh ones toast.
+  const { toasts, push, dismiss } = useToasts()
+  const seenMsg = useRef<Set<number> | null>(null)
+  const seenPen = useRef<Set<number> | null>(null)
+
+  useEffect(() => {
+    if (seenMsg.current === null) {
+      seenMsg.current = new Set(messages.map((m) => m.id))
+      return
+    }
+    for (const m of messages) {
+      if (seenMsg.current.has(m.id)) continue
+      seenMsg.current.add(m.id)
+      const forUs = m.target == null || (kart != null && m.target.includes(kart))
+      if (!forUs) continue
+      push({
+        kind: m.priority === 'warning' ? 'warning' : 'message',
+        urgent: m.priority === 'urgent',
+        title: m.sender === 'race_control' ? 'Race Control' : 'Pit wall',
+        text: m.text,
+      })
+    }
+  }, [messages, kart, push])
+
+  const penalties = snapshot?.penalties
+  const penaltiesHidden = snapshot?.hide_team_penalties
+  useEffect(() => {
+    if (!kart) return
+    const mine = (penalties ?? []).filter((p) => p.kart_no === kart)
+    if (seenPen.current === null) {
+      seenPen.current = new Set(mine.map((p) => p.id))
+      return
+    }
+    for (const p of mine) {
+      if (seenPen.current.has(p.id)) continue
+      seenPen.current.add(p.id)
+      if (penaltiesHidden) continue   // race control is holding penalties from teams
+      const isWarn = p.kind === 'warning'
+      push({
+        kind: isWarn ? 'warning' : 'penalty',
+        urgent: !isWarn,
+        title: penaltyKindLabel(p),
+        text: [penaltyLabel(p), p.reason].filter(Boolean).join(' — '),
+      })
+    }
+  }, [penalties, penaltiesHidden, kart, push])
+
   const send = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!text.trim()) return
@@ -175,6 +225,7 @@ export function TeamDashboard() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
       <PageHeader
         title={kart ? `Pit Wall — Kart #${kart}` : 'Pit Wall'}
         subtitle={[info?.name, race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
@@ -305,21 +356,25 @@ export function TeamDashboard() {
             </ul>
           </div>
 
-          {/* Your penalties & warnings */}
-          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-            <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
-            <PenaltyLog
-              penalties={snapshot?.penalties ?? []}
-              filterKart={kart}
-              empty="None — clean so far."
-            />
-          </div>
+          {/* Penalties & warnings — hidden when race control opts to (e.g. until
+              penalties are official). */}
+          {!snapshot?.hide_team_penalties && (
+            <>
+              <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+                <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
+                <PenaltyLog
+                  penalties={snapshot?.penalties ?? []}
+                  filterKart={kart}
+                  empty="None — clean so far."
+                />
+              </div>
 
-          {/* All penalties & warnings */}
-          <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-            <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
-            <PenaltyLog penalties={snapshot?.penalties ?? []} />
-          </div>
+              <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
+                <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
+                <PenaltyLog penalties={snapshot?.penalties ?? []} />
+              </div>
+            </>
+          )}
 
           {/* Analysis: track position ring + charts */}
           <div className="lg:col-span-3 grid gap-4 lg:grid-cols-3">

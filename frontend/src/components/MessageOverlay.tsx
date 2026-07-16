@@ -36,6 +36,12 @@ export function MessageOverlay({ message, onDismiss }: {
       type="button"
       onClick={onDismiss}
       className={`fixed inset-x-0 top-0 z-50 w-full px-6 py-5 text-left shadow-2xl ${PRIORITY_STYLES[message.priority]}`}
+      // Clear the notch / rounded corners in landscape.
+      style={{
+        paddingTop: 'max(1.25rem, env(safe-area-inset-top))',
+        paddingLeft: 'max(1.5rem, env(safe-area-inset-left))',
+        paddingRight: 'max(1.5rem, env(safe-area-inset-right))',
+      }}
     >
       <div className="flex items-baseline justify-between gap-4">
         <span className="text-xs font-bold tracking-[0.25em] opacity-80">

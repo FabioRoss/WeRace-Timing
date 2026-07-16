@@ -14,11 +14,16 @@ interface Props {
   compact?: boolean
   orderMode?: OrderMode
   ring?: boolean          // false when the page mounts its own TrackRing
+  progress?: boolean      // false on static snapshots (no live lap progress to show)
   // Team dashboard: a leading checkbox column to add karts to the chart compare
   selectable?: boolean
   selectedKarts?: string[]
   compareColors?: Record<string, string>
   onToggleKart?: (kart: string) => void
+  // Saved snapshot: where the row-click driver modal reads its lap history from
+  // (e.g. `/api/results/{id}`), instead of the live feed. Static → no polling.
+  lapsBase?: string
+  safeword?: boolean
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -38,7 +43,9 @@ function barStyle(pct: number, smooth: boolean): CSSProperties {
 
 export function TimingTable({
   snapshot, highlightKart, compact = false, orderMode = 'race', ring = true,
+  progress = true,
   selectable = false, selectedKarts, compareColors, onToggleKart,
+  lapsBase, safeword,
 }: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
@@ -154,7 +161,7 @@ export function TimingTable({
             const rank = byLapTime ? index + 1 : d.position
             const own = highlightKart != null && d.kart_no === highlightKart
             const hasSessionBest = d.kart_no === session_best_kart && d.best_lap_ms != null
-            const showBar = !byLapTime && !d.in_pit && !d.finished
+            const showBar = progress && !byLapTime && !d.in_pit && !d.finished
             const pct = showBar ? (lapFraction(d, serverNow) ?? 0) * 100 : 0
             const smooth = pct >= (prevPctRef.current.get(d.kart_no) ?? 0)
             prevPctRef.current.set(d.kart_no, pct)
@@ -259,6 +266,8 @@ export function TimingTable({
           snapshot={snapshot}
           kart={detailKart}
           onClose={() => setDetailKart(null)}
+          lapsBase={lapsBase}
+          safeword={safeword}
         />
       )}
     </div>
