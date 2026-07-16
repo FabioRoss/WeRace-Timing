@@ -174,7 +174,16 @@ function Shell({ children, accent, onTap, glow = false }: {
   return (
     <div
       className={`flex h-dvh select-none flex-col overflow-hidden bg-pit-950 ${glow ? 'lap-glow' : ''}`}
-      style={{ borderTop: `6px solid ${accent}`, borderBottom: `6px solid ${accent}` }}
+      style={{
+        borderTop: `6px solid ${accent}`,
+        borderBottom: `6px solid ${accent}`,
+        // Keep every readout clear of the notch, rounded corners and home
+        // indicator in landscape (viewport-fit=cover exposes these insets).
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
       onClick={onTap}
     >
       {children}
