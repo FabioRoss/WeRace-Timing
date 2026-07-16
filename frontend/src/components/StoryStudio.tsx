@@ -43,6 +43,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [perPage, setPerPage] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
   const [title, setTitle] = useState('')
+  const [trackName, setTrackName] = useState('')
   const [stat, setStat] = useState<StoryStat>('interval')
   const [labelChoice, setLabelChoice] = useState<LabelChoice>('Race Result')
   const [customLabel, setCustomLabel] = useState('')
@@ -64,14 +65,17 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
 
-  // Seed the title once from the live event name, then let the user own it.
+  // Seed the title + track once from the live session, then let the user own them.
   const titleSeeded = useRef(false)
+  const trackSeeded = useRef(false)
   useEffect(() => {
-    if (titleSeeded.current) return
-    const name = snapshot?.race.event_name
-    if (name) {
-      setTitle(name)
+    if (!titleSeeded.current && snapshot?.race.event_name) {
+      setTitle(snapshot.race.event_name)
       titleSeeded.current = true
+    }
+    if (!trackSeeded.current && snapshot?.race.track_name) {
+      setTrackName(snapshot.race.track_name)
+      trackSeeded.current = true
     }
   }, [snapshot])
 
@@ -85,8 +89,8 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
 
   const pageCount = useMemo(() => storyPageCount(snapshot, perPage), [snapshot, perPage])
   const model = useMemo(
-    () => buildStoryModel(snapshot, { perPage, pageIndex, title, stat, label, showFastest, penalties }),
-    [snapshot, perPage, pageIndex, title, stat, label, showFastest, penalties],
+    () => buildStoryModel(snapshot, { perPage, pageIndex, title, subtitle: trackName, stat, label, showFastest, penalties }),
+    [snapshot, perPage, pageIndex, title, trackName, stat, label, showFastest, penalties],
   )
   const videoMime = useMemo(() => pickVideoMime(), [])
   const hasData = model.rows.length > 0
@@ -206,7 +210,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     try {
       for (let p = 0; p < pageCount; p++) {
         setProgress(`Page ${p + 1} / ${pageCount}`)
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest, penalties })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, subtitle: trackName, stat, label, showFastest, penalties })
         drawStory(ctx, m, m.rows.length, bg, accent, bgTransform)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
         if (blob) downloadBlob(blob, `story-p${p + 1}-${stamp()}.png`)
@@ -218,7 +222,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, title, stat, label, showFastest, penalties, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -242,7 +246,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
         : [pageIndex]
       for (const p of pages) {
         setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
-        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, stat, label, showFastest, penalties })
+        const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, subtitle: trackName, stat, label, showFastest, penalties })
         await animatePage(ctx, m, bg, accent, bgTransform)
       }
       recorder.stop()
@@ -258,7 +262,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, pageIndex, title, stat, label, showFastest, penalties, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, pageIndex, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
 
   // Apply a transform update, snapped to defaults near them and clamped so the
   // photo always fully covers the frame (no empty corners).
@@ -359,6 +363,15 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Event Name"
+            className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+          />
+        </Field>
+
+        <Field label="Track name">
+          <input
+            value={trackName}
+            onChange={(e) => setTrackName(e.target.value)}
+            placeholder="Track"
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
