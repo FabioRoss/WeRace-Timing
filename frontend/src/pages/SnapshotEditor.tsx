@@ -6,7 +6,6 @@ import { PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
 import { TimingTable } from '../components/TimingTable'
 import { PenaltyEditor } from '../components/PenaltyEditor'
-import { SnapshotLapCharts } from '../components/SnapshotLapCharts'
 import { TimesheetPanel } from '../components/TimesheetPanel'
 import { StoryStudio } from '../components/StoryStudio'
 import { useSnapshotRecord } from '../lib/useSnapshot'
@@ -84,9 +83,6 @@ function EditorInner() {
                 onChanged={refetch}
                 canRevert
               />
-            </div>
-            <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-              <SnapshotLapCharts baseUrl={url} drivers={snapshot.drivers} safeword />
             </div>
           </>
         )}

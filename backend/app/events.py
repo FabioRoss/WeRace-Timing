@@ -242,6 +242,9 @@ class Event:
     def schedule_penalty_notify(self, penalty: Penalty) -> None:
         """Notify the penalized kart's team after a short grace delay, so Race
         Control can delete a mistake first (cancel_penalty_notify)."""
+        # Penalties hidden from teams (RC config): don't notify them either.
+        if self.state.hide_team_penalties:
+            return
         delay = get_settings().penalty_notify_delay_s
         task = asyncio.create_task(
             self._notify_penalty_after(penalty, delay),
@@ -260,6 +263,9 @@ class Event:
                 await asyncio.sleep(delay)
             # The penalty may have been deleted during the grace window.
             if self.state.find_penalty(penalty.id) is None:
+                return
+            # …or penalties may have been hidden from teams during the grace window.
+            if self.state.hide_team_penalties:
                 return
             text = _penalty_message_text(penalty)
             priority = "warning" if penalty.kind == "warning" else "urgent"

@@ -31,6 +31,7 @@ export function ResultsIndex() {
     <div className="mx-auto flex min-h-full max-w-4xl flex-col">
       <PageHeader title="Results" subtitle="Published events & sessions" />
       <main className="flex-1 space-y-3 p-4">
+        <Link to="/" className="text-xs text-race-blue">← Home</Link>
         {tracks.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button type="button" onClick={() => setTrack('')}

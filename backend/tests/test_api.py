@@ -288,6 +288,22 @@ def test_penalty_notification_delivered_after_delay(client, monkeypatch):
         assert frame["priority"] == "urgent"
 
 
+def test_penalty_notification_suppressed_when_hidden(client):
+    seed()
+    event = get_manager().get(1)
+    event.state.hide_team_penalties = True
+    try:
+        pid = client.post("/e/1/api/admin/penalty", headers=SAFEWORD,
+                          json={"kart_no": "7", "kind": "time", "seconds": 10, "reason": "Contact"}
+                          ).json()["penalty"]["id"]
+        # No team notification is scheduled while penalties are hidden from teams.
+        assert pid not in event._pending_notify
+        pen = event.state.find_penalty(pid)
+        assert pen is not None and pen.notified is False
+    finally:
+        event.state.hide_team_penalties = False
+
+
 def test_manual_snapshot_save(client, tmp_path, monkeypatch):
     from app.config import get_settings
     from app import snapshots

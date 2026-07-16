@@ -159,8 +159,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   schedules a **delayed team notification** (`Event.schedule_penalty_notify` →
   `asyncio` task sleeping `Settings.penalty_notify_delay_s` ≈12s, then `send_message`
   targeted to the kart + driver banner); **deleting before it fires cancels it**
-  (`_pending_notify[id]`, cleared on reset). "Amend" = delete + re-add (no edit
-  endpoint — the delay is the grace window). Frontend: `lib/penalties.ts` (labels/
+  (`_pending_notify[id]`, cleared on reset). When `hide_team_penalties` is on the notification
+  is **suppressed** — `schedule_penalty_notify` skips scheduling, and `_notify_penalty_after`
+  re-checks the flag after the grace delay (toggle-during-window) — so hiding penalties from
+  teams silences the message too, not just the dashboard panels. "Amend" = delete + re-add (no
+  edit endpoint — the delay is the grace window). Frontend: `lib/penalties.ts` (labels/
   presets) + shared `components/PenaltyLog.tsx` (read-only everywhere; RC passes
   `onServe`/`onRemove` for actions). RC has an assign panel + a **"to serve in pit"**
   list (unserved TIME penalties, in-pit karts pulled to top + red-outlined) + full log;
@@ -350,8 +353,9 @@ penalty_seq, original_penalties}`.
   `components/PenaltyEditor.tsx` (`apiBase` + `onChanged` + `canRevert`; RaceControl consumes it).
   Pages: gated `/admin/snapshots` (SnapshotManager: list, podium, track filter, keep/publish toggles,
   delete-confirm, **row checkboxes + "Group into event" bar + event badge**) + `/admin/snapshots/:id`
-  (SnapshotEditor: notes, **EventPicker**, PenaltyEditor, lap charts, PDF via TimesheetPanel,
-  StoryStudio); public `/results` (event cards → `/events/:id` + loose session cards → `/results/:id`),
+  (SnapshotEditor: notes, **EventPicker**, PenaltyEditor, PDF via TimesheetPanel, StoryStudio — its
+  lap charts come from the timing-table row-click modal, not a standalone panel); public `/results`
+  (event cards → `/events/:id` + loose session cards → `/results/:id`, with a **← Home** link),
   `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults).
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
 - **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
