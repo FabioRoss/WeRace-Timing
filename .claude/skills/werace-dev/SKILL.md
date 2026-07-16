@@ -408,6 +408,22 @@ Docker + Caddy (HTTPS via Let's Encrypt) per README/docker-compose.yml. Set
 built frontend from `frontend/dist`. HTTPS matters: driver dashboards use the screen
 wake-lock API which requires a secure context.
 
+**Open Graph previews**: `main.py`'s SPA fallback injects `og:`/`twitter:` tags + `<title>` for
+**every** route — per published result (`snapshots.og_meta`), per published event
+(`snapshots.event_og_meta`), per dashboard slot (live `_dashboard_meta`), else a brand default. Each
+points at a racey 1200×630 PNG from **`app/cards.py`** (`render_card` → checker strip + red chevron
+band + kicker + title + flag pill + podium + WeRace wordmark) served by `routers/results.py`:
+`/api/results/{id}/card.png`, `/api/events/{id}/card.png`, `/api/e/{slot}/card.png` (live),
+`/api/card.png` (brand). Dashboard cards are cached 300s (crawler-friendly, not real-time).
+
+**Notch-safe driver dashboard**: the `DriverDashboard` shell + `MessageOverlay` pad with
+`env(safe-area-inset-*)` (index.html already sets `viewport-fit=cover`) so landscape readouts clear
+the notch / rounded corners / home indicator.
+
+**Team pop-up notifications**: `components/Toast.tsx` (`useToasts` + `ToastStack`) — the team
+dashboard toasts new messages targeted to the kart and new penalties/warnings for it (respecting
+`hide_team_penalties`); "seen" ids are seeded on first data so only fresh items pop.
+
 **Multiple domains**: `WRB_DOMAIN` accepts a **comma-separated list** (Caddy's site-address
 line takes several addresses; `{$WRB_DOMAIN}` is a textual substitution) — Caddy serves +
 certifies each, one deploy. Backend has **no host allowlist** so any Host already resolves.
