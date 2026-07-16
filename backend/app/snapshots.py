@@ -202,6 +202,28 @@ def og_meta(record: dict) -> dict:
     }
 
 
+def event_og_meta(group_id: str) -> dict | None:
+    """Open Graph fields for a published event (snapshot group), or None when the
+    event has no published sessions."""
+    records = [
+        r for r in list_records()
+        if r.get("published") and r.get("group_id") == group_id
+    ]
+    if not records:
+        return None
+    name = next((r.get("group_name") for r in records if r.get("group_name")), group_id)
+    track = next((r.get("track") for r in records if r.get("track")), "")
+    n = len(records)
+    sessions = f"{n} session" + ("" if n == 1 else "s")
+    description = " — ".join(b for b in (sessions, track) if b) or "Event"
+    return {
+        "title": name or "Event",
+        "description": description,
+        "image_path": f"/api/events/{group_id}/card.png",
+        "url_path": f"/events/{group_id}",
+    }
+
+
 def list_groups(published_only: bool = False) -> list[dict]:
     """Derive events (snapshot groups) from the store. An event bundles the
     snapshots sharing a `group_id`; sessions are ordered oldest-first (so

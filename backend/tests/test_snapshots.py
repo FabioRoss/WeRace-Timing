@@ -429,9 +429,31 @@ def test_results_html_injects_og_when_published(api):
     html = api.get(f"/results/{sid}").text
     assert 'property="og:title"' in html and 'name="twitter:card"' in html
     assert f"/api/results/{sid}/card.png" in html
-    # unpublished / unknown -> plain shell (no OG injection)
+    # unpublished -> brand OG fallback (tags present, but not the per-result card)
     api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": False})
-    assert 'property="og:title"' not in api.get(f"/results/{sid}").text
+    plain = api.get(f"/results/{sid}").text
+    assert 'property="og:title"' in plain
+    assert f"/api/results/{sid}/card.png" not in plain and "/api/card.png" in plain
+
+
+def test_og_injected_on_every_public_page(api):
+    from app.main import FRONTEND_DIST
+    if not FRONTEND_DIST.is_dir():
+        pytest.skip("frontend/dist not built")
+    # Landing, results index and a dashboard all preview (brand or live meta).
+    for path in ("/", "/results", "/e/1"):
+        html = api.get(path).text
+        assert 'property="og:image"' in html and 'property="og:title"' in html
+    # Dashboard route points at the live card; landing at the brand card.
+    assert "/api/e/1/card.png" in api.get("/e/1").text
+    assert "/api/card.png" in api.get("/").text
+    # A published event previews with its event card.
+    sid = _save_one(api)
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    gid = api.post("/api/admin/snapshot-groups/assign", headers=SAFE,
+                   json={"snapshot_ids": [sid], "group_name": "Round 1"}).json()["group"]["id"]
+    html = api.get(f"/events/{gid}").text
+    assert f"/api/events/{gid}/card.png" in html and "Round 1" in html
 
 
 def test_public_results_only_published_and_no_private(api):
