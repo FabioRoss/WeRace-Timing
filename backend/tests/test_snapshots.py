@@ -393,6 +393,33 @@ def test_og_meta_and_card(api):
     assert card.headers["content-type"] == "image/png"
 
 
+_PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def test_og_cards_brand_event_dashboard(api):
+    # Brand card is always available.
+    brand = api.get("/api/card.png")
+    assert brand.status_code == 200 and brand.content[:8] == _PNG
+
+    # Live dashboard card renders from current state (seed one slot).
+    get_manager().get(1).state.update(
+        RaceInfo(flag=Flag.GREEN, event_name="Cup", track_name="Christel"),
+        [DriverRow(kart_no="7", name="A", position=1, laps=5)],
+    )
+    dash = api.get("/api/e/1/card.png")
+    assert dash.status_code == 200 and dash.content[:8] == _PNG
+    assert api.get("/api/e/99/card.png").status_code == 404   # no such slot
+
+    # Event card: published-only, 404 until an event exists.
+    sid = _save_one(api)
+    assert api.get("/api/events/none-x/card.png").status_code == 404
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    gid = api.post("/api/admin/snapshot-groups/assign", headers=SAFE,
+                   json={"snapshot_ids": [sid], "group_name": "Round 1"}).json()["group"]["id"]
+    ev = api.get(f"/api/events/{gid}/card.png")
+    assert ev.status_code == 200 and ev.content[:8] == _PNG
+
+
 def test_results_html_injects_og_when_published(api):
     from app.main import FRONTEND_DIST
     if not FRONTEND_DIST.is_dir():
