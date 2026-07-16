@@ -315,7 +315,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   - **Surfaces**: `TeamStoryStudio` (staff) on the Export **Team story** tab (saves to slot
     settings) and the SnapshotEditor **Team story** tab (PATCH `team_story_config`);
     `TeamStoryCard` (read-only preview + download) on the pit-wall **TeamDashboard** using the
-    slot's config for the team's own kart; and a per-team **"Story"** download button in the
+    slot's config for the team's own kart — a team may also pick their **own background**
+    (`createImageBitmap`, session-only, never uploaded, cover-fit, overrides the default; "use
+    default" clears it), the only look-changing control teams get; and a per-team **"Story"**
+    download button in the
     `DriverDetail` row-click modal on saved snapshots (threaded via `TimingTable teamStoryConfig`
     → SessionResult/public results + editor). Live dashboards pass no config → no button.
 
