@@ -94,6 +94,11 @@ Line format `<target>|<class>|<value>`; newline-separated inside ws frames.
   page-HTML grid bootstrap (SourceConfig.page) and the first_frames diagnostic
   (`GET /e/{slot}/api/admin/status`). Whether a live connect sends `grid|` is STILL
   UNVERIFIED — check first_frames at the next live session.
+- **Track-name override**: `SourceConfig.track_name` (optional, set per `TRACK_CATALOG` entry in
+  `tracks.py`; empty = use the feed's name). Applied ONCE in `Event._on_data` (the seam every
+  source funnels through) before `state.update`, so it flows to the snapshot broadcast (dashboards/
+  stories), PDF, OG, result cards and `build_record.track` (saved snapshots capture it). The
+  frontend `RaceControl` connect POSTs the whole catalog entry, so the field rides along.
 - Sessions ranked by best lap (practice/quali) show zero best-lap inversions in
   positioned order — that's the session_kind heuristic.
 - Grid/page HTML can contain the timing table MORE THAN ONCE (desktop + mobile
@@ -239,8 +244,12 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     once at the top of the section. `event`/`session`
     override the names on the sheet + the download filename (`{event}-{session}-{date}.pdf`,
     slugified). Pages 2+ carry a slim
-    running header (event · session / track) and every page gets a "Page N of M" footer via
-    a `NumberedCanvas` two-pass canvasmaker + an `onLaterPages` callback. Public GET;
+    running header (event · session / track) and every page's footer carries
+    **`timing.we-race.it` bottom-left** + a "Page N of M" (>1 page) bottom-right, via a
+    `NumberedCanvas` two-pass canvasmaker + an `onLaterPages` callback. A **Notes** field
+    (`notes` query param / `pdf_config.notes`, 2000-char clamp, newline-safe) prints a free-text
+    block on page 1 after the classification; the TimesheetPanel textarea persists it per snapshot.
+    Public GET;
     `Content-Disposition` attachment; **`Cache-Control: no-store`** (the PDF is rebuilt from
     live state per request, and the frontend adds a `t=` cache-bust, so re-downloads across
     replays never return a stale copy). Base-14 fonts only render Latin-1 — avoid fancy
