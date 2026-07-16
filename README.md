@@ -77,6 +77,25 @@ Tip: put `WRB_DOMAIN=timing.example.com` in a `.env` file next to
 **3. Check** — `https://timing.example.com/e/1/control`, enter the safeword,
 connect the Simulator, open the dashboards.
 
+**Serving several domains (one deploy):** the app can answer on more than one
+hostname at once — useful for a second brand or a spelling alias.
+
+1. Add a DNS `A` record for each domain pointing at the same VPS IP
+   (e.g. `timing.we-race.it` *and* `timing.werace.it` → `<VPS IP>`).
+2. Set `WRB_DOMAIN` to a **comma-separated list** and redeploy — Caddy fetches a
+   Let's Encrypt certificate for each and serves them all:
+   ```bash
+   WRB_DOMAIN="timing.we-race.it, timing.werace.it" docker compose up -d
+   ```
+   (The backend accepts any host, so no other change is needed to browse both.)
+3. **Share links / QR codes** pick one of two behaviours:
+   - Keep `WRB_PUBLIC_BASE_URL=https://timing.we-race.it` — every generated link
+     and QR uses that one canonical domain, even when opened via the other.
+   - Leave `WRB_PUBLIC_BASE_URL` empty — links derive from the domain the visitor
+     actually used, so each domain self-references. (Works over HTTPS because the
+     container runs uvicorn with `--proxy-headers`, trusting Caddy's forwarded
+     scheme/host.)
+
 **Operating it:**
 
 ```bash

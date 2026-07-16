@@ -25,4 +25,8 @@ COPY --from=frontend /build/dist frontend/dist
 WORKDIR /app/backend
 EXPOSE 8000
 # Single worker only: event state and websocket hubs are in-memory per process.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers trusts Caddy's X-Forwarded-Proto/Host so request-derived share
+# links get the real https scheme + the domain the visitor actually used (needed
+# for correct per-domain links when WRB_PUBLIC_BASE_URL is left empty).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

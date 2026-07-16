@@ -407,3 +407,15 @@ Docker + Caddy (HTTPS via Let's Encrypt) per README/docker-compose.yml. Set
 `WRB_PUBLIC_BASE_URL` (QR links), `WRB_SAFEWORD`, `WRB_SECRET`. The backend serves the
 built frontend from `frontend/dist`. HTTPS matters: driver dashboards use the screen
 wake-lock API which requires a secure context.
+
+**Multiple domains**: `WRB_DOMAIN` accepts a **comma-separated list** (Caddy's site-address
+line takes several addresses; `{$WRB_DOMAIN}` is a textual substitution) — Caddy serves +
+certifies each, one deploy. Backend has **no host allowlist** so any Host already resolves.
+The container runs uvicorn with `--proxy-headers --forwarded-allow-ips=*`, so with
+`WRB_PUBLIC_BASE_URL` empty, share links/QRs derive the real `https://<visited-domain>`
+per request (`_base_url`); set it to pin every link to one canonical domain instead.
+
+**Chequered `.checker` décor** is scoped to results + security only: the `SessionResult` strip
+(results/event bodies) and the `SafewordGate` "Restricted" box. It is NOT on the live dashboards
+or Landing (the shared `PageHeader` no longer renders a checker square). `FlagBanner` (race-flag
+status, chequered at `finish`) and the `TrackRing` start/finish block are functional, not décor.

@@ -1,5 +1,7 @@
 # Reverse proxy with automatic HTTPS (Let's Encrypt).
 # The domain comes from the WRB_DOMAIN environment variable set in docker-compose.
+# WRB_DOMAIN may list several domains, comma-separated (e.g.
+# "timing.example.com, timing.example.org") — Caddy serves and certifies each.
 {$WRB_DOMAIN} {
 	encode gzip
 	reverse_proxy app:8000

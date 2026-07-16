@@ -26,7 +26,6 @@ export function PageHeader({
     <header className="border-b border-pit-700 px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="checker h-6 w-6 rounded-sm shrink-0" />
           <div className="min-w-0">
             <h1 className="text-base font-bold leading-tight uppercase tracking-wider truncate">
               {title}
