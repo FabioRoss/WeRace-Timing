@@ -15,6 +15,7 @@ export interface PdfConfig {
   event?: string
   session?: string
   accent?: string
+  status?: string        // '' (auto) | 'provisional' | 'definitive'
 }
 
 /**
@@ -63,6 +64,7 @@ export function TimesheetPanel({
   const [accent, setAccent] = useState(initialConfig?.accent || DEFAULT_ACCENT)
   const [eventOverride, setEventOverride] = useState(initialConfig?.event ?? '')
   const [sessionOverride, setSessionOverride] = useState(initialConfig?.session ?? '')
+  const [status, setStatus] = useState(initialConfig?.status ?? '')
   const [savedConfig, setSavedConfig] = useState('')
 
   // Seed the editable name fields once from the session (unless a saved config
@@ -83,6 +85,7 @@ export function TimesheetPanel({
     penalties, accent,
     event: eventOverride.trim(),
     session: sessionOverride.trim(),
+    status,
   })
 
   const saveConfig = () => {
@@ -108,6 +111,7 @@ export function TimesheetPanel({
     })
     if (eventOverride.trim()) params.set('event', eventOverride.trim())
     if (sessionOverride.trim()) params.set('session', sessionOverride.trim())
+    if (status) params.set('status', status)
     if (safeword) params.set('safeword', safeword)
     const a = document.createElement('a')
     a.href = `${pdfBase}/timesheet.pdf?${params.toString()}`
@@ -161,6 +165,22 @@ export function TimesheetPanel({
         <p className="mt-1 text-[0.65rem] text-ink-500">
           Used on the sheet header and the file name (with the date).
         </p>
+
+        <label className="mt-4 block">
+          <span className="label-race">Result status</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red sm:w-64"
+          >
+            <option value="">Auto (from session state)</option>
+            <option value="provisional">Provisional</option>
+            <option value="definitive">Definitive</option>
+          </select>
+          <span className="mt-1 block text-[0.65rem] text-ink-500">
+            Stamped as a badge in the sheet header.
+          </span>
+        </label>
 
         <div className="mt-4 space-y-2">
           <div className="label-race">Include</div>

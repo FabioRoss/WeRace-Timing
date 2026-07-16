@@ -120,6 +120,15 @@ def test_timesheet_pdf_accent_param(client):
     assert client.get("/e/1/api/export/timesheet.pdf?accent=nope").content[:5] == b"%PDF-"
 
 
+def test_timesheet_pdf_status_param(client):
+    _seed_with_laps()
+    for value in ("provisional", "definitive", ""):
+        r = client.get(f"/e/1/api/export/timesheet.pdf?status={value}")
+        assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+    # An explicit status overrides the auto label without erroring.
+    assert client.get("/e/1/api/export/timesheet.pdf?status=bogus").content[:5] == b"%PDF-"
+
+
 def test_clean_accent():
     from app.routers.export import _clean_accent
     assert _clean_accent("#39ff14") == "#39ff14"

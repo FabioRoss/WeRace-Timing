@@ -100,12 +100,15 @@ try:
         """A modern hero band: dark rounded panel with a checker strip, the event
         title and a meta line. Replaces the old plain paragraph header."""
 
-        def __init__(self, title: str, meta: str, accent=RACE_RED, height: float = 26 * mm):
+        def __init__(self, title: str, meta: str, accent=RACE_RED, height: float = 26 * mm,
+                     status: str = "", status_color=None):
             super().__init__()
             self.title = title
             self.meta = meta
             self.accent = accent
             self.height = height
+            self.status = status
+            self.status_color = status_color or accent
             self.width = 0.0
 
         def wrap(self, avail_w: float, avail_h: float):
@@ -137,6 +140,17 @@ try:
             c.setFillColor(colors.HexColor("#c7ccda"))
             c.setFont("Helvetica", 9.5)
             c.drawString(9 * mm, h - 21 * mm, self.meta)
+            # Status pill (PROVISIONAL / DEFINITIVE) on the right.
+            if self.status:
+                c.setFont("Helvetica-Bold", 9)
+                tw = c.stringWidth(self.status, "Helvetica-Bold", 9)
+                pill_w = tw + 8 * mm
+                px = w - pill_w - 7 * mm
+                py = h - 16 * mm
+                c.setFillColor(self.status_color)
+                c.roundRect(px, py, pill_w, 7 * mm, 3.5 * mm, stroke=0, fill=1)
+                c.setFillColor(colors.white)
+                c.drawCentredString(px + pill_w / 2, py + 2.2 * mm, self.status)
 
 except ImportError:  # pragma: no cover - only when the dep is absent
     _REPORTLAB_OK = False
@@ -664,6 +678,7 @@ def build_timesheet_pdf(
     include_pits: bool = False, include_stints: bool = False, pit_estimate: bool = False,
     include_penalties: bool = False,
     event_name: str = "", session_name: str = "", accent: str = "#e10600",
+    status: str = "",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -706,11 +721,22 @@ def build_timesheet_pdf(
     # A typed session name shows as-is; a bare feed run code (e.g. "E") reads
     # better as "Run E".
     session_meta = session_name.strip() or (f"Run {race.run_type}" if race.run_type else "")
+    # Result status: an explicit choice (provisional/definitive) overrides the
+    # auto guess from race.ended, and shows as a pill in the header.
+    _AMBER = colors.HexColor("#e0912a")
+    _GREEN = colors.HexColor("#2aa14e")
+    chosen = status.strip().lower()
+    if chosen == "definitive":
+        status_label, status_color = "DEFINITIVE", _GREEN
+    elif chosen == "provisional":
+        status_label, status_color = "PROVISIONAL", _AMBER
+    else:
+        status_label = "FINISHED" if race.ended else "PROVISIONAL"
+        status_color = _GREEN if race.ended else _AMBER
     meta_bits = [
         race.track_name,
         session_meta,
         datetime.now().strftime("%d %b %Y %H:%M"),
-        "FINISHED" if race.ended else "PROVISIONAL",
     ]
     meta = "   ·   ".join(b for b in meta_bits if b)
 
@@ -740,7 +766,8 @@ def build_timesheet_pdf(
     summary = _penalties_summary_table(state, styles) if include_penalties else []
     class_title = "Classification (penalties applied)" if summary else "Classification"
     story: list = [
-        HeaderBand(event, meta, accent=kit["accent"]),
+        HeaderBand(event, meta, accent=kit["accent"],
+                   status=status_label, status_color=status_color),
         Spacer(1, 6 * mm),
         Paragraph(class_title, styles["SectionHead"]),
         _classification_table(state, styles, drivers=adjusted),
@@ -795,7 +822,7 @@ def _clean_accent(value: str) -> str:
 def _timesheet_response(
     state: EventState, *, charts: bool, grid: bool, pits: bool, stints: bool,
     pitest: bool, penalties: bool, event: str, session: str, accent: str,
-    fallback_stem: str,
+    fallback_stem: str, status: str = "",
 ) -> Response:
     """Build a chrono-timesheet PDF Response from any EventState (live or a
     rehydrated saved snapshot)."""
@@ -806,7 +833,7 @@ def _timesheet_response(
         include_pits=pits, include_stints=stints, pit_estimate=pitest,
         include_penalties=penalties,
         accent=_clean_accent(accent),
-        event_name=event, session_name=session,
+        event_name=event, session_name=session, status=status,
     )
     date = datetime.now().strftime("%Y%m%d")
     parts = [_slug(event or state.race.event_name), _slug(session or state.race.run_type)]
@@ -826,12 +853,13 @@ def _timesheet_response(
 def snapshot_pdf_response(
     record: dict, *, charts: bool, grid: bool, pits: bool, stints: bool,
     pitest: bool, penalties: bool, event: str, session: str, accent: str,
+    status: str = "",
 ) -> Response:
     """PDF from a saved-snapshot record — reused by the admin + public routes."""
     state = EventState.hydrate(record)
     return _timesheet_response(
         state, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
-        penalties=penalties, event=event, session=session, accent=accent,
+        penalties=penalties, event=event, session=session, accent=accent, status=status,
         fallback_stem=_slug(record.get("name", "")) or "snapshot",
     )
 
@@ -841,14 +869,15 @@ def timesheet_pdf(
     slot: int, charts: bool = False, grid: bool = True,
     pits: bool = False, stints: bool = False, pitest: bool = False,
     penalties: bool = False,
-    event: str = "", session: str = "", accent: str = "#e10600",
+    event: str = "", session: str = "", accent: str = "#e10600", status: str = "",
 ) -> Response:
     """Downloadable chrono timesheet from live state, so generate it before
-    disconnecting. `event`/`session` override names; `accent` recolours it."""
+    disconnecting. `event`/`session` override names; `accent` recolours it;
+    `status` stamps PROVISIONAL / DEFINITIVE in the header."""
     evt = get_event(slot)
     return _timesheet_response(
         evt.state, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
-        penalties=penalties, event=event, session=session, accent=accent,
+        penalties=penalties, event=event, session=session, accent=accent, status=status,
         fallback_stem=f"timesheet-event{slot}",
     )
 
@@ -861,7 +890,7 @@ def admin_snapshot_pdf(
     snapshot_id: str, charts: bool = False, grid: bool = True,
     pits: bool = False, stints: bool = False, pitest: bool = False,
     penalties: bool = False,
-    event: str = "", session: str = "", accent: str = "#e10600",
+    event: str = "", session: str = "", accent: str = "#e10600", status: str = "",
 ) -> Response:
     """PDF from any saved snapshot (safeword-gated)."""
     record = snapshots.load_record(snapshot_id)
@@ -869,5 +898,5 @@ def admin_snapshot_pdf(
         raise HTTPException(status_code=404, detail="snapshot not found")
     return snapshot_pdf_response(
         record, charts=charts, grid=grid, pits=pits, stints=stints, pitest=pitest,
-        penalties=penalties, event=event, session=session, accent=accent,
+        penalties=penalties, event=event, session=session, accent=accent, status=status,
     )

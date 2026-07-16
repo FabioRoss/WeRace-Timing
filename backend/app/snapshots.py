@@ -36,10 +36,10 @@ _ID_RE = re.compile(r"[A-Za-z0-9_-]+")
 PDF_CONFIG_DEFAULTS = {
     "charts": False, "grid": True, "pits": False, "stints": False,
     "pitest": False, "penalties": True,
-    "event": "", "session": "", "accent": "#e10600",
+    "event": "", "session": "", "accent": "#e10600", "status": "",
 }
 _PDF_BOOL_KEYS = ("charts", "grid", "pits", "stints", "pitest", "penalties")
-_PDF_STR_KEYS = ("event", "session", "accent")
+_PDF_STR_KEYS = ("event", "session", "accent", "status")
 
 
 def sanitize_pdf_config(config: dict | None) -> dict:

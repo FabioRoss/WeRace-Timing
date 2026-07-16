@@ -174,6 +174,7 @@ def result_pdf(
     pits: bool | None = None, stints: bool | None = None, pitest: bool | None = None,
     penalties: bool | None = None,
     event: str | None = None, session: str | None = None, accent: str | None = None,
+    status: str | None = None,
 ) -> Response:
     """Public timesheet. The layout defaults to the snapshot's saved `pdf_config`
     (what the operator picked); any explicit query param overrides it."""
@@ -182,7 +183,7 @@ def result_pdf(
     overrides = {
         "charts": charts, "grid": grid, "pits": pits, "stints": stints,
         "pitest": pitest, "penalties": penalties,
-        "event": event, "session": session, "accent": accent,
+        "event": event, "session": session, "accent": accent, "status": status,
     }
     for key, value in overrides.items():
         if value is not None:
