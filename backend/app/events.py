@@ -103,6 +103,13 @@ class Event:
         return status
 
     async def _on_data(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> None:
+        # A catalog entry may override the feed's track name; apply it here (the
+        # single seam every source funnels through) so state → snapshot → PDF /
+        # stories / OG / saved records all read the override.
+        cfg = getattr(self.source, "config", None)
+        override = cfg.track_name.strip() if cfg else ""
+        if race is not None and override:
+            race = race.model_copy(update={"track_name": override})
         self.state.update(race, drivers)
         # A new session (rollover) re-arms the one-shot end-of-session auto-save.
         if self.state.session_generation != self._last_generation:

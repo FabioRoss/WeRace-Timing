@@ -56,11 +56,19 @@ export function TimingTable({
   const byLapTime = orderMode === 'laptime'
 
   // Karts carrying an outstanding, result-affecting penalty (unserved time
-  // penalty or any lap penalty) get a PEN badge in the table.
+  // penalty or any lap penalty) get a red PEN badge. Neutral time adjustments
+  // are tracked separately (a neutral ADJ badge) — they aren't sanctions.
+  const adjustedKarts = useMemo(() => {
+    const s = new Set<string>()
+    for (const p of snapshot.penalties ?? []) {
+      if (p.kind === 'adjust' && p.seconds) s.add(p.kart_no)
+    }
+    return s
+  }, [snapshot.penalties])
   const penalizedKarts = useMemo(() => {
     const s = new Set<string>()
     for (const p of snapshot.penalties ?? []) {
-      if (p.kind === 'warning') continue
+      if (p.kind === 'warning' || p.kind === 'adjust') continue
       if (p.kind === 'time' && p.served) continue
       s.add(p.kart_no)
     }
@@ -231,6 +239,12 @@ export function TimingTable({
                     <span className="ml-2 rounded bg-race-red px-1 text-[0.6rem] font-bold text-white align-middle"
                       title="Outstanding penalty">
                       PEN
+                    </span>
+                  )}
+                  {adjustedKarts.has(d.kart_no) && (
+                    <span className="ml-2 rounded bg-race-blue px-1 text-[0.6rem] font-bold text-white align-middle"
+                      title="Time adjustment applied">
+                      ADJ
                     </span>
                   )}
                 </td>

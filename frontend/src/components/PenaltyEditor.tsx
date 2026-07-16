@@ -10,17 +10,21 @@ import type { DriverRow, Penalty } from '../lib/types'
  * (`/e/{slot}/api/admin`, updates flow back over the websocket) and a saved
  * snapshot (`/api/admin/snapshots/{id}`, where `onChanged` refetches).
  */
-export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRevert }: {
+export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRevert, allowAdjust }: {
   apiBase: string
   drivers: DriverRow[]
   penalties: Penalty[]
   onChanged?: () => void
   canRevert?: boolean
+  // Enable a neutral "time adjustment" mode (signed seconds) — organizer-side
+  // corrections. Snapshot-only; live Race Control leaves it off.
+  allowAdjust?: boolean
 }) {
   const [penKart, setPenKart] = useState('')
-  const [penKind, setPenKind] = useState<'time' | 'lap' | 'warning'>('time')
+  const [penKind, setPenKind] = useState<'time' | 'lap' | 'warning' | 'adjust'>('time')
   const [penSeconds, setPenSeconds] = useState(10)
   const [penLaps, setPenLaps] = useState(1)
+  const [adjustSec, setAdjustSec] = useState(24)   // signed; + adds time, − credits back
   const [penReason, setPenReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState('')
@@ -73,19 +77,21 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
 
   const assign = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!penKart) { setError('Select a kart for the penalty'); return }
+    if (!penKart) { setError('Select a kart'); return }
     if (penKind === 'time' && penSeconds <= 0) { setError('Enter penalty seconds'); return }
     if (penKind === 'lap' && penLaps <= 0) { setError('Enter penalty laps'); return }
+    if (penKind === 'adjust' && !adjustSec) { setError('Enter a non-zero adjustment'); return }
     const body = {
       kart_no: penKart,
       kind: penKind,
-      seconds: penKind === 'time' ? penSeconds : 0,
+      seconds: penKind === 'time' ? penSeconds : penKind === 'adjust' ? adjustSec : 0,
       laps: penKind === 'lap' ? penLaps : 0,
       reason: penReason.trim(),
     }
+    const noun = penKind === 'warning' ? 'Warning' : penKind === 'adjust' ? 'Adjustment' : 'Penalty'
     void run(async () => {
       await api(`${apiBase}/penalty`, { body, safeword: true })
-      setSent(`${penKind === 'warning' ? 'Warning' : 'Penalty'} assigned to #${penKart}`)
+      setSent(`${noun} applied to #${penKart}`)
       setPenReason('')
       setTimeout(() => setSent(''), 3000)
     })
@@ -127,10 +133,13 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
           </select>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {([['time', 'Time'], ['lap', 'Lap'], ['warning', 'Warning']] as const).map(([k, lbl]) => (
+          {([['time', 'Time'], ['lap', 'Lap'], ['warning', 'Warning'],
+             ...(allowAdjust ? [['adjust', 'Adjust'] as const] : [])] as const).map(([k, lbl]) => (
             <button key={k} type="button" onClick={() => setPenKind(k)}
               className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-                penKind === k ? 'bg-race-red text-white' : 'bg-pit-700'
+                penKind === k
+                  ? (k === 'adjust' ? 'bg-race-blue text-white' : 'bg-race-red text-white')
+                  : 'bg-pit-700'
               }`}>
               {lbl}
             </button>
@@ -152,6 +161,27 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
             <span className="text-xs text-ink-500">seconds</span>
           </div>
         )}
+        {penKind === 'adjust' && (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[-30, -10, -5, 5, 10, 30].map((s) => (
+                <button key={s} type="button" onClick={() => setAdjustSec(s)}
+                  className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
+                    adjustSec === s ? 'bg-race-blue text-white' : 'bg-pit-700'
+                  }`}>
+                  {s > 0 ? `+${s}` : s}s
+                </button>
+              ))}
+              <input type="number" min={-3600} max={3600} value={adjustSec}
+                onChange={(e) => setAdjustSec(parseInt(e.target.value, 10) || 0)}
+                className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
+              <span className="text-xs text-ink-500">seconds</span>
+            </div>
+            <p className="text-[0.65rem] text-ink-500">
+              A neutral timing correction (not a penalty). <b>+</b> adds time, <b>−</b> credits it back.
+            </p>
+          </div>
+        )}
         {penKind === 'lap' && (
           <div className="flex flex-wrap items-center gap-1.5">
             {LAP_PENALTY_PRESETS.map((l) => (
@@ -168,16 +198,18 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
             <span className="text-xs text-ink-500">laps</span>
           </div>
         )}
-        <div className="flex flex-wrap gap-1.5">
-          {PENALTY_REASONS.map((r) => (
-            <button key={r} type="button" onClick={() => setPenReason(r)}
-              className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
-              {r}
-            </button>
-          ))}
-        </div>
+        {penKind !== 'adjust' && (
+          <div className="flex flex-wrap gap-1.5">
+            {PENALTY_REASONS.map((r) => (
+              <button key={r} type="button" onClick={() => setPenReason(r)}
+                className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
         <input value={penReason} onChange={(e) => setPenReason(e.target.value)} maxLength={120}
-          placeholder="Reason (optional)…"
+          placeholder={penKind === 'adjust' ? 'Reason, e.g. early pit release (optional)…' : 'Reason (optional)…'}
           className="w-full rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue" />
         <button type="submit" disabled={busy || !penKart}
           className="rounded bg-race-red px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110">

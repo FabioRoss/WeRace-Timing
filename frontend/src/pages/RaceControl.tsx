@@ -17,6 +17,7 @@ import type { RaceMessage, SourceStatus } from '../lib/types'
 interface CatalogEntry {
   kind: 'mywer' | 'apex' | 'simulator' | 'replay'
   label: string
+  track_name?: string      // optional catalog override for the feed's track name
   url: string
   origin: string
   file: string

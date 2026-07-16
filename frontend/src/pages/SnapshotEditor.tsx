@@ -85,13 +85,14 @@ function EditorInner() {
                 teamStoryConfig={record.team_story_config} />
             </div>
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-              <h3 className="label-race mb-3">Penalties &amp; warnings</h3>
+              <h3 className="label-race mb-3">Penalties &amp; adjustments</h3>
               <PenaltyEditor
                 apiBase={url}
                 drivers={snapshot.drivers}
                 penalties={snapshot.penalties}
                 onChanged={refetch}
                 canRevert
+                allowAdjust
               />
             </div>
           </>

@@ -173,6 +173,9 @@ def test_pdf_config_sanitize_and_effective():
     )
     assert cleaned == {"charts": True, "grid": False, "penalties": True,
                        "accent": "#123456", "event": "E" * 120}
+    # Notes are free-text with a larger clamp.
+    notes = snapshots.sanitize_pdf_config({"notes": "N" * 5000})
+    assert notes == {"notes": "N" * 2000}
     # effective_pdf_config fills every key from the defaults, saved values win.
     eff = snapshots.effective_pdf_config({"pdf_config": {"grid": False, "pits": True}})
     assert eff["grid"] is False and eff["pits"] is True
@@ -205,6 +208,26 @@ def _src_with_terminal(flags):
         status = SourceStatus(connected=True)
         terminal_flags = flags
     return _Src()
+
+
+def test_catalog_track_name_override():
+    import asyncio
+    from app.events import Event
+    from app.models import SourceConfig, SourceStatus
+
+    class _Src:
+        status = SourceStatus(connected=True)
+        config = SourceConfig(kind="mywer", label="Rozzano", track_name="Kartodromo Rozzano")
+
+    ev = Event(1)
+    ev.source = _Src()
+    # A catalog override replaces the feed's track name.
+    asyncio.run(ev._on_data(RaceInfo(event_name="Cup", track_name="ROZZANO KART"), []))
+    assert ev.state.race.track_name == "Kartodromo Rozzano"
+    # Cleared override falls back to whatever the feed reports.
+    ev.source.config = SourceConfig(kind="mywer", label="Rozzano", track_name="")
+    asyncio.run(ev._on_data(RaceInfo(event_name="Cup", track_name="Christel"), []))
+    assert ev.state.race.track_name == "Christel"
 
 
 def test_mywer_stopped_saves_once_and_rearms_on_warmup(snap_dir):
@@ -411,6 +434,26 @@ def test_admin_snapshot_penalty_amend_and_revert(api):
     api.post(f"/api/admin/snapshots/{sid}/penalty/revert", headers=SAFE)
     reverted = snapshots.load_record(sid)["snapshot"]["penalties"]
     assert [p["id"] for p in reverted] == [1] and reverted[0]["seconds"] == 10
+
+
+def test_admin_snapshot_time_adjustment(api):
+    sid = _save_one(api)
+    # A neutral, signed time adjustment is stored like any other item and can be
+    # reverted away with the penalties.
+    r = api.post(f"/api/admin/snapshots/{sid}/penalty", headers=SAFE,
+                 json={"kart_no": "12", "kind": "adjust", "seconds": -5, "reason": "Held too long"})
+    assert r.status_code == 200
+    assert r.json()["penalty"]["kind"] == "adjust" and r.json()["penalty"]["seconds"] == -5
+    kinds = [p["kind"] for p in snapshots.load_record(sid)["snapshot"]["penalties"]]
+    assert "adjust" in kinds
+    # zero adjustment rejected
+    bad = api.post(f"/api/admin/snapshots/{sid}/penalty", headers=SAFE,
+                   json={"kart_no": "12", "kind": "adjust", "seconds": 0})
+    assert bad.status_code == 422
+    # the public PDF renders with the adjustment applied
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    pdf = api.get(f"/api/results/{sid}/timesheet.pdf?penalties=1")
+    assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-"
 
 
 def test_admin_snapshot_pdf(api):

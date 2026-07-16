@@ -55,8 +55,8 @@ export interface Penalty {
   id: number
   ts: number
   kart_no: string
-  kind: 'time' | 'lap' | 'warning'
-  seconds: number       // time penalties: seconds added to total time
+  kind: 'time' | 'lap' | 'warning' | 'adjust'
+  seconds: number       // time penalties / adjustments: seconds added (adjust: signed)
   laps: number          // lap penalties: laps subtracted from the count
   reason: string
   served: boolean       // time penalties: served in the pit lane

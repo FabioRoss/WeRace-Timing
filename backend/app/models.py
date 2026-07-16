@@ -90,7 +90,7 @@ class Message(BaseModel):
 
 
 class Penalty(BaseModel):
-    """A race-control penalty or warning against a single kart.
+    """A race-control penalty, warning, or time adjustment against a single kart.
 
     Kinds:
       - "time":    +`seconds` added to the kart's total time in the final
@@ -100,14 +100,19 @@ class Penalty(BaseModel):
                    classification. Results-only (no pit serving); applies while
                    present, removed by deleting it.
       - "warning": no effect on the result; a formal notice only.
-    Only UNSERVED time/lap penalties are applied to the PDF result.
+      - "adjust":  a neutral time **correction** (not a sanction) — `seconds` is
+                   SIGNED and folded into the kart's total time exactly like a
+                   time penalty. Always applied (never "served"), and rendered
+                   neutrally rather than as a penalty. Used for organizer-side
+                   timing errors (e.g. an early pit release).
+    Only UNSERVED time/lap penalties + adjustments are applied to the PDF result.
     """
 
     id: int
     ts: float = Field(default_factory=time.time)
     kart_no: str
-    kind: Literal["time", "lap", "warning"]
-    seconds: int = 0                    # time penalties: seconds added to total time
+    kind: Literal["time", "lap", "warning", "adjust"]
+    seconds: int = 0                    # time penalties / adjustments: seconds added (adjust: signed)
     laps: int = 0                       # lap penalties: laps subtracted from the count
     reason: str = ""
     served: bool = False                # time penalties: served in the pit lane
@@ -165,6 +170,10 @@ class SourceConfig(BaseModel):
 
     kind: Literal["mywer", "apex", "simulator", "replay"]
     label: str = ""
+    # Optional display name for the track. When set (in the TRACK_CATALOG entry)
+    # it overrides whatever the feed reports as the track name, everywhere the
+    # session is shown/exported. Empty = use the feed's track name.
+    track_name: str = ""
     # For mywer/apex: full wss URL (catalog entries pre-fill this).
     url: str = ""
     origin: str = ""                # Origin header override (catalog pre-fills)

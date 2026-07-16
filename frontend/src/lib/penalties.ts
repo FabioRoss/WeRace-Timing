@@ -13,10 +13,12 @@ export const PENALTY_REASONS = [
 export const TIME_PENALTY_PRESETS = [5, 10, 30]
 export const LAP_PENALTY_PRESETS = [1, 2]
 
-/** Short label for a penalty's effect, e.g. "+10s", "−1 lap", "Warning". */
+/** Short label for a penalty's effect, e.g. "+10s", "−1 lap", "Warning". A time
+ * adjustment is signed (e.g. "+24s" / "−10s"). */
 export function penaltyLabel(p: Penalty): string {
   if (p.kind === 'warning') return 'Warning'
   if (p.kind === 'lap') return `−${p.laps} lap${p.laps === 1 ? '' : 's'}`
+  if (p.kind === 'adjust') return `${p.seconds >= 0 ? '+' : '−'}${Math.abs(p.seconds)}s`
   return `+${p.seconds}s`
 }
 
@@ -24,12 +26,15 @@ export function penaltyLabel(p: Penalty): string {
 export function penaltyKindLabel(p: Penalty): string {
   if (p.kind === 'warning') return 'Warning'
   if (p.kind === 'lap') return 'Lap penalty'
+  if (p.kind === 'adjust') return 'Time adjustment'
   return 'Time penalty'
 }
 
-/** Tailwind classes for the kind badge (severity: warning < lap < time). */
+/** Tailwind classes for the kind badge. Adjustments are neutral (a correction,
+ * not a sanction); penalties are red; warnings amber. */
 export function penaltyBadgeClass(p: Penalty): string {
   if (p.kind === 'warning') return 'bg-race-yellow text-pit-950'
+  if (p.kind === 'adjust') return 'bg-race-blue text-white'
   return 'bg-race-red text-white'
 }
 
@@ -62,7 +67,8 @@ export function penaltyAdjustedDrivers(snapshot: Snapshot | null): DriverRow[] {
   for (const p of snapshot?.penalties ?? []) {
     if (p.kind === 'warning' || p.served) continue
     const a = add.get(p.kart_no) ?? { seconds: 0, laps: 0 }
-    if (p.kind === 'time') a.seconds += p.seconds
+    // Time penalties and signed time adjustments both fold into total time.
+    if (p.kind === 'time' || p.kind === 'adjust') a.seconds += p.seconds
     else if (p.kind === 'lap') a.laps += p.laps
     add.set(p.kart_no, a)
   }
