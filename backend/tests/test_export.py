@@ -242,3 +242,76 @@ def test_penalties_summary_groups_by_kart(client):
     assert len(rows) == 4
     assert rows[1][0] == "7" and rows[1][2] == "+15s"        # summed total
     assert [rows[2][2], rows[3][2]] == ["+5s", "+10s"]        # per-penalty detail
+
+
+def _pen_styles():
+    from app.routers.export import _accent_kit
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    base = getSampleStyleSheet()
+    kit = _accent_kit("#e10600")
+    return {
+        "Cell": ParagraphStyle("Cell", parent=base["Normal"], fontSize=9),
+        "SectionHead": base["Heading2"], "Legend": base["Normal"],
+        "accent": kit["accent"], "accent_text": kit["text"], "accent_tint": kit["tint"],
+    }
+
+
+def test_adjustment_reorders_like_time_penalty(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()   # kart 7 leads kart 12 by 0.5s, same lap
+    # A +10s neutral adjustment on the leader drops it behind kart 12.
+    event.state.add_penalty("7", "adjust", seconds=10, reason="Early pit release")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+    assert adj[0].position == 1 and adj[1].position == 2
+
+
+def test_negative_adjustment_credits_time(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()
+    # kart 12 is 0.5s behind; a -1s credit moves it ahead of kart 7.
+    event.state.add_penalty("12", "adjust", seconds=-1, reason="Held too long")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+
+
+def test_adjustment_split_from_penalties_summary(client):
+    from app.routers.export import _penalties_summary_table, _adjustments_summary_table
+    event = _seed_two_close()
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    event.state.add_penalty("12", "adjust", seconds=-3, reason="Held too long")
+    styles = _pen_styles()
+    pen = _penalties_summary_table(event.state, styles)
+    adj = _adjustments_summary_table(event.state, styles)
+    # The penalties summary lists only the disciplinary penalty (kart 7), never
+    # the adjustment.
+    pen_rows = pen[-1]._cellvalues
+    assert [r[0] for r in pen_rows] == ["Kart", "7", ""]
+    # The adjustments block lists kart 12 with a signed amount.
+    adj_rows = adj[-1]._cellvalues
+    assert adj_rows[1][0] == "12" and adj_rows[1][2] == "-3s"
+
+
+def test_no_adjustments_block_when_none(client):
+    from app.routers.export import _adjustments_summary_table
+    event = _seed_two_close()
+    event.state.add_penalty("7", "time", seconds=5, reason="Contact")
+    assert _adjustments_summary_table(event.state, _pen_styles()) == []
+
+
+def test_penalty_fields_adjust_validation():
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from app.routers.admin import _penalty_fields, AdminPenalty
+    with _pytest.raises(HTTPException):
+        _penalty_fields(AdminPenalty(kart_no="7", kind="adjust", seconds=0))
+    kind, seconds, laps = _penalty_fields(AdminPenalty(kart_no="7", kind="adjust", seconds=-12))
+    assert kind == "adjust" and seconds == -12 and laps == 0
+
+
+def test_timesheet_pdf_with_adjustment_renders(client):
+    _seed_with_laps()
+    event = get_manager().get(1)
+    event.state.add_penalty("32", "adjust", seconds=15, reason="Timing correction")
+    r = client.get("/e/1/api/export/timesheet.pdf?penalties=1")
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"

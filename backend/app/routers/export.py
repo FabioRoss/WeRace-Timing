@@ -280,15 +280,17 @@ def _classification_table(state: EventState, styles, drivers: list | None = None
 
 
 def _outstanding_penalties(state: EventState) -> dict[str, dict]:
-    """Per-kart outstanding (unserved) penalty totals: seconds added, laps
-    subtracted, and the individual penalties. Served time penalties and
-    warnings are excluded — the result only reflects penalties still standing."""
+    """Per-kart outstanding totals folded into the classification: seconds added
+    (unserved time penalties + signed time adjustments), laps subtracted, and the
+    individual items. Served time penalties and warnings are excluded — the result
+    only reflects what's still standing. Adjustments are always applied (they have
+    no served state)."""
     out: dict[str, dict] = {}
     for p in state.penalties:
         if p.kind == "warning" or p.served:
             continue
         agg = out.setdefault(p.kart_no, {"seconds": 0, "laps": 0, "items": []})
-        agg["seconds"] += p.seconds if p.kind == "time" else 0
+        agg["seconds"] += p.seconds if p.kind in ("time", "adjust") else 0
         agg["laps"] += p.laps if p.kind == "lap" else 0
         agg["items"].append(p)
     return out
@@ -320,26 +322,38 @@ def _penalty_adjusted_drivers(state: EventState) -> list[DriverRow]:
     return adjusted
 
 
+def _kart_key(k: str) -> tuple:
+    try:
+        return (0, int(k))
+    except ValueError:
+        return (1, 0)
+
+
 def _penalties_summary_table(state: EventState, styles) -> list:
-    """A per-driver summary of the outstanding penalties folded into the
-    classification, so the reader can see exactly what was applied. Ordered by
-    kart number; only karts with an outstanding penalty appear.
+    """A per-driver summary of the outstanding **disciplinary** penalties
+    (time/lap) folded into the classification, so the reader can see exactly what
+    was applied. Ordered by kart number; only karts with an outstanding penalty
+    appear. Neutral time adjustments are listed separately (see
+    `_adjustments_summary_table`), not here.
 
     Each driver gets a tinted summary row (kart, name, combined totals) followed
     by one white detail row per penalty (amount + reason), matching the
     classification card's accent header + rounded corners. Amounts use an ASCII
     '-' — the base-14 PDF fonts only render Latin-1."""
-    pens = _outstanding_penalties(state)
+    # Disciplinary aggregation only: unserved time/lap penalties (adjustments and
+    # warnings are excluded — adjustments have their own neutral block).
+    pens: dict[str, dict] = {}
+    for p in state.penalties:
+        if p.kind not in ("time", "lap") or p.served:
+            continue
+        agg = pens.setdefault(p.kart_no, {"seconds": 0, "laps": 0, "items": []})
+        agg["seconds"] += p.seconds if p.kind == "time" else 0
+        agg["laps"] += p.laps if p.kind == "lap" else 0
+        agg["items"].append(p)
     if not pens:
         return []
     names = {d.kart_no: d.name for d in state.drivers}
     accent, a_text, a_tint = styles["accent"], styles["accent_text"], styles["accent_tint"]
-
-    def _kart_key(k: str) -> tuple:
-        try:
-            return (0, int(k))
-        except ValueError:
-            return (1, 0)
 
     rows: list = [["Kart", "Driver", "Penalty", "Reason"]]
     style = [
@@ -388,6 +402,48 @@ def _penalties_summary_table(state: EventState, styles) -> list:
         Paragraph(
             "These outstanding penalties are already included in the classification "
             "above — the result is final.", styles["Legend"]),
+        table,
+    ]
+
+
+def _adjustments_summary_table(state: EventState, styles) -> list:
+    """A neutral list of the signed time adjustments folded into the result — a
+    correction of organizer-side timing errors, not a sanction, so it is styled
+    plainly (dark header, no accent) and kept apart from the penalties summary.
+    Amounts use ASCII '+'/'-' (base-14 fonts are Latin-1 only)."""
+    adjustments = [p for p in state.penalties if p.kind == "adjust" and p.seconds]
+    if not adjustments:
+        return []
+    names = {d.kart_no: d.name for d in state.drivers}
+    rows: list = [["Kart", "Driver", "Adjustment", "Reason"]]
+    for p in sorted(adjustments, key=lambda p: (_kart_key(p.kart_no), p.kart_no, p.id)):
+        amount = f"+{p.seconds}s" if p.seconds >= 0 else f"-{abs(p.seconds)}s"
+        rows.append([p.kart_no, Paragraph(names.get(p.kart_no, "") or "", styles["Cell"]),
+                     amount, Paragraph(p.reason or "—", styles["Cell"])])
+    table = Table(rows, colWidths=[14 * mm, 46 * mm, 26 * mm, 100 * mm], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), INK_BLACK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTNAME", (2, 1), (2, -1), "Courier"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (2, 0), (2, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ROW_ALT]),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE_GREY),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+    ]))
+    return [
+        Spacer(1, 5 * mm),
+        Paragraph("Time adjustments", styles["SectionHead"]),
+        Paragraph(
+            "Neutral timing corrections (not penalties) already included in the "
+            "classification above.", styles["Legend"]),
         table,
     ]
 
@@ -764,7 +820,11 @@ def build_timesheet_pdf(
     # was applied follows it.
     adjusted = _penalty_adjusted_drivers(state) if include_penalties else None
     summary = _penalties_summary_table(state, styles) if include_penalties else []
-    class_title = "Classification (penalties applied)" if summary else "Classification"
+    adjustments = _adjustments_summary_table(state, styles) if include_penalties else []
+    applied = " & ".join(
+        w for w, on in (("penalties", summary), ("adjustments", adjustments)) if on
+    )
+    class_title = f"Classification ({applied} applied)" if applied else "Classification"
     story: list = [
         HeaderBand(event, meta, accent=kit["accent"],
                    status=status_label, status_color=status_color),
@@ -773,6 +833,7 @@ def build_timesheet_pdf(
         _classification_table(state, styles, drivers=adjusted),
     ]
     story += summary
+    story += adjustments
 
     # Keep page 1 for the classification alone; charts + pit/stint start on the
     # next page. (The grid already begins on its own page, so don't add a break

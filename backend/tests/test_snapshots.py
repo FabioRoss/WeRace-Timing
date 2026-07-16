@@ -413,6 +413,26 @@ def test_admin_snapshot_penalty_amend_and_revert(api):
     assert [p["id"] for p in reverted] == [1] and reverted[0]["seconds"] == 10
 
 
+def test_admin_snapshot_time_adjustment(api):
+    sid = _save_one(api)
+    # A neutral, signed time adjustment is stored like any other item and can be
+    # reverted away with the penalties.
+    r = api.post(f"/api/admin/snapshots/{sid}/penalty", headers=SAFE,
+                 json={"kart_no": "12", "kind": "adjust", "seconds": -5, "reason": "Held too long"})
+    assert r.status_code == 200
+    assert r.json()["penalty"]["kind"] == "adjust" and r.json()["penalty"]["seconds"] == -5
+    kinds = [p["kind"] for p in snapshots.load_record(sid)["snapshot"]["penalties"]]
+    assert "adjust" in kinds
+    # zero adjustment rejected
+    bad = api.post(f"/api/admin/snapshots/{sid}/penalty", headers=SAFE,
+                   json={"kart_no": "12", "kind": "adjust", "seconds": 0})
+    assert bad.status_code == 422
+    # the public PDF renders with the adjustment applied
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE, json={"published": True})
+    pdf = api.get(f"/api/results/{sid}/timesheet.pdf?penalties=1")
+    assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-"
+
+
 def test_admin_snapshot_pdf(api):
     sid = _save_one(api)
     r = api.get(f"/api/admin/snapshots/{sid}/timesheet.pdf?penalties=1", headers=SAFE)
