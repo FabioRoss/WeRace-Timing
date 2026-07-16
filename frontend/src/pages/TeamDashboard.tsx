@@ -14,6 +14,8 @@ import { TimingTable } from '../components/TimingTable'
 import { TrackRing } from '../components/TrackRing'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { PenaltyLog } from '../components/PenaltyLog'
+import { TeamStoryCard } from '../components/TeamStoryCard'
+import type { TeamStoryConfig } from '../lib/teamStoryRender'
 import { COMPARE_COLORS, GapEvolutionChart, LapTimeChart, SERIES_COLORS, type ChartSeries } from '../components/LapCharts'
 
 interface TeamInfo {
@@ -269,6 +271,15 @@ export function TeamDashboard() {
               <Stat label="Pit stops" value={String(own?.pits ?? '–')} />
             </div>
           </div>
+
+          {/* Shareable team-story graphic (staff-configured, team just downloads) */}
+          {kart && (
+            <TeamStoryCard
+              snapshot={snapshot}
+              kart={kart}
+              config={(snapshot?.team_story_config ?? {}) as TeamStoryConfig}
+            />
+          )}
 
           {/* Driver link + QR */}
           <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">

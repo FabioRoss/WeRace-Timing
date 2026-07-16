@@ -182,6 +182,22 @@ def test_pdf_config_sanitize_and_effective():
     assert snapshots.effective_pdf_config({}) == snapshots.PDF_CONFIG_DEFAULTS
 
 
+def test_team_story_config_sanitize_and_effective():
+    # Unknown keys dropped, strings clamped, stats limited to known keys (max 4).
+    cleaned = snapshots.sanitize_team_story_config(
+        {"title": "T" * 500, "accent": "#39ff14", "bogus": "x",
+         "stats": ["best", "laps", "junk", "best", "time", "pits", "gap"]}
+    )
+    assert cleaned["title"] == "T" * 120 and cleaned["accent"] == "#39ff14"
+    assert cleaned["stats"] == ["best", "laps", "time", "pits"]  # deduped, ≤4, known only
+    # effective merges over the defaults; saved values win.
+    eff = snapshots.effective_team_story_config({"team_story_config": {"label": "Final"}})
+    assert eff["label"] == "Final" and eff["accent"] == "#e10600"
+    assert eff["stats"] == ["best", "laps", "time"]
+    assert set(eff) == set(snapshots.TEAM_STORY_DEFAULTS)
+    assert snapshots.effective_team_story_config({}) == snapshots.TEAM_STORY_DEFAULTS
+
+
 def _src_with_terminal(flags):
     from app.models import SourceStatus
 
@@ -346,6 +362,35 @@ def test_admin_snapshot_crud_and_patch(api):
     assert api.delete(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 200
     assert api.get(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 404
     assert api.delete(f"/api/admin/snapshots/{sid}", headers=SAFE).status_code == 404
+
+
+def test_snapshot_team_story_config_patch_and_public_view(api):
+    sid = _save_one(api)
+    # Patch a team-story look; junk keys are dropped, stats capped at 4.
+    api.patch(f"/api/admin/snapshots/{sid}", headers=SAFE,
+              json={"published": True, "team_story_config": {
+                  "accent": "#39ff14", "label": "Final", "junk": 1,
+                  "stats": ["best", "laps", "time", "pits", "gap"]}})
+    rec = snapshots.load_record(sid)
+    assert rec["team_story_config"] == {"accent": "#39ff14", "label": "Final",
+                                        "stats": ["best", "laps", "time", "pits"]}
+    # The public view exposes the effective (defaults-merged) config.
+    pub = api.get(f"/api/results/{sid}").json()
+    assert pub["team_story_config"]["accent"] == "#39ff14"
+    assert pub["team_story_config"]["footer_text"] == "timing.we-race.it"
+
+
+def test_public_background_serve(api, tmp_path, monkeypatch):
+    from PIL import Image
+    bg_dir = tmp_path / "bg"
+    bg_dir.mkdir()
+    monkeypatch.setattr(get_settings(), "backgrounds_dir", bg_dir)
+    Image.new("RGB", (8, 8), "red").save(bg_dir / "bg-abc.jpg")
+    r = api.get("/api/backgrounds/bg-abc.jpg")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert api.get("/api/backgrounds/missing.jpg").status_code == 404
+    # A non-image extension is rejected before any disk access.
+    assert api.get("/api/backgrounds/secrets.txt").status_code == 422
 
 
 def test_admin_snapshot_penalty_amend_and_revert(api):

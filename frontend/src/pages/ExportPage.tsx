@@ -4,8 +4,11 @@ import { SafewordGate } from '../components/SafewordGate'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
 import { StoryStudio } from '../components/StoryStudio'
+import { TeamStoryStudio } from '../components/TeamStoryStudio'
 import { TimesheetPanel } from '../components/TimesheetPanel'
 import { useLive } from '../lib/useLive'
+import { api } from '../lib/api'
+import type { TeamStoryConfig } from '../lib/teamStoryRender'
 
 export function ExportPage() {
   return (
@@ -15,7 +18,13 @@ export function ExportPage() {
   )
 }
 
-type Tab = 'timesheet' | 'story'
+type Tab = 'timesheet' | 'story' | 'teamstory'
+
+const TAB_LABELS: Record<Tab, string> = {
+  timesheet: 'PDF timesheet',
+  story: 'Instagram story',
+  teamstory: 'Team story',
+}
 
 function ExportInner() {
   const { slot = '1' } = useParams()
@@ -46,7 +55,7 @@ function ExportInner() {
       )}
 
       <div className="flex gap-2 px-4 pt-4">
-        {(['timesheet', 'story'] as const).map((t) => (
+        {(['timesheet', 'story', 'teamstory'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -55,13 +64,13 @@ function ExportInner() {
               tab === t ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
             }`}
           >
-            {t === 'timesheet' ? 'PDF timesheet' : 'Instagram story'}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
       <main className="flex-1 p-4">
-        {tab === 'timesheet' ? (
+        {tab === 'timesheet' && (
           <TimesheetPanel
             pdfBase={`/e/${slot}/api/export`}
             eventName={race?.event_name ?? ''}
@@ -73,8 +82,19 @@ function ExportInner() {
             leaderKart={leader?.kart_no ?? ''}
             fastest={fastest}
           />
-        ) : (
-          <StoryStudio snapshot={snapshot} />
+        )}
+        {tab === 'story' && <StoryStudio snapshot={snapshot} />}
+        {tab === 'teamstory' && (
+          <TeamStoryStudio
+            key={snapshot ? 'ready' : 'loading'}
+            snapshot={snapshot}
+            initialConfig={snapshot?.team_story_config as TeamStoryConfig | undefined}
+            onSaveConfig={(config) =>
+              api(`/e/${slot}/api/admin/settings`, {
+                body: { team_story_config: config }, safeword: true,
+              })
+            }
+          />
         )}
       </main>
     </div>

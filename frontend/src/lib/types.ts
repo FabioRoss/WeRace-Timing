@@ -89,6 +89,7 @@ export interface Snapshot {
   recompute_positions: boolean
   auto_pitlane: boolean
   hide_team_penalties?: boolean
+  team_story_config?: Record<string, unknown>
   session_best_ms: number | null
   session_best_kart: string
   penalties: Penalty[]

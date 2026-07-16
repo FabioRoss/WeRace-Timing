@@ -55,6 +55,10 @@ frontend/src/
                        not slot 1
   components/StoryStudio.tsx  client-side Instagram-story generator (see below)
   lib/story.ts         Canvas 2D renderer for the 1080x1920 story + video-mime picker
+  lib/teamStory.ts     Canvas 2D renderer for the team-oriented story card (see below)
+  lib/teamStoryRender.ts  shared team-story config type + logo/bg/render helpers
+  lib/weraceLogo.ts    inlined WeRace wordmark SVG, tintable for contrast
+  components/TeamStoryStudio.tsx  staff configurator; TeamStoryCard.tsx  team read-only card
   components/TimingTable.tsx  the standings table: progress bars, crossing glow,
                        responsive columns, row click → DriverDetail, embeds TrackRing
                        (ring={false} where a page mounts its own)
@@ -288,6 +292,35 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     prompt), × deletes **behind a `window.confirm`** (matches `RaceControl.tsx` recording
     deletes); after a download of a **fresh** upload an inline "Save this background?" prompt
     POSTs the kept `File`.
+
+- **Team story graphic** (team-oriented, staff-configured) — a per-team 1080×1920 card teams
+  share to their followers. Renderer `frontend/src/lib/teamStory.ts` (`drawTeamStory` +
+  `buildTeamStoryModel`): a giant position badge + wrapped team name hero, up to 4 configurable
+  stat cards (`TeamStatKey`: best/laps/time/pits/gap/last), dark-scrim + accent like the
+  standings story, and a footer with the **WeRace wordmark** (`lib/weraceLogo.ts`, inlined SVG
+  tinted by `weraceLogoSvg(color)`) + a link line. The footer wordmark auto-tints **black vs
+  white** by sampling the composited footer luminance (`regionLuminance` → getImageData); with
+  the dark scrim it resolves to white. Shared plumbing in `lib/teamStoryRender.ts`
+  (`TeamStoryConfig`, cached `teamLogos()`, `loadBackground`, `paintTeamStory`,
+  `renderTeamStoryBlob`, `teamBgUrl`).
+  - **Config** (`team_story_config`, mirrors `pdf_config`): title/subtitle/label/accent/stats/
+    background(name)/footer_text. `snapshots.sanitize_team_story_config` (junk dropped, stats
+    ≤4, known keys) + `effective_team_story_config` over `TEAM_STORY_DEFAULTS`. Lives on
+    `EventState.team_story_config` (preserved across reset like the other RC settings, broadcast
+    on `EventSnapshot`), set via the settings endpoint, inherited by `build_record`, patchable
+    via `SnapshotPatch`, and exposed on `public_view` (effective).
+  - **Backgrounds must be saved** (each team's card loads them by name): a public
+    `GET /api/backgrounds/{name}` serve (`routers/results.py`, promotional/non-sensitive; list/
+    upload/delete stay safeword-gated). `TeamStoryStudio` uploading saves + selects.
+  - **Surfaces**: `TeamStoryStudio` (staff) on the Export **Team story** tab (saves to slot
+    settings) and the SnapshotEditor **Team story** tab (PATCH `team_story_config`);
+    `TeamStoryCard` (read-only preview + download) on the pit-wall **TeamDashboard** using the
+    slot's config for the team's own kart — a team may also pick their **own background**
+    (`createImageBitmap`, session-only, never uploaded, cover-fit, overrides the default; "use
+    default" clears it), the only look-changing control teams get; and a per-team **"Story"**
+    download button in the
+    `DriverDetail` row-click modal on saved snapshots (threaded via `TimingTable teamStoryConfig`
+    → SessionResult/public results + editor). Live dashboards pass no config → no button.
 
 ## Saved snapshots (results archive)
 

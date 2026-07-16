@@ -60,6 +60,40 @@ def effective_pdf_config(record: dict) -> dict:
     return {**PDF_CONFIG_DEFAULTS, **sanitize_pdf_config(record.get("pdf_config"))}
 
 
+# The staff-chosen look for the team Instagram-story graphic. Keys mirror the
+# frontend TeamStoryStudio controls; applied by the team dashboard preview and
+# the snapshot per-team download as the default.
+TEAM_STORY_DEFAULTS = {
+    "title": "", "subtitle": "", "label": "Race", "accent": "#e10600",
+    "stats": ["best", "laps", "time"], "background": "",
+    "footer_text": "timing.we-race.it",
+}
+_TEAM_STORY_STR_KEYS = ("title", "subtitle", "label", "accent", "background", "footer_text")
+_TEAM_STAT_KEYS = ("best", "laps", "time", "pits", "gap", "last")
+
+
+def sanitize_team_story_config(config: dict | None) -> dict:
+    """Keep only the recognised team-story keys, coerced to safe types (strings
+    bounded, stats limited to the known keys, at most 4)."""
+    config = config or {}
+    out: dict = {}
+    for key in _TEAM_STORY_STR_KEYS:
+        if config.get(key) is not None:
+            out[key] = str(config[key])[:120]
+    if isinstance(config.get("stats"), list):
+        seen: list[str] = []
+        for s in config["stats"]:
+            if s in _TEAM_STAT_KEYS and s not in seen:
+                seen.append(s)
+        out["stats"] = seen[:4]
+    return out
+
+
+def effective_team_story_config(record: dict) -> dict:
+    """A snapshot's saved team-story look merged over the defaults."""
+    return {**TEAM_STORY_DEFAULTS, **sanitize_team_story_config(record.get("team_story_config"))}
+
+
 def _dir() -> Path:
     # Read the setting fresh each call so tests can monkeypatch it cleanly.
     return get_settings().snapshots_dir
@@ -261,4 +295,5 @@ def public_view(record: dict) -> dict:
     view = meta_of(record)
     view["snapshot"] = record.get("snapshot", {})
     view["public_notes"] = record.get("public_notes", "")
+    view["team_story_config"] = effective_team_story_config(record)
     return view
