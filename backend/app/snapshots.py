@@ -168,6 +168,7 @@ def meta_of(record: dict) -> dict:
     return {
         "id": record.get("id", ""),
         "name": record.get("name", ""),
+        "short_name": record.get("short_name", ""),
         "track": record.get("track", ""),
         "tags": record.get("tags", []),
         "created_at": record.get("created_at"),

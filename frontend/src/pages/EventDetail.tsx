@@ -61,7 +61,7 @@ export function EventDetail() {
               className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
                 i === active ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
               }`}>
-              {s.name || s.snapshot?.race?.run_type || `Session ${i + 1}`}
+              {s.short_name || s.name || s.snapshot?.race?.run_type || `Session ${i + 1}`}
             </button>
           ))}
         </div>

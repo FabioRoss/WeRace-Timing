@@ -21,6 +21,9 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
 
   return (
     <div className="space-y-4">
+      {/* Chequered-flag strip — the finished-session decoration. */}
+      <div className="checker h-3 w-full rounded-sm" />
+
       {record.public_notes && (
         <div className="rounded-xl bg-pit-900 p-4 text-sm text-ink-200 ring-1 ring-pit-800">
           {record.public_notes}

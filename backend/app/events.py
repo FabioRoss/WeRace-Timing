@@ -168,6 +168,7 @@ class Event:
             "published": False,
             "trigger": trigger,
             "name": name,
+            "short_name": "",
             "track": race.track_name,
             "tags": [],
             "private_notes": "",

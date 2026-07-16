@@ -425,6 +425,7 @@ def snapshot_laps(snapshot_id: str, karts: str = Query(default="")) -> dict:
 
 class SnapshotPatch(BaseModel):
     name: str | None = Field(default=None, max_length=120)
+    short_name: str | None = Field(default=None, max_length=40)
     track: str | None = Field(default=None, max_length=120)
     tags: list[str] | None = None
     keep: bool | None = None
@@ -438,7 +439,7 @@ class SnapshotPatch(BaseModel):
 def patch_snapshot(snapshot_id: str, body: SnapshotPatch) -> dict:
     rec = _load_snapshot_or_404(snapshot_id)
     data = body.model_dump(exclude_unset=True)
-    for field in ("name", "track", "tags", "private_notes", "public_notes"):
+    for field in ("name", "short_name", "track", "tags", "private_notes", "public_notes"):
         if data.get(field) is not None:
             rec[field] = data[field]
     if data.get("pdf_config") is not None:

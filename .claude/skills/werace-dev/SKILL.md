@@ -357,8 +357,11 @@ penalty_seq, original_penalties}`.
   lap charts come from the timing-table row-click modal, not a standalone panel); public `/results`
   (event cards → `/events/:id` + loose session cards → `/results/:id`, with a **← Home** link),
   `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults). Event tabs + card session
-  chips label with the **editable snapshot `name`** (falls back to run_type), so a renamed session
-  shows through; `EventDetail`'s header carries the `FlagBanner` chip like `ResultsDetail`.
+  chips label with the snapshot's **`short_name`** (editable in the editor's DetailsCard, e.g.
+  Practice/Quali/Race), falling back to `name` then run_type; `short_name` rides in `meta_of` so it
+  reaches `/api/results` + `/api/events`. `SessionResult` opens with a `.checker` chequered-flag strip
+  (the finished-session decoration, replacing the dropped ring's start/finish). `EventDetail`'s header
+  carries the `FlagBanner` chip like `ResultsDetail`.
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
 - **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
   `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into

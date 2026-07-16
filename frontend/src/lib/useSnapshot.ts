@@ -15,6 +15,7 @@ export interface PodiumEntry {
 export interface SnapshotRecord {
   id: string
   name: string
+  short_name?: string
   track: string
   tags?: string[]
   created_at: number

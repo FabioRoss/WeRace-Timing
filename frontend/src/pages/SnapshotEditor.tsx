@@ -183,26 +183,28 @@ function EventPicker({ record, onSaved }: {
 }
 
 function DetailsCard({ record, url, onSaved }: {
-  record: { name: string; track: string; private_notes?: string; public_notes?: string; keep: boolean; published: boolean }
+  record: { name: string; short_name?: string; track: string; private_notes?: string; public_notes?: string; keep: boolean; published: boolean }
   url: string
   onSaved: () => void
 }) {
   const [name, setName] = useState(record.name)
+  const [shortName, setShortName] = useState(record.short_name ?? '')
   const [track, setTrack] = useState(record.track)
   const [priv, setPriv] = useState(record.private_notes ?? '')
   const [pub, setPub] = useState(record.public_notes ?? '')
   const [saved, setSaved] = useState('')
   // Reseed when the record reloads (e.g. after a penalty edit refetch).
   useEffect(() => {
-    setName(record.name); setTrack(record.track)
+    setName(record.name); setShortName(record.short_name ?? ''); setTrack(record.track)
     setPriv(record.private_notes ?? ''); setPub(record.public_notes ?? '')
-  }, [record.name, record.track, record.private_notes, record.public_notes])
+  }, [record.name, record.short_name, record.track, record.private_notes, record.public_notes])
 
   const patch = (body: Record<string, unknown>) =>
     api(url, { method: 'PATCH', body, safeword: true }).then(onSaved)
 
   const save = () => {
-    void patch({ name: name.trim(), track: track.trim(), private_notes: priv, public_notes: pub })
+    void patch({ name: name.trim(), short_name: shortName.trim(), track: track.trim(),
+                 private_notes: priv, public_notes: pub })
       .then(() => { setSaved('Saved ✓'); setTimeout(() => setSaved(''), 2500) })
   }
 
@@ -212,6 +214,12 @@ function DetailsCard({ record, url, onSaved }: {
         <label className="block">
           <span className="label-race">Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120}
+            className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
+        </label>
+        <label className="block">
+          <span className="label-race">Short name (event tab label)</span>
+          <input value={shortName} onChange={(e) => setShortName(e.target.value)} maxLength={40}
+            placeholder="e.g. Practice, Quali, Race"
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
         <label className="block">

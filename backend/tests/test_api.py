@@ -363,6 +363,22 @@ def test_snapshot_laps_endpoints(client, tmp_path, monkeypatch):
     assert pub.status_code == 200 and len(pub.json()["laps"]["7"]) == 3
 
 
+def test_snapshot_short_name_patch_and_meta(client, tmp_path, monkeypatch):
+    from app.config import get_settings
+    from app import snapshots
+    monkeypatch.setattr(get_settings(), "snapshots_dir", tmp_path)
+    seed()
+    sid = client.post("/e/1/api/admin/snapshots", headers=SAFEWORD).json()["snapshot"]["id"]
+
+    r = client.patch(f"/api/admin/snapshots/{sid}", headers=SAFEWORD,
+                     json={"short_name": "Quali", "published": True})
+    assert r.status_code == 200 and r.json()["snapshot"]["short_name"] == "Quali"
+    assert snapshots.load_record(sid)["short_name"] == "Quali"
+    # Surfaced to the public results list for the event-label.
+    listed = client.get("/api/results").json()["results"]
+    assert next(x for x in listed if x["id"] == sid)["short_name"] == "Quali"
+
+
 def test_event_groups_flow(client, tmp_path, monkeypatch):
     from app.config import get_settings
     from app import snapshots
