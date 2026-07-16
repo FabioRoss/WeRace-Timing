@@ -72,7 +72,7 @@ function EditorInner() {
         {tab === 'result' && (
           <>
             <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
-              <TimingTable snapshot={snapshot} ring={false} lapsBase={url} safeword />
+              <TimingTable snapshot={snapshot} ring={false} progress={false} lapsBase={url} safeword />
             </div>
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
               <h3 className="label-race mb-3">Penalties &amp; warnings</h3>

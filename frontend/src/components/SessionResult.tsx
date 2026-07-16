@@ -40,6 +40,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
           snapshot={snapshot}
           orderMode={isRace ? orderMode : 'race'}
           ring={false}
+          progress={false}
           lapsBase={baseUrl}
         />
       </div>
