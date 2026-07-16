@@ -6,6 +6,7 @@ import type { OrderMode } from './OrderToggle'
 import { TrackRing } from './TrackRing'
 import { lapFraction, useServerNow } from '../lib/lapProgress'
 import type { Snapshot } from '../lib/types'
+import type { TeamStoryConfig } from '../lib/teamStoryRender'
 import { fmtGap, fmtLap, fmtSector } from '../lib/format'
 
 interface Props {
@@ -24,6 +25,10 @@ interface Props {
   // (e.g. `/api/results/{id}`), instead of the live feed. Static → no polling.
   lapsBase?: string
   safeword?: boolean
+  // Saved snapshot: the staff-chosen team-story look. When set, the row-click
+  // modal offers a per-team "Download story" button (the per-team download the
+  // team dashboard can't provide from a saved result).
+  teamStoryConfig?: TeamStoryConfig
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -45,7 +50,7 @@ export function TimingTable({
   snapshot, highlightKart, compact = false, orderMode = 'race', ring = true,
   progress = true,
   selectable = false, selectedKarts, compareColors, onToggleKart,
-  lapsBase, safeword,
+  lapsBase, safeword, teamStoryConfig,
 }: Props) {
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
@@ -268,6 +273,7 @@ export function TimingTable({
           onClose={() => setDetailKart(null)}
           lapsBase={lapsBase}
           safeword={safeword}
+          teamStoryConfig={teamStoryConfig}
         />
       )}
     </div>

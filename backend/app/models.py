@@ -150,6 +150,9 @@ class EventSnapshot(BaseModel):
     recompute_positions: bool = False
     auto_pitlane: bool = True
     hide_team_penalties: bool = False
+    # Staff-chosen defaults for the team Instagram-story graphic (blank = the
+    # renderer's own fallbacks). Read by the team dashboard's preview/download.
+    team_story_config: dict = {}
     session_best_ms: int | None = None
     session_best_kart: str = ""
     # Race-control penalties & warnings (full current list every broadcast).

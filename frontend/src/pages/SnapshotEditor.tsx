@@ -9,9 +9,17 @@ import { TimingTable } from '../components/TimingTable'
 import { PenaltyEditor } from '../components/PenaltyEditor'
 import { TimesheetPanel } from '../components/TimesheetPanel'
 import { StoryStudio } from '../components/StoryStudio'
+import { TeamStoryStudio } from '../components/TeamStoryStudio'
 import { useSnapshotRecord } from '../lib/useSnapshot'
 
-type Tab = 'result' | 'pdf' | 'story'
+type Tab = 'result' | 'pdf' | 'story' | 'teamstory'
+
+const TAB_LABELS: Record<Tab, string> = {
+  result: 'Result & penalties',
+  pdf: 'PDF',
+  story: 'Instagram story',
+  teamstory: 'Team story',
+}
 
 export function SnapshotEditor() {
   return (
@@ -60,12 +68,12 @@ function EditorInner() {
         <EventPicker record={record} onSaved={refetch} />
 
         <div className="flex gap-2">
-          {(['result', 'pdf', 'story'] as const).map((t) => (
+          {(['result', 'pdf', 'story', 'teamstory'] as const).map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)}
               className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
                 tab === t ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
               }`}>
-              {t === 'result' ? 'Result & penalties' : t === 'pdf' ? 'PDF' : 'Instagram story'}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
@@ -73,7 +81,8 @@ function EditorInner() {
         {tab === 'result' && (
           <>
             <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
-              <TimingTable snapshot={snapshot} ring={false} progress={false} lapsBase={url} safeword />
+              <TimingTable snapshot={snapshot} ring={false} progress={false} lapsBase={url} safeword
+                teamStoryConfig={record.team_story_config} />
             </div>
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
               <h3 className="label-race mb-3">Penalties &amp; warnings</h3>
@@ -106,6 +115,15 @@ function EditorInner() {
           />
         )}
         {tab === 'story' && <StoryStudio snapshot={snapshot} />}
+        {tab === 'teamstory' && (
+          <TeamStoryStudio
+            snapshot={snapshot}
+            initialConfig={record.team_story_config}
+            onSaveConfig={(team_story_config) =>
+              api(url, { method: 'PATCH', body: { team_story_config }, safeword: true }).then(refetch)
+            }
+          />
+        )}
       </main>
     </div>
   )
