@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { rememberSlot } from '../lib/nav'
 
 /** Menu linking the staff-facing pages for one event slot. Rendered only on
  * Race Control / Staff / Export (never the public dashboards). */
@@ -10,6 +12,11 @@ const LINKS = [
 
 export function PageNav({ slot }: { slot: string }) {
   const { pathname } = useLocation()
+  // On a real slot page (/e/N/…), remember the slot so the slot-less admin pages
+  // (Snapshots) can link back to it instead of defaulting to slot 1.
+  useEffect(() => {
+    if (/^\/e\/\d+\//.test(pathname)) rememberSlot(slot)
+  }, [pathname, slot])
   const chip = (to: string, label: string, active: boolean) => (
     <Link
       key={to}

@@ -4,6 +4,7 @@ import { api, getSafeword } from '../lib/api'
 import { SafewordGate } from '../components/SafewordGate'
 import { PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
+import { rememberedSlot } from '../lib/nav'
 import { TimingTable } from '../components/TimingTable'
 import { PenaltyEditor } from '../components/PenaltyEditor'
 import { TimesheetPanel } from '../components/TimesheetPanel'
@@ -49,7 +50,7 @@ function EditorInner() {
       <PageHeader
         title={record.name || record.id}
         subtitle={[record.track, `${record.driver_count ?? snapshot.drivers.length} karts`].filter(Boolean).join(' · ')}
-        nav={<PageNav slot={String(record.slot ?? 1)} />}
+        nav={<PageNav slot={String(record.slot ?? rememberedSlot())} />}
       />
       <main className="flex-1 space-y-4 p-4">
         <Link to="/admin/snapshots" className="text-xs text-race-blue">← All snapshots</Link>

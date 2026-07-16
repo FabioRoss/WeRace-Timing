@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { SafewordGate } from '../components/SafewordGate'
 import { PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
+import { rememberedSlot } from '../lib/nav'
 import type { SnapshotMeta } from '../lib/useSnapshot'
 
 type Meta = SnapshotMeta
@@ -79,7 +80,7 @@ function ManagerInner() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col">
-      <PageHeader title="Saved snapshots" subtitle="Results archive" nav={<PageNav slot="1" />} />
+      <PageHeader title="Saved snapshots" subtitle="Results archive" nav={<PageNav slot={rememberedSlot()} />} />
       <main className="flex-1 space-y-3 p-4">
         {error && <p className="text-sm text-race-red">{error}</p>}
         {tracks.length > 1 && (
