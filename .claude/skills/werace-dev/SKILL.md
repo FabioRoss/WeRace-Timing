@@ -49,8 +49,10 @@ frontend/src/
   pages/               GeneralDashboard, TeamDashboard (pit wall), RaceControl,
                        DriverDashboard (landscape phone), StaffDashboard (QR sheet),
                        ExportPage (post-session PDF + Instagram-story downloads)
-  components/PageNav.tsx      Control/Staff/Export link chips (staff pages only; fed to
-                       PageHeader's `nav` slot — never on public dashboards)
+  components/PageNav.tsx      Control/Staff/Export + Snapshots link chips (staff pages only; fed to
+                       PageHeader's `nav` slot — never on public dashboards). Remembers the last
+                       /e/N/ slot (lib/nav.ts) so the slot-less Snapshots pages link back to it,
+                       not slot 1
   components/StoryStudio.tsx  client-side Instagram-story generator (see below)
   lib/story.ts         Canvas 2D renderer for the 1080x1920 story + video-mime picker
   components/TimingTable.tsx  the standings table: progress bars, crossing glow,
@@ -191,6 +193,10 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
 - **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
   deliverables built from *live* EventState (no server-side archive — generate before
   disconnecting/resetting the source; the page banners this while `race.ended` is false).
+  - **Result status pill** — the PDF header shows PROVISIONAL / DEFINITIVE (amber / green). By
+    default it's the auto FINISHED/PROVISIONAL guess from `race.ended`; the export panel's "Result
+    status" selector (`status` param, part of the saved `pdf_config` — `snapshots._PDF_STR_KEYS`)
+    overrides it, threaded through every timesheet endpoint via `build_timesheet_pdf(status=…)`.
   - **PDF chrono timesheet** — server-side, `routers/export.py` + `reportlab` (in BOTH
     `requirements.txt` — Docker installs from that — and `pyproject.toml`; guarded by
     `_REPORTLAB_OK` so a missing dep 503s the endpoint instead of crashing startup; Pillow
@@ -231,8 +237,9 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     Header lays out **dynamically** (`layoutTitle` auto-shrinks the title to ≤2 lines, then
     subtitle + list flow from the real header bottom) so long session names don't overlap;
     a **title** input is **prefilled** (editable) once from the live event name via a
-    `useRef` seeded flag (same pattern seeds the PDF panel's Event/Session inputs from
-    `event_name`/`run_type`). `buildStoryModel(snapshot,
+    `useRef` seeded flag; a **track-name** input is prefilled the same way and overrides the story
+    subtitle (`StoryOptions.subtitle` → `buildStoryModel`). (Same pattern seeds the PDF panel's
+    Event/Session inputs from `event_name`/`run_type`.) `buildStoryModel(snapshot,
     {perPage, pageIndex, title})` **paginates the whole grid** (`storyPageCount`; a red
     "POS 11–20" chip labels each page; leader style keyed on `pos===1`). A `stat` option
     (`StoryStat` best|gap|interval|pits, **UI default interval**) chooses the per-kart
