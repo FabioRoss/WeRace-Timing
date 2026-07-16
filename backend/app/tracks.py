@@ -7,22 +7,28 @@ APEX_ORIGIN_ALT = "https://apex-timing.com"
 MYWER_ORIGIN = "https://stg.mk.time2race.it"
 
 
-def _apex(label: str, port: int, origin: str = APEX_ORIGIN, page: str = "") -> SourceConfig:
+# `track_name` is an OPTIONAL clean display name. Leave it "" to use whatever the
+# MyWeR/Apex feed reports; set it to override that name everywhere the session is
+# shown/exported, e.g. `_mywer("Rozzano (MyWeR)", "/live/37/ranking/", "Kartodromo Rozzano")`.
+def _apex(label: str, port: int, origin: str = APEX_ORIGIN, page: str = "",
+          track_name: str = "") -> SourceConfig:
     # The live feed is served from live-data.apex-timing.com (wss works there);
     # www.apex-timing.com resets the TLS handshake on these ports.
     return SourceConfig(
         kind="apex",
         label=label,
+        track_name=track_name,
         url=f"wss://live-data.apex-timing.com:{port}/",
         origin=origin,
         page=page,
     )
 
 
-def _mywer(label: str, path: str) -> SourceConfig:
+def _mywer(label: str, path: str, track_name: str = "") -> SourceConfig:
     return SourceConfig(
         kind="mywer",
         label=label,
+        track_name=track_name,
         url=f"wss://api-stg.mk.time2race.it{path}",
         origin=MYWER_ORIGIN,
     )

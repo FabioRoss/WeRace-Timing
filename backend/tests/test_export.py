@@ -129,6 +129,17 @@ def test_timesheet_pdf_status_param(client):
     assert client.get("/e/1/api/export/timesheet.pdf?status=bogus").content[:5] == b"%PDF-"
 
 
+def test_timesheet_pdf_notes_param(client):
+    _seed_with_laps()
+    # Notes (incl. newlines + markup-ish chars) render a valid PDF.
+    r = client.get("/e/1/api/export/timesheet.pdf?notes=Stewards%3A+P3+under+review%0A%3Cok%3E")
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+    # A longer notes body with it enabled still yields a bigger, valid PDF.
+    plain = client.get("/e/1/api/export/timesheet.pdf").content
+    noted = client.get("/e/1/api/export/timesheet.pdf?notes=" + "word+" * 40).content
+    assert noted[:5] == b"%PDF-" and len(noted) > len(plain)
+
+
 def test_clean_accent():
     from app.routers.export import _clean_accent
     assert _clean_accent("#39ff14") == "#39ff14"

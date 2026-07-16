@@ -173,6 +173,9 @@ def test_pdf_config_sanitize_and_effective():
     )
     assert cleaned == {"charts": True, "grid": False, "penalties": True,
                        "accent": "#123456", "event": "E" * 120}
+    # Notes are free-text with a larger clamp.
+    notes = snapshots.sanitize_pdf_config({"notes": "N" * 5000})
+    assert notes == {"notes": "N" * 2000}
     # effective_pdf_config fills every key from the defaults, saved values win.
     eff = snapshots.effective_pdf_config({"pdf_config": {"grid": False, "pits": True}})
     assert eff["grid"] is False and eff["pits"] is True
@@ -205,6 +208,26 @@ def _src_with_terminal(flags):
         status = SourceStatus(connected=True)
         terminal_flags = flags
     return _Src()
+
+
+def test_catalog_track_name_override():
+    import asyncio
+    from app.events import Event
+    from app.models import SourceConfig, SourceStatus
+
+    class _Src:
+        status = SourceStatus(connected=True)
+        config = SourceConfig(kind="mywer", label="Rozzano", track_name="Kartodromo Rozzano")
+
+    ev = Event(1)
+    ev.source = _Src()
+    # A catalog override replaces the feed's track name.
+    asyncio.run(ev._on_data(RaceInfo(event_name="Cup", track_name="ROZZANO KART"), []))
+    assert ev.state.race.track_name == "Kartodromo Rozzano"
+    # Cleared override falls back to whatever the feed reports.
+    ev.source.config = SourceConfig(kind="mywer", label="Rozzano", track_name="")
+    asyncio.run(ev._on_data(RaceInfo(event_name="Cup", track_name="Christel"), []))
+    assert ev.state.race.track_name == "Christel"
 
 
 def test_mywer_stopped_saves_once_and_rearms_on_warmup(snap_dir):

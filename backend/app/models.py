@@ -170,6 +170,10 @@ class SourceConfig(BaseModel):
 
     kind: Literal["mywer", "apex", "simulator", "replay"]
     label: str = ""
+    # Optional display name for the track. When set (in the TRACK_CATALOG entry)
+    # it overrides whatever the feed reports as the track name, everywhere the
+    # session is shown/exported. Empty = use the feed's track name.
+    track_name: str = ""
     # For mywer/apex: full wss URL (catalog entries pre-fill this).
     url: str = ""
     origin: str = ""                # Origin header override (catalog pre-fills)

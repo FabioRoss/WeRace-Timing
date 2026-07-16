@@ -36,10 +36,11 @@ _ID_RE = re.compile(r"[A-Za-z0-9_-]+")
 PDF_CONFIG_DEFAULTS = {
     "charts": False, "grid": True, "pits": False, "stints": False,
     "pitest": False, "penalties": True,
-    "event": "", "session": "", "accent": "#e10600", "status": "",
+    "event": "", "session": "", "accent": "#e10600", "status": "", "notes": "",
 }
 _PDF_BOOL_KEYS = ("charts", "grid", "pits", "stints", "pitest", "penalties")
 _PDF_STR_KEYS = ("event", "session", "accent", "status")
+_PDF_NOTES_MAX = 2000   # notes are free-text; bigger clamp than the short strings
 
 
 def sanitize_pdf_config(config: dict | None) -> dict:
@@ -52,6 +53,8 @@ def sanitize_pdf_config(config: dict | None) -> dict:
     for key in _PDF_STR_KEYS:
         if config.get(key) is not None:
             out[key] = str(config[key])[:120]
+    if config.get("notes") is not None:
+        out["notes"] = str(config["notes"])[:_PDF_NOTES_MAX]
     return out
 
 
