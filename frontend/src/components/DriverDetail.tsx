@@ -3,6 +3,8 @@ import { api } from '../lib/api'
 import type { LapPoint, Snapshot } from '../lib/types'
 import { fmtClock, fmtLap } from '../lib/format'
 import { LapTimeChart, SERIES_COLORS } from './LapCharts'
+import { downloadBlob } from '../lib/story'
+import { renderTeamStoryBlob, type TeamStoryConfig } from '../lib/teamStoryRender'
 
 interface Props {
   snapshot: Snapshot
@@ -13,12 +15,26 @@ interface Props {
   // instead of the live feed, whose slot is disconnected. Static → no polling.
   lapsBase?: string
   safeword?: boolean
+  // Saved snapshot: staff-chosen team-story look → enables a per-team download.
+  teamStoryConfig?: TeamStoryConfig
 }
 
 /** Per-driver lap history panel, opened by clicking a timing-table row. */
-export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = false }: Props) {
+export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = false, teamStoryConfig }: Props) {
   const [laps, setLaps] = useState<LapPoint[] | null>(null)
+  const [storyBusy, setStoryBusy] = useState(false)
   const driver = snapshot.drivers.find((d) => d.kart_no === kart)
+
+  const downloadStory = async () => {
+    if (!teamStoryConfig) return
+    setStoryBusy(true)
+    try {
+      const blob = await renderTeamStoryBlob(snapshot, teamStoryConfig, kart)
+      if (blob) downloadBlob(blob, `team-story-${kart}.png`)
+    } finally {
+      setStoryBusy(false)
+    }
+  }
 
   useEffect(() => {
     let stop = false
@@ -77,6 +93,16 @@ export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = fal
               P{driver?.position ?? '–'} · {driver?.laps ?? 0} laps · {driver?.pits ?? 0} pit stops
             </div>
           </div>
+          {teamStoryConfig && (
+            <button
+              type="button"
+              onClick={() => void downloadStory()}
+              disabled={storyBusy}
+              className="rounded bg-race-blue px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
+            >
+              {storyBusy ? '…' : 'Story'}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

@@ -42,6 +42,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
           ring={false}
           progress={false}
           lapsBase={baseUrl}
+          teamStoryConfig={record.team_story_config}
         />
       </div>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import type { PdfConfig } from '../components/TimesheetPanel'
 import type { Penalty, Snapshot } from './types'
+import type { TeamStoryConfig } from './teamStoryRender'
 
 export interface PodiumEntry {
   position: number
@@ -31,6 +32,7 @@ export interface SnapshotRecord {
   private_notes?: string
   public_notes?: string
   pdf_config?: PdfConfig
+  team_story_config?: TeamStoryConfig
   group_id?: string | null
   group_name?: string
   snapshot: Snapshot
