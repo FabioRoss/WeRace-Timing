@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
+import { FlagBanner } from '../components/FlagBanner'
 import { SessionResult } from '../components/SessionResult'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 
@@ -46,7 +47,11 @@ export function EventDetail() {
   const session = event.sessions[Math.min(active, event.sessions.length - 1)]
   return (
     <div className="mx-auto flex min-h-full max-w-4xl flex-col">
-      <PageHeader title={event.name} subtitle={event.track} />
+      <PageHeader
+        title={event.name}
+        subtitle={event.track}
+        right={<FlagBanner flag={session.snapshot?.race?.flag ?? 'finish'} compact />}
+      />
       <main className="flex-1 space-y-4 p-4">
         <Link to="/results" className="text-xs text-race-blue">← All results</Link>
 
@@ -56,7 +61,7 @@ export function EventDetail() {
               className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
                 i === active ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
               }`}>
-              {s.snapshot?.race?.run_type || s.name || `Session ${i + 1}`}
+              {s.name || s.snapshot?.race?.run_type || `Session ${i + 1}`}
             </button>
           ))}
         </div>

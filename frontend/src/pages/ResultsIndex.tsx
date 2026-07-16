@@ -67,7 +67,7 @@ export function ResultsIndex() {
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
               {e.sessions.map((s) => (
                 <span key={s.id} className="rounded bg-pit-800 px-2 py-0.5 text-ink-300">
-                  {s.run_type || s.name}
+                  {s.name || s.run_type}
                 </span>
               ))}
             </div>
