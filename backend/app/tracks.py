@@ -36,7 +36,7 @@ def _mywer(label: str, path: str, track_name: str = "") -> SourceConfig:
 
 TRACK_CATALOG: list[SourceConfig] = [
     _mywer("Rozzano (MyWeR)", "/live/37/ranking/", track_name="Big Kart Rozzano"),
-    _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Christel Village"),
+    _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Circuito Christel Village"),
     _mywer("Extremakart (MyWeR)", "/live/47/ranking/", track_name="Extrema Kart"),
     _apex(
         "Cremona (Apex)", 7203,
