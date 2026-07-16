@@ -251,29 +251,38 @@ def test_settings_survive_reset():
     state.recompute_positions = True
     state.auto_pitlane = False
     state.hide_team_penalties = True
+    state.team_story_config = {"accent": "#39ff14", "stats": ["best", "laps"]}
     state.reset()
     assert state.recompute_positions is True
     assert state.auto_pitlane is False
     assert state.hide_team_penalties is True
+    assert state.team_story_config == {"accent": "#39ff14", "stats": ["best", "laps"]}
 
 
 def test_settings_endpoint():
     with TestClient(app) as client:
         r = client.post("/e/1/api/admin/settings", headers=SAFEWORD,
                         json={"recompute_positions": True, "auto_pitlane": False,
-                              "hide_team_penalties": True})
-        assert r.json() == {"ok": True, "recompute_positions": True, "auto_pitlane": False,
-                            "hide_team_penalties": True}
+                              "hide_team_penalties": True,
+                              "team_story_config": {"accent": "#3987e5",
+                                                    "stats": ["best", "gap"], "junk": 1}})
+        body = r.json()
+        assert body["ok"] is True and body["recompute_positions"] is True
+        assert body["auto_pitlane"] is False and body["hide_team_penalties"] is True
+        # Sanitised: unknown keys dropped, known ones kept.
+        assert body["team_story_config"] == {"accent": "#3987e5", "stats": ["best", "gap"]}
         status = client.get("/e/1/api/admin/status", headers=SAFEWORD).json()
         assert status["recompute_positions"] is True and status["auto_pitlane"] is False
         assert status["hide_team_penalties"] is True
-        # The flag reaches the live snapshot the team dashboard reads.
+        # The config reaches the live snapshot the team dashboard reads.
         snap = get_manager().get(1).state.snapshot(get_manager().get(1).source_status())
         assert snap.hide_team_penalties is True
+        assert snap.team_story_config == {"accent": "#3987e5", "stats": ["best", "gap"]}
         get_manager().get(1).reset()
         get_manager().get(1).state.recompute_positions = False
         get_manager().get(1).state.auto_pitlane = True
         get_manager().get(1).state.hide_team_penalties = False
+        get_manager().get(1).state.team_story_config = {}
 
 
 # ---------------------------------------------- inferred pits (no gates)

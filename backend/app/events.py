@@ -174,6 +174,9 @@ class Event:
             "private_notes": "",
             "public_notes": "",
             "pdf_config": {},
+            # Inherit the staff's team-story look so the saved snapshot's per-team
+            # download matches what was configured live.
+            "team_story_config": dict(self.state.team_story_config),
             "group_id": None,
             "group_name": "",
             **self.state.export_state(self.source_status()),

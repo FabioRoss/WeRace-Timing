@@ -8,13 +8,21 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from .. import cards, snapshots
+from ..config import get_settings
 from ..events import get_manager
 from ..state import EventState
 from .export import snapshot_pdf_response
+
+# Story backgrounds are served publicly by name: the token-gated team dashboard
+# and the ungated results page both render the team-story graphic client-side and
+# need the staff-chosen photo. They are promotional, non-sensitive images;
+# listing / upload / delete stay safeword-gated in the admin router.
+_BG_EXTS = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -165,6 +173,24 @@ def dashboard_card(slot: int) -> Response:
     except KeyError:
         raise HTTPException(status_code=404, detail="No such event slot")
     return _card_or_503(render_dashboard_card, event, what="dashboard")
+
+
+@router.get("/api/backgrounds/{name}")
+def public_background(name: str) -> Response:
+    """Serve a saved story background by name (public, cached). Used by the team
+    dashboard and results page to render the team-story graphic."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    directory = get_settings().backgrounds_dir.resolve()
+    safe = Path(name).name
+    if safe != name or ext not in _BG_EXTS:
+        raise HTTPException(status_code=422, detail="invalid background name")
+    target = (directory / safe).resolve()
+    if target.parent != directory or not target.is_file():
+        raise HTTPException(status_code=404, detail="background not found")
+    return Response(
+        content=target.read_bytes(), media_type=_BG_EXTS[ext],
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/api/results/{snapshot_id}/timesheet.pdf")

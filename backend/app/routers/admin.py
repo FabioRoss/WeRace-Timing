@@ -278,13 +278,14 @@ class EventSettings(BaseModel):
     recompute_positions: bool | None = None
     auto_pitlane: bool | None = None
     hide_team_penalties: bool | None = None
+    team_story_config: dict | None = None
 
 
 @router.post("/e/{slot}/api/admin/settings")
 async def settings(slot: int, body: EventSettings) -> dict:
     """How the feed is interpreted for this event: recompute standings from
-    laps/time, whether the venue has automatic pit-lane gates, and whether the
-    team dashboard hides its penalty panels."""
+    laps/time, whether the venue has automatic pit-lane gates, whether the team
+    dashboard hides its penalty panels, and the staff-chosen team-story look."""
     event = get_event(slot)
     if body.recompute_positions is not None:
         event.state.recompute_positions = body.recompute_positions
@@ -292,6 +293,10 @@ async def settings(slot: int, body: EventSettings) -> dict:
         event.state.auto_pitlane = body.auto_pitlane
     if body.hide_team_penalties is not None:
         event.state.hide_team_penalties = body.hide_team_penalties
+    if body.team_story_config is not None:
+        event.state.team_story_config = snapshots.sanitize_team_story_config(
+            body.team_story_config
+        )
     event.state.updated_at = time.time()
     await event.broadcast_now()
     return {
@@ -299,6 +304,7 @@ async def settings(slot: int, body: EventSettings) -> dict:
         "recompute_positions": event.state.recompute_positions,
         "auto_pitlane": event.state.auto_pitlane,
         "hide_team_penalties": event.state.hide_team_penalties,
+        "team_story_config": event.state.team_story_config,
     }
 
 
@@ -433,6 +439,7 @@ class SnapshotPatch(BaseModel):
     private_notes: str | None = Field(default=None, max_length=5000)
     public_notes: str | None = Field(default=None, max_length=5000)
     pdf_config: dict | None = None
+    team_story_config: dict | None = None
 
 
 @router.patch("/api/admin/snapshots/{snapshot_id}")
@@ -444,6 +451,10 @@ def patch_snapshot(snapshot_id: str, body: SnapshotPatch) -> dict:
             rec[field] = data[field]
     if data.get("pdf_config") is not None:
         rec["pdf_config"] = snapshots.sanitize_pdf_config(data["pdf_config"])
+    if data.get("team_story_config") is not None:
+        rec["team_story_config"] = snapshots.sanitize_team_story_config(
+            data["team_story_config"]
+        )
     if data.get("published") is not None:
         rec["published"] = data["published"]
         if data["published"]:

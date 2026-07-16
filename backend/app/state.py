@@ -73,6 +73,11 @@ class EventState:
         # Hide the penalty panels on the team dashboard (race control decides
         # when teams may see penalties, e.g. only after the session).
         self.hide_team_penalties: bool = False
+        # Staff-chosen defaults for the team Instagram-story graphic (title,
+        # subtitle, session label, accent, which stats, saved background, footer
+        # link). Empty = use the renderer's own fallbacks. Preserved across a
+        # data reset like the other race-control settings.
+        self.team_story_config: dict = {}
         self.updated_at: float = 0.0
         # Bumped on every session rollover; the Event uses it to re-arm the
         # one-shot end-of-session auto-save for each new session.
@@ -96,9 +101,11 @@ class EventState:
 
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
-        settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties)
+        settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
+                    self.team_story_config)
         self.__init__(self.slot)
-        self.recompute_positions, self.auto_pitlane, self.hide_team_penalties = settings
+        (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
+         self.team_story_config) = settings
 
     # ------------------------------------------------------- penalties & warnings
 
@@ -359,6 +366,7 @@ class EventState:
             recompute_positions=self.recompute_positions,
             auto_pitlane=self.auto_pitlane,
             hide_team_penalties=self.hide_team_penalties,
+            team_story_config=dict(self.team_story_config),
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
             penalties=list(self.penalties),
