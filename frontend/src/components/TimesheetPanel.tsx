@@ -16,6 +16,7 @@ export interface PdfConfig {
   session?: string
   accent?: string
   status?: string        // '' (auto) | 'provisional' | 'definitive'
+  notes?: string         // free-text notes printed on the sheet
 }
 
 /**
@@ -65,6 +66,7 @@ export function TimesheetPanel({
   const [eventOverride, setEventOverride] = useState(initialConfig?.event ?? '')
   const [sessionOverride, setSessionOverride] = useState(initialConfig?.session ?? '')
   const [status, setStatus] = useState(initialConfig?.status ?? '')
+  const [notes, setNotes] = useState(initialConfig?.notes ?? '')
   const [savedConfig, setSavedConfig] = useState('')
 
   // Seed the editable name fields once from the session (unless a saved config
@@ -86,6 +88,7 @@ export function TimesheetPanel({
     event: eventOverride.trim(),
     session: sessionOverride.trim(),
     status,
+    notes: notes.trim(),
   })
 
   const saveConfig = () => {
@@ -112,6 +115,7 @@ export function TimesheetPanel({
     if (eventOverride.trim()) params.set('event', eventOverride.trim())
     if (sessionOverride.trim()) params.set('session', sessionOverride.trim())
     if (status) params.set('status', status)
+    if (notes.trim()) params.set('notes', notes.trim())
     if (safeword) params.set('safeword', safeword)
     const a = document.createElement('a')
     a.href = `${pdfBase}/timesheet.pdf?${params.toString()}`
@@ -180,6 +184,18 @@ export function TimesheetPanel({
           <span className="mt-1 block text-[0.65rem] text-ink-500">
             Stamped as a badge in the sheet header.
           </span>
+        </label>
+
+        <label className="mt-4 block">
+          <span className="label-race">Notes</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="Optional notes printed on the sheet (e.g. stewards' decisions, conditions)…"
+            className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
+          />
         </label>
 
         <div className="mt-4 space-y-2">
