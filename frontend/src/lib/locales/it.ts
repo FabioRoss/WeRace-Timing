@@ -315,7 +315,7 @@ export const IT: Record<string, string> = {
   "Used on the sheet header and the file name (with the date).": "Usato nell'intestazione del foglio e nel nome del file (con la data).",
   "Waiting for timing": "In attesa del cronometraggio",
   "Waiting for your kart to appear in the timing feed…": "In attesa che il tuo kart compaia nel feed di cronometraggio…",
-  "Warning": "Avviso",
+  "Warning": "Warning",
   "Writing {file}": "Scrittura {file}",
   "Wrong safeword": "Safeword errata",
   "Your kart isn't in the live feed yet.": "Il tuo kart non è ancora nel feed live.",
@@ -368,4 +368,67 @@ export const IT: Record<string, string> = {
   "← Home": "← Home",
   "○ Record": "○ Registra",
   "● Recording": "● Registrazione",
+
+  // Dynamic-keyed labels (values come from constant maps/arrays, so they are
+  // wrapped with t(varLabel) rather than t('literal')): penalty reason presets,
+  // suggested driver/team messages, flag labels, accent names, nav/tab labels.
+  // Penalty reason presets (Race Control):
+  "Contact": "Contatto",
+  "Aggressive/dangerous driving": "Guida aggressiva/pericolosa",
+  "Track limits": "Limiti della pista",
+  "Jump start": "Partenza anticipata",
+  "Ignoring flags": "Mancato rispetto delle bandiere",
+  // Penalty kind labels / short effect labels:
+  "Lap penalty": "Penalità giri",
+  "Time penalty": "Penalità di tempo",
+  "Time adjustment": "Correzione di tempo",
+  "Adjust": "Correggi",
+  "−1 lap": "−1 giro",
+  "−2 laps": "−2 giri",
+  // Suggested messages to drivers (Race Control):
+  "Yellow flag — no overtaking": "Bandiera gialla — vietato sorpassare",
+  "Green flag — race on": "Bandiera verde — si corre",
+  "Last 5 minutes": "Ultimi 5 minuti",
+  "Slow down — warning": "Rallenta — avvertimento",
+  "Come to race direction after session": "Presentarsi alla direzione gara dopo la sessione",
+  // Suggested messages to the driver (Team / pit wall):
+  "Box this lap": "Box questo giro",
+  "Box in 2 laps": "Box tra 2 giri",
+  "Push now": "Spingi ora",
+  "Save fuel": "Risparmia carburante",
+  "OK, stay out": "OK, resta in pista",
+  // Accent colour names:
+  "Red": "Rosso",
+  "Neon green": "Verde neon",
+  "Yellow": "Giallo",
+  "Purple": "Viola",
+  "Blue": "Blu",
+  "Orange": "Arancione",
+  // Flag banner labels:
+  "GREEN FLAG": "BANDIERA VERDE",
+  "YELLOW FLAG": "BANDIERA GIALLA",
+  "RED FLAG": "BANDIERA ROSSA",
+  "CHEQUERED FLAG": "BANDIERA A SCACCHI",
+  "SESSION STOPPED": "SESSIONE FERMATA",
+  // Driver-dashboard flag labels + Race Control flag-override buttons:
+  "GREEN": "VERDE",
+  "YELLOW": "GIALLO",
+  "RED": "ROSSO",
+  "FINISH": "ARRIVO",
+  "STOPPED": "FERMATA",
+  "Green": "Verde",
+  "Finish": "Arrivo",
+  // Message-overlay sender badge:
+  "PIT WALL": "MURETTO BOX",
+  // Nav chips + Export/editor tab labels:
+  "Control": "Controllo",
+  "Export": "Esporta",
+  "PDF timesheet": "Foglio tempi PDF",
+  "Team story": "Storia team",
+  "Result & penalties": "Risultato e penalità",
+  // Story session-label choices:
+  "Free Practice": "Prove libere",
+  "Qualifying": "Qualifica",
+  "Race Result": "Risultato gara",
+  "Custom": "Personalizzato",
 }

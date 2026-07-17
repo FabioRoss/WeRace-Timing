@@ -208,7 +208,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
         {penKind !== 'adjust' && (
           <div className="flex flex-wrap gap-1.5">
             {PENALTY_REASONS.map((r) => (
-              <button key={r} type="button" onClick={() => setPenReason(r)}
+              <button key={r} type="button" onClick={() => setPenReason(t(r))}
                 className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
                 {t(r)}
               </button>
