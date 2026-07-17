@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
 import type { EventGroup, SnapshotMeta } from '../lib/useSnapshot'
+import { useT } from '../lib/i18n'
 
 /** Public index: published events (grouped snapshots) plus loose sessions. */
 export function ResultsIndex() {
+  const t = useT()
   const [events, setEvents] = useState<EventGroup[]>([])
   const [loose, setLoose] = useState<SnapshotMeta[]>([])
   const [track, setTrack] = useState('')
@@ -29,26 +31,26 @@ export function ResultsIndex() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-4xl flex-col">
-      <PageHeader title="Results" subtitle="Published events & sessions" />
+      <PageHeader title={t('Results')} subtitle={t('Published events & sessions')} />
       <main className="flex-1 space-y-3 p-4">
-        <Link to="/" className="text-xs text-race-blue">← Home</Link>
+        <Link to="/" className="text-xs text-race-blue">{t('← Home')}</Link>
         {tracks.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button type="button" onClick={() => setTrack('')}
               className={`rounded-full px-3 py-1 text-xs ${!track ? 'bg-race-blue' : 'bg-pit-700'}`}>
-              All tracks
+              {t('All tracks')}
             </button>
-            {tracks.map((t) => (
-              <button key={t} type="button" onClick={() => setTrack(t)}
-                className={`rounded-full px-3 py-1 text-xs ${track === t ? 'bg-race-blue' : 'bg-pit-700'}`}>
-                {t}
+            {tracks.map((tk) => (
+              <button key={tk} type="button" onClick={() => setTrack(tk)}
+                className={`rounded-full px-3 py-1 text-xs ${track === tk ? 'bg-race-blue' : 'bg-pit-700'}`}>
+                {tk}
               </button>
             ))}
           </div>
         )}
 
         {loaded && empty && (
-          <p className="text-sm text-ink-500">No published results yet.</p>
+          <p className="text-sm text-ink-500">{t('No published results yet.')}</p>
         )}
 
         {shownEvents.map((e) => (
@@ -56,12 +58,12 @@ export function ResultsIndex() {
             className="block rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 hover:ring-race-red">
             <div className="flex items-center gap-2">
               <span className="rounded bg-race-red px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider text-white">
-                Event
+                {t('Event')}
               </span>
               <span className="font-bold">{e.name}</span>
             </div>
             <div className="mt-0.5 text-xs text-ink-500">
-              {[e.track, `${e.sessions.length} session${e.sessions.length === 1 ? '' : 's'}`]
+              {[e.track, e.sessions.length === 1 ? t('{n} session', { n: 1 }) : t('{n} sessions', { n: e.sessions.length })]
                 .filter(Boolean).join(' · ')}
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
@@ -79,7 +81,7 @@ export function ResultsIndex() {
             className="block rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 hover:ring-race-red">
             <div className="font-bold">{m.name || m.id}</div>
             <div className="mt-0.5 text-xs text-ink-500">
-              {[m.track, `${m.driver_count ?? 0} karts`,
+              {[m.track, t('{n} karts', { n: m.driver_count ?? 0 }),
                 m.created_at ? new Date(m.created_at * 1000).toLocaleDateString() : '']
                 .filter(Boolean).join(' · ')}
             </div>

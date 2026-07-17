@@ -72,6 +72,8 @@ frontend/src/
   lib/lapProgress.ts   useServerNow (clock-skew-corrected ticks) + lapFraction +
                        fmtRemaining (smooth countdown)
   lib/ws.ts            auto-reconnecting JSON websocket
+  lib/i18n.tsx         LangProvider + useT() translator + LangSwitch (IT/EN, default IT)
+  lib/locales/it.ts    Italian dictionary keyed by the English source string
 ```
 
 ## Verified protocol facts (from captures in backend/tests/fixtures/)
@@ -340,6 +342,25 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     download button in the
     `DriverDetail` row-click modal on saved snapshots (threaded via `TimingTable teamStoryConfig`
     → SessionResult/public results + editor). Live dashboards pass no config → no button.
+
+- **i18n (interactive web UI, IT default + EN)** — `lib/i18n.tsx`. A lightweight in-house layer,
+  no dependency: `LangProvider` (wraps `<App/>` in `main.tsx`) holds `lang` in state + localStorage
+  (`wrb_lang`, default **`it`**) and stamps `<html lang>`. `useT()` returns `t(englishSource, vars?)`
+  where **the English source string IS the lookup key**; `lib/locales/it.ts` maps each English key
+  to Italian, and a missing key falls back to the English source (so new strings never render as
+  raw keys — they just show English until translated). `{name}`/`{n}` placeholders are filled from
+  `vars`. `LangSwitch` (IT/EN toggle) sits in the shared `PageHeader` right cluster + on Landing.
+  - **Scope**: the whole React UI (screens/buttons/labels/tooltips/toasts/messages). Deliberately
+    **not** translated: server-side PDF (reportlab) and the **canvas-drawn** story/team-story
+    graphics — those keep their English source strings (the story kicker `label`, `TEAM_STAT_LABELS`
+    values, etc. are drawn on the canvas from English state even when the UI control shows Italian).
+  - **Migration pattern**: wrap every user-facing literal in `t('…')`; lib helpers still return
+    English and are translated at the call site (`t(penaltyKindLabel(p))`). Watch the naming
+    collision — a local `t` (e.g. `.map((t) =>`, `const t = setInterval(...)`) shadows the hook, so
+    rename those (`tab`/`tabId`/`tk`/`timer`) before adding `const t = useT()`. Add `t` to
+    `useMemo`/`useCallback` dep arrays when used inside.
+  - **Rebuild the dictionary** after adding strings: grep every `t('…')` key across `src` and add
+    the Italian; `lib/locales/it.ts` must stay in sync (missing keys silently fall back to English).
 
 ## Saved snapshots (results archive)
 

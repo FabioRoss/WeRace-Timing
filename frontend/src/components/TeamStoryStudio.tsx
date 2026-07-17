@@ -8,6 +8,7 @@ import {
 } from '../lib/teamStoryRender'
 import { AccentPicker } from './AccentPicker'
 import { getSafeword } from '../lib/api'
+import { useT } from '../lib/i18n'
 
 interface SavedBg { name: string; size_bytes: number; modified: number }
 
@@ -30,6 +31,7 @@ export function TeamStoryStudio({
   initialConfig?: TeamStoryConfig
   onSaveConfig?: (config: TeamStoryConfig) => Promise<void> | void
 }) {
+  const t = useT()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const seed = { ...DEFAULT_TEAM_STORY_CONFIG, ...initialConfig }
   const [title, setTitle] = useState(seed.title)
@@ -104,24 +106,24 @@ export function TeamStoryStudio({
       const res = await fetch(BG_API, {
         method: 'POST', headers: { 'X-Safeword': getSafeword() }, body: form,
       })
-      if (res.status === 409) { setBgMsg('Store is full (5) — delete one first.'); return }
-      if (!res.ok) { setBgMsg('Could not save that image.'); return }
+      if (res.status === 409) { setBgMsg(t('Store is full (5) — delete one first.')); return }
+      if (!res.ok) { setBgMsg(t('Could not save that image.')); return }
       const list: SavedBg[] = (await res.json()).backgrounds ?? []
       setSaved(list)
       if (list[0]) setBackground(list[0].name)   // newest first — auto-select it
     } catch {
-      setBgMsg('Could not save that image.')
+      setBgMsg(t('Could not save that image.'))
     }
-  }, [])
+  }, [t])
 
   const deleteSaved = useCallback(async (name: string) => {
-    if (!window.confirm("Delete this saved background? This can't be undone.")) return
+    if (!window.confirm(t("Delete this saved background? This can't be undone."))) return
     try {
       await fetch(`${BG_API}/${name}`, { method: 'DELETE', headers: { 'X-Safeword': getSafeword() } })
     } catch { /* ignore */ }
     if (background === name) setBackground('')
     void refreshSaved()
-  }, [background, refreshSaved])
+  }, [background, refreshSaved, t])
 
   const downloadPng = useCallback(() => {
     const canvas = canvasRef.current
@@ -136,10 +138,10 @@ export function TeamStoryStudio({
   const saveConfig = useCallback(() => {
     if (!onSaveConfig) return
     void Promise.resolve(onSaveConfig(config)).then(() => {
-      setSaveMsg('Saved as default ✓')
+      setSaveMsg(t('Saved as default ✓'))
       setTimeout(() => setSaveMsg(''), 2500)
     })
-  }, [onSaveConfig, config])
+  }, [onSaveConfig, config, t])
 
   const hasData = drivers.length > 0
 
@@ -155,7 +157,9 @@ export function TeamStoryStudio({
           style={{ aspectRatio: `${STORY_W} / ${STORY_H}` }}
         />
         <p className="mt-2 text-center text-[0.65rem] text-ink-500">
-          1080 × 1920 · previewing {previewKart ? `#${previewKart}` : 'a team'}
+          {previewKart
+            ? t('1080 × 1920 · previewing #{kart}', { kart: previewKart })
+            : t('1080 × 1920 · previewing a team')}
         </p>
       </div>
 
@@ -163,21 +167,20 @@ export function TeamStoryStudio({
       <div className="max-w-lg space-y-5">
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <h2 className="text-sm font-bold uppercase tracking-wider text-ink-300">
-            Team story graphic
+            {t('Team story graphic')}
           </h2>
           <p className="mt-1 text-sm text-ink-500">
-            A per-team card teams can share to their followers. Configure it here; each team
-            gets a preview + download button on their pit-wall dashboard (and on saved results).
+            {t('A per-team card teams can share to their followers. Configure it here; each team gets a preview + download button on their pit-wall dashboard (and on saved results).')}
           </p>
         </div>
 
-        <Field label="Preview team">
+        <Field label={t('Preview team')}>
           <select
             value={previewKart}
             onChange={(e) => setPreviewKart(e.target.value)}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           >
-            {!hasData && <option value="">No teams yet</option>}
+            {!hasData && <option value="">{t('No teams yet')}</option>}
             {drivers.map((d) => (
               <option key={d.kart_no} value={d.kart_no}>
                 P{d.position} · #{d.kart_no} {d.name}
@@ -185,42 +188,42 @@ export function TeamStoryStudio({
             ))}
           </select>
           <p className="mt-1 text-[0.65rem] text-ink-500">
-            Only for the preview — every team downloads their own card.
+            {t('Only for the preview — every team downloads their own card.')}
           </p>
         </Field>
 
-        <Field label="Event title">
+        <Field label={t('Event title')}>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Event Name"
+            placeholder={t('Event Name')}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
 
-        <Field label="Track / subtitle">
+        <Field label={t('Track / subtitle')}>
           <input
             value={subtitle}
             onChange={(e) => setSubtitle(e.target.value)}
-            placeholder="Track"
+            placeholder={t('Track')}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
 
-        <Field label="Session label">
+        <Field label={t('Session label')}>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Race"
+            placeholder={t('Race')}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
 
-        <Field label="Accent colour">
+        <Field label={t('Accent colour')}>
           <AccentPicker value={accent} onChange={setAccent} />
         </Field>
 
-        <Field label="Stats (pick up to 4)">
+        <Field label={t('Stats (pick up to 4)')}>
           <div className="flex flex-wrap gap-2">
             {STAT_ORDER.map((key) => {
               const on = stats.includes(key)
@@ -235,17 +238,17 @@ export function TeamStoryStudio({
                   }`}
                 >
                   {on && <span className="mr-1 opacity-70">{order + 1}.</span>}
-                  {TEAM_STAT_LABELS[key]}
+                  {t(TEAM_STAT_LABELS[key])}
                 </button>
               )
             })}
           </div>
           <p className="mt-1 text-[0.65rem] text-ink-500">
-            Tap to add/remove; the number shows the card order.
+            {t('Tap to add/remove; the number shows the card order.')}
           </p>
         </Field>
 
-        <Field label="Background (saved on server)">
+        <Field label={t('Background (saved on server)')}>
           <div className="space-y-2">
             <input
               type="file"
@@ -257,19 +260,19 @@ export function TeamStoryStudio({
               <button
                 type="button"
                 onClick={() => setBackground('')}
-                title="No background"
+                title={t('No background')}
                 className={`flex h-14 w-9 items-center justify-center rounded text-[0.6rem] font-bold ring-1 ${
                   !background ? 'ring-race-red bg-pit-800' : 'ring-pit-700 bg-pit-900 hover:ring-pit-500'
                 }`}
               >
-                None
+                {t('None')}
               </button>
               {saved.map((s) => (
                 <div key={s.name} className="group relative">
                   <button
                     type="button"
                     onClick={() => setBackground(s.name)}
-                    title="Use this background"
+                    title={t('Use this background')}
                     className={`block h-14 w-9 overflow-hidden rounded ring-1 ${
                       background === s.name ? 'ring-race-red' : 'ring-pit-700 hover:ring-pit-500'
                     }`}
@@ -279,7 +282,7 @@ export function TeamStoryStudio({
                   <button
                     type="button"
                     onClick={() => void deleteSaved(s.name)}
-                    title="Delete"
+                    title={t('Delete')}
                     className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-race-red text-[0.6rem] font-bold text-white opacity-0 group-hover:opacity-100"
                   >
                     ×
@@ -289,13 +292,12 @@ export function TeamStoryStudio({
             </div>
             {bgMsg && <p className="text-[0.7rem] text-race-red">{bgMsg}</p>}
             <p className="text-[0.65rem] text-ink-500">
-              Team backgrounds are stored on the server (max 5) so every team's card can load
-              them. Uploading saves + selects the image.
+              {t("Team backgrounds are stored on the server (max 5) so every team's card can load them. Uploading saves + selects the image.")}
             </p>
           </div>
         </Field>
 
-        <Field label="Footer link">
+        <Field label={t('Footer link')}>
           <input
             value={footerText}
             onChange={(e) => setFooterText(e.target.value)}
@@ -311,7 +313,7 @@ export function TeamStoryStudio({
             disabled={!hasData || !logos}
             className="rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
           >
-            Download PNG
+            {t('Download PNG')}
           </button>
           {onSaveConfig && (
             <button
@@ -319,15 +321,15 @@ export function TeamStoryStudio({
               onClick={saveConfig}
               className="rounded bg-pit-700 px-4 py-2 text-sm font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600"
             >
-              Save as default
+              {t('Save as default')}
             </button>
           )}
           {saveMsg && <span className="text-xs text-race-green">{saveMsg}</span>}
-          {!hasData && <span className="text-xs text-ink-500">No standings yet.</span>}
+          {!hasData && <span className="text-xs text-ink-500">{t('No standings yet.')}</span>}
         </div>
         {onSaveConfig && (
           <p className="text-[0.65rem] text-ink-500">
-            Teams download their card with this look (on the dashboard and saved results).
+            {t('Teams download their card with this look (on the dashboard and saved results).')}
           </p>
         )}
       </div>

@@ -5,6 +5,7 @@ import { fmtClock, fmtLap } from '../lib/format'
 import { LapTimeChart, SERIES_COLORS } from './LapCharts'
 import { downloadBlob } from '../lib/story'
 import { renderTeamStoryBlob, type TeamStoryConfig } from '../lib/teamStoryRender'
+import { useT } from '../lib/i18n'
 
 interface Props {
   snapshot: Snapshot
@@ -21,6 +22,7 @@ interface Props {
 
 /** Per-driver lap history panel, opened by clicking a timing-table row. */
 export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = false, teamStoryConfig }: Props) {
+  const t = useT()
   const [laps, setLaps] = useState<LapPoint[] | null>(null)
   const [storyBusy, setStoryBusy] = useState(false)
   const driver = snapshot.drivers.find((d) => d.kart_no === kart)
@@ -88,9 +90,9 @@ export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = fal
             {kart}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate font-display font-bold">{driver?.name || `Kart ${kart}`}</div>
+            <div className="truncate font-display font-bold">{driver?.name || t('Kart {kart}', { kart })}</div>
             <div className="label-race">
-              P{driver?.position ?? '–'} · {driver?.laps ?? 0} laps · {driver?.pits ?? 0} pit stops
+              P{driver?.position ?? '–'} · {t('{n} laps', { n: driver?.laps ?? 0 })} · {t('{n} pit stops', { n: driver?.pits ?? 0 })}
             </div>
           </div>
           {teamStoryConfig && (
@@ -100,7 +102,7 @@ export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = fal
               disabled={storyBusy}
               className="rounded bg-race-blue px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
             >
-              {storyBusy ? '…' : 'Story'}
+              {storyBusy ? '…' : t('Story')}
             </button>
           )}
           <button
@@ -114,40 +116,40 @@ export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = fal
 
         <div className="overflow-y-auto p-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile label="Best lap" value={fmtLap(stats?.best)} accent="text-race-purple" />
-            <StatTile label="Pace (no pit laps)" value={fmtLap(stats ? Math.round(stats.pace) : null)} />
+            <StatTile label={t('Best lap')} value={fmtLap(stats?.best)} accent="text-race-purple" />
+            <StatTile label={t('Pace (no pit laps)')} value={fmtLap(stats ? Math.round(stats.pace) : null)} />
             <StatTile
-              label="Consistency"
+              label={t('Consistency')}
               value={stats ? `±${(stats.stddev / 1000).toFixed(2)}s` : '—'}
-              sub={stats ? `${stats.consistency.toFixed(1)}% of pace` : undefined}
+              sub={stats ? t('{n}% of pace', { n: stats.consistency.toFixed(1) }) : undefined}
             />
             <StatTile
-              label="Pit time"
+              label={t('Pit time')}
               value={driver?.last_pit_ms ? fmtClock(Math.round(driver.last_pit_ms / 1000)) : '—'}
-              sub={driver?.total_pit_ms ? `total ${fmtClock(Math.round(driver.total_pit_ms / 1000))}` : undefined}
+              sub={driver?.total_pit_ms ? t('total {v}', { v: fmtClock(Math.round(driver.total_pit_ms / 1000)) }) : undefined}
             />
           </div>
 
           <div className="mt-4">
             {laps === null ? (
-              <p className="p-4 text-center text-sm text-ink-500">Loading lap history…</p>
+              <p className="p-4 text-center text-sm text-ink-500">{t('Loading lap history…')}</p>
             ) : laps.length === 0 ? (
               <p className="p-4 text-center text-sm text-ink-500">
                 {lapsBase
-                  ? 'No lap history recorded for this kart in this session.'
-                  : 'No laps recorded yet — history starts when the dashboard server sees the kart cross the line.'}
+                  ? t('No lap history recorded for this kart in this session.')
+                  : t('No laps recorded yet — history starts when the dashboard server sees the kart cross the line.')}
               </p>
             ) : (
               <>
                 <LapTimeChart series={series} />
-                <h3 className="label-race mb-2 mt-4">Lap history</h3>
+                <h3 className="label-race mb-2 mt-4">{t('Lap history')}</h3>
                 <table className="timing w-full text-xs sm:text-sm">
                   <thead>
                     <tr className="label-race border-b border-pit-700 text-left">
-                      <th className="px-2 py-1">Lap</th>
-                      <th className="px-2 py-1 text-right">Time</th>
-                      <th className="px-2 py-1 text-right">Pos</th>
-                      <th className="px-2 py-1 text-right">Pit</th>
+                      <th className="px-2 py-1">{t('Lap')}</th>
+                      <th className="px-2 py-1 text-right">{t('Time')}</th>
+                      <th className="px-2 py-1 text-right">{t('Pos')}</th>
+                      <th className="px-2 py-1 text-right">{t('Pit')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -164,7 +166,7 @@ export function DriverDetail({ snapshot, kart, onClose, lapsBase, safeword = fal
                         <td className="px-2 py-1 text-right">
                           {p.pit && (
                             <span className="rounded bg-race-yellow px-1 text-[0.6rem] font-bold text-pit-950">
-                              PIT
+                              {t('PIT')}
                             </span>
                           )}
                         </td>

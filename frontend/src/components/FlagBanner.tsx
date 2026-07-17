@@ -1,4 +1,5 @@
 import type { Flag } from '../lib/types'
+import { useT } from '../lib/i18n'
 
 const FLAG_STYLES: Record<Flag, { label: string; cls: string }> = {
   none: { label: 'STANDBY', cls: 'bg-pit-700 text-ink-300' },
@@ -11,6 +12,7 @@ const FLAG_STYLES: Record<Flag, { label: string; cls: string }> = {
 }
 
 export function FlagBanner({ flag, compact = false }: { flag: Flag; compact?: boolean }) {
+  const t = useT()
   const style = FLAG_STYLES[flag] ?? FLAG_STYLES.none
   return (
     <div
@@ -18,7 +20,7 @@ export function FlagBanner({ flag, compact = false }: { flag: Flag; compact?: bo
         compact ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm'
       }`}
     >
-      {flag === 'finish' ? <span className="text-shadow-none select-none">▓</span> : style.label}
+      {flag === 'finish' ? <span className="text-shadow-none select-none">▓</span> : t(style.label)}
     </div>
   )
 }

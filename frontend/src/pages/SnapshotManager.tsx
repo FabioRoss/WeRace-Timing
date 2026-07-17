@@ -6,6 +6,7 @@ import { PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
 import { rememberedSlot } from '../lib/nav'
 import type { SnapshotMeta } from '../lib/useSnapshot'
+import { useT } from '../lib/i18n'
 
 type Meta = SnapshotMeta
 
@@ -18,6 +19,7 @@ export function SnapshotManager() {
 }
 
 function ManagerInner() {
+  const t = useT()
   const [items, setItems] = useState<Meta[]>([])
   const [error, setError] = useState('')
   const [track, setTrack] = useState('')
@@ -53,7 +55,7 @@ function ManagerInner() {
     api(`/api/admin/snapshots/${id}`, { method: 'PATCH', body, safeword: true }).then(load)
 
   const remove = (m: Meta) => {
-    if (!window.confirm(`Delete snapshot “${m.name}”? This cannot be undone.`)) return
+    if (!window.confirm(t('Delete snapshot “{name}”? This cannot be undone.', { name: m.name }))) return
     void api(`/api/admin/snapshots/${m.id}`, { method: 'DELETE', safeword: true }).then(load)
   }
 
@@ -80,20 +82,20 @@ function ManagerInner() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col">
-      <PageHeader title="Saved snapshots" subtitle="Results archive" nav={<PageNav slot={rememberedSlot()} />} />
+      <PageHeader title={t('Saved snapshots')} subtitle={t('Results archive')} nav={<PageNav slot={rememberedSlot()} />} />
       <main className="flex-1 space-y-3 p-4">
         {error && <p className="text-sm text-race-red">{error}</p>}
         {tracks.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="label-race text-ink-500">Track</span>
+            <span className="label-race text-ink-500">{t('Track')}</span>
             <button type="button" onClick={() => setTrack('')}
               className={`rounded-full px-3 py-1 text-xs ${!track ? 'bg-race-blue' : 'bg-pit-700'}`}>
-              All
+              {t('All')}
             </button>
-            {tracks.map((t) => (
-              <button key={t} type="button" onClick={() => setTrack(t)}
-                className={`rounded-full px-3 py-1 text-xs ${track === t ? 'bg-race-blue' : 'bg-pit-700'}`}>
-                {t}
+            {tracks.map((tk) => (
+              <button key={tk} type="button" onClick={() => setTrack(tk)}
+                className={`rounded-full px-3 py-1 text-xs ${track === tk ? 'bg-race-blue' : 'bg-pit-700'}`}>
+                {tk}
               </button>
             ))}
           </div>
@@ -101,47 +103,47 @@ function ManagerInner() {
 
         {selected.size > 0 && (
           <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl bg-pit-800 p-3 text-sm ring-1 ring-pit-700">
-            <span className="font-bold text-ink-100">{selected.size} selected</span>
-            <span className="text-ink-500">Group into event —</span>
+            <span className="font-bold text-ink-100">{t('{n} selected', { n: selected.size })}</span>
+            <span className="text-ink-500">{t('Group into event —')}</span>
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="New event name"
+              placeholder={t('New event name')}
               className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600 focus:ring-race-red"
             />
             <button type="button" disabled={!newName.trim()}
               onClick={() => void assign({ group_name: newName.trim() })}
               className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase text-white hover:brightness-110 disabled:opacity-40">
-              Create event
+              {t('Create event')}
             </button>
             {groups.length > 0 && (
               <>
                 <select value={pickGroup} onChange={(e) => setPickGroup(e.target.value)}
                   className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600">
-                  <option value="">Existing event…</option>
+                  <option value="">{t('Existing event…')}</option>
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
                 <button type="button" disabled={!pickGroup}
                   onClick={() => void assign({ group_id: pickGroup })}
                   className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600 disabled:opacity-40">
-                  Add to event
+                  {t('Add to event')}
                 </button>
               </>
             )}
             <button type="button" onClick={() => void assign({})}
               className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
-              Ungroup
+              {t('Ungroup')}
             </button>
             <button type="button" onClick={() => setSelected(new Set())}
               className="rounded px-3 py-1 text-xs font-bold uppercase text-ink-400 hover:text-ink-200">
-              Clear
+              {t('Clear')}
             </button>
           </div>
         )}
 
         {shown.length === 0 && (
           <p className="text-sm text-ink-500">
-            No snapshots yet. They are auto-saved when a session ends, or from “Save snapshot” in Race Control.
+            {t('No snapshots yet. They are auto-saved when a session ends, or from “Save snapshot” in Race Control.')}
           </p>
         )}
         {shown.map((m) => (
@@ -165,6 +167,7 @@ function SnapshotCard({ m, selected, onToggleSelect, onKeep, onPublish, onDelete
   onPublish: (v: boolean) => void
   onDelete: () => void
 }) {
+  const t = useT()
   const created = m.created_at ? new Date(m.created_at * 1000).toLocaleString() : '—'
   const daysLeft = m.expires_at
     ? Math.max(0, Math.ceil((m.expires_at - Date.now() / 1000) / 86400))
@@ -174,13 +177,13 @@ function SnapshotCard({ m, selected, onToggleSelect, onKeep, onPublish, onDelete
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 gap-3">
           <input type="checkbox" checked={selected} onChange={onToggleSelect}
-            className="mt-1 h-4 w-4 shrink-0" title="Select for grouping" />
+            className="mt-1 h-4 w-4 shrink-0" title={t('Select for grouping')} />
           <div className="min-w-0">
             <Link to={`/admin/snapshots/${m.id}`} className="font-bold hover:text-race-red">
               {m.name || m.id}
             </Link>
             <div className="mt-0.5 text-xs text-ink-500">
-              {[m.track, `${m.driver_count ?? 0} karts`, created].filter(Boolean).join(' · ')}
+              {[m.track, t('{n} karts', { n: m.driver_count ?? 0 }), created].filter(Boolean).join(' · ')}
             </div>
             {m.podium && m.podium.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-2 text-xs">
@@ -195,30 +198,30 @@ function SnapshotCard({ m, selected, onToggleSelect, onKeep, onPublish, onDelete
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {m.group_name && <Badge className="bg-race-red text-white">{m.group_name}</Badge>}
-          {m.published && <Badge className="bg-race-green text-pit-950">PUBLISHED</Badge>}
+          {m.published && <Badge className="bg-race-green text-pit-950">{t('PUBLISHED')}</Badge>}
           {m.keep ? (
-            <Badge className="bg-race-blue text-white">KEPT</Badge>
+            <Badge className="bg-race-blue text-white">{t('KEPT')}</Badge>
           ) : daysLeft != null && (
-            <Badge className="bg-pit-700 text-ink-300">{daysLeft}d left</Badge>
+            <Badge className="bg-pit-700 text-ink-300">{t('{n}d left', { n: daysLeft })}</Badge>
           )}
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <Link to={`/admin/snapshots/${m.id}`}
           className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
-          Open
+          {t('Open')}
         </Link>
         <button type="button" onClick={() => onPublish(!m.published)}
           className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
-          {m.published ? 'Unpublish' : 'Publish'}
+          {m.published ? t('Unpublish') : t('Publish')}
         </button>
         <button type="button" onClick={() => onKeep(!m.keep)}
           className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
-          {m.keep ? 'Stop keeping' : 'Keep forever'}
+          {m.keep ? t('Stop keeping') : t('Keep forever')}
         </button>
         <button type="button" onClick={onDelete}
           className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase text-race-red hover:bg-pit-600">
-          Delete
+          {t('Delete')}
         </button>
       </div>
     </div>

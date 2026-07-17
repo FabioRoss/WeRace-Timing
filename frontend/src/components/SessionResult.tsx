@@ -4,6 +4,7 @@ import { PenaltyLog } from './PenaltyLog'
 import { OrderToggle, useOrderMode } from './OrderToggle'
 import { SnapshotLapCharts } from './SnapshotLapCharts'
 import type { SnapshotRecord } from '../lib/useSnapshot'
+import { useT } from '../lib/i18n'
 
 /**
  * The public read-only body for one saved session: public notes, the
@@ -12,6 +13,7 @@ import type { SnapshotRecord } from '../lib/useSnapshot'
  * surface the same full saved data.
  */
 export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; baseUrl: string }) {
+  const t = useT()
   const snapshot = record.snapshot
   const race = snapshot.race
   const isRace = race?.session_kind === 'race'
@@ -48,7 +50,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
 
       {snapshot.penalties.length > 0 && (
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <h3 className="label-race mb-3">Penalties &amp; warnings</h3>
+          <h3 className="label-race mb-3">{t('Penalties & warnings')}</h3>
           <PenaltyLog penalties={snapshot.penalties} />
         </div>
       )}
@@ -60,7 +62,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
         onClick={() => { setDownloading(true); setTimeout(() => setDownloading(false), 1500) }}
         className="inline-block rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110"
       >
-        {downloading ? 'Preparing…' : 'Download PDF timesheet'}
+        {downloading ? t('Preparing…') : t('Download PDF timesheet')}
       </a>
     </div>
   )
