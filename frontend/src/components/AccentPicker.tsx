@@ -1,3 +1,5 @@
+import { useT } from '../lib/i18n'
+
 export const DEFAULT_ACCENT = '#e10600'
 
 const PRESETS = [
@@ -17,6 +19,7 @@ export function AccentPicker({
   value: string
   onChange: (hex: string) => void
 }) {
+  const t = useT()
   const current = value.toLowerCase()
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -24,7 +27,7 @@ export function AccentPicker({
         <button
           key={p.hex}
           type="button"
-          title={p.name}
+          title={t(p.name)}
           onClick={() => onChange(p.hex)}
           className={`h-7 w-7 rounded-full ring-2 ring-offset-2 ring-offset-pit-900 ${
             current === p.hex ? 'ring-ink-100' : 'ring-transparent hover:ring-pit-600'
@@ -33,7 +36,7 @@ export function AccentPicker({
         />
       ))}
       <label
-        title="Custom colour"
+        title={t('Custom colour')}
         className="relative inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-ink-100 ring-1 ring-pit-600"
         style={{ backgroundColor: PRESETS.some((p) => p.hex === current) ? undefined : value }}
       >

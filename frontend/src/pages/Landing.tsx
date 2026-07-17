@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { LangSwitch, useT } from '../lib/i18n'
 
 interface SlotInfo {
   slot: number
@@ -11,6 +12,7 @@ interface SlotInfo {
 }
 
 export function Landing() {
+  const t = useT()
   const [slots, setSlots] = useState<SlotInfo[]>([])
 
   useEffect(() => {
@@ -23,9 +25,12 @@ export function Landing() {
 
   return (
     <div className="mx-auto flex h-full max-w-lg flex-col justify-center gap-6 p-6">
-      <div>
-        <h1 className="text-3xl font-extrabold uppercase tracking-widest">WeRace Bridge</h1>
-        <p className="mt-1 text-sm text-ink-500">Live timing relay &amp; team dashboards</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold uppercase tracking-widest">WeRace Bridge</h1>
+          <p className="mt-1 text-sm text-ink-500">{t('Live timing relay & team dashboards')}</p>
+        </div>
+        <LangSwitch />
       </div>
       <div className="space-y-3">
         {slots.map((s) => (
@@ -35,11 +40,11 @@ export function Landing() {
             className="flex items-center justify-between rounded-xl bg-pit-850 px-5 py-4 ring-1 ring-pit-700 hover:ring-race-blue"
           >
             <div>
-              <div className="font-bold uppercase tracking-wider">Event {s.slot}</div>
+              <div className="font-bold uppercase tracking-wider">{t('Event {slot}', { slot: s.slot })}</div>
               <div className="text-xs text-ink-500">
                 {s.connected
-                  ? s.event_name || s.track_name || s.label || 'Live'
-                  : 'No session'}
+                  ? s.event_name || s.track_name || s.label || t('Live')
+                  : t('No session')}
               </div>
             </div>
             <span
@@ -52,11 +57,11 @@ export function Landing() {
         to="/results"
         className="flex items-center justify-between rounded-xl bg-pit-900 px-5 py-3 ring-1 ring-pit-700 hover:ring-race-red"
       >
-        <div className="font-bold uppercase tracking-wider">Past results</div>
-        <span className="text-xs text-ink-500">Published sessions →</span>
+        <div className="font-bold uppercase tracking-wider">{t('Past results')}</div>
+        <span className="text-xs text-ink-500">{t('Published sessions →')}</span>
       </Link>
       <p className="text-center text-xs text-ink-500">
-        Drivers and team managers: use the link or QR code handed out by the staff.
+        {t('Drivers and team managers: use the link or QR code handed out by the staff.')}
       </p>
     </div>
   )

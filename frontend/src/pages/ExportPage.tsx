@@ -9,6 +9,7 @@ import { TimesheetPanel } from '../components/TimesheetPanel'
 import { useLive } from '../lib/useLive'
 import { api } from '../lib/api'
 import type { TeamStoryConfig } from '../lib/teamStoryRender'
+import { useT } from '../lib/i18n'
 
 export function ExportPage() {
   return (
@@ -27,6 +28,7 @@ const TAB_LABELS: Record<Tab, string> = {
 }
 
 function ExportInner() {
+  const t = useT()
   const { slot = '1' } = useParams()
   const { snapshot, status } = useLive(slot)
   const [tab, setTab] = useState<Tab>('timesheet')
@@ -42,7 +44,7 @@ function ExportInner() {
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col">
       <PageHeader
-        title={`Export — Event ${slot}`}
+        title={t('Export — Event {slot}', { slot })}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
         nav={<PageNav slot={slot} />}
         right={<ConnectionDot status={status} />}
@@ -50,21 +52,21 @@ function ExportInner() {
 
       {race && !race.ended && (
         <div className="mx-4 mt-4 rounded-lg bg-race-yellow/10 px-3 py-2 text-sm text-race-yellow ring-1 ring-race-yellow/30">
-          Session still live — an export reflects the current standings, not a final result.
+          {t('Session still live — an export reflects the current standings, not a final result.')}
         </div>
       )}
 
       <div className="flex gap-2 px-4 pt-4">
-        {(['timesheet', 'story', 'teamstory'] as const).map((t) => (
+        {(['timesheet', 'story', 'teamstory'] as const).map((tabId) => (
           <button
-            key={t}
+            key={tabId}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => setTab(tabId)}
             className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-              tab === t ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
+              tab === tabId ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
             }`}
           >
-            {TAB_LABELS[t]}
+            {t(TAB_LABELS[tabId])}
           </button>
         ))}
       </div>

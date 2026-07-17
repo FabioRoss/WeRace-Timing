@@ -7,6 +7,7 @@ import {
 } from '../lib/story'
 import { AccentPicker, DEFAULT_ACCENT } from './AccentPicker'
 import { getSafeword } from '../lib/api'
+import { useT } from '../lib/i18n'
 
 interface SavedBg { name: string; size_bytes: number; modified: number }
 
@@ -39,6 +40,7 @@ function animatePage(
 }
 
 export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
+  const t = useT()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [perPage, setPerPage] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
@@ -118,9 +120,9 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBgFile(file)                     // a fresh upload — offer to save later
       setBgTransform(DEFAULT_BG_TRANSFORM) // fresh frame starts cover-fit
     } catch {
-      setError('Could not read that image.')
+      setError(t('Could not read that image.'))
     }
-  }, [])
+  }, [t])
 
   const clearBackground = useCallback(() => {
     setBg(null)
@@ -154,17 +156,17 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       setBgFile(null)                     // from the server — no re-save prompt
       setBgTransform(DEFAULT_BG_TRANSFORM)
     } catch {
-      setError('Could not load that saved background.')
+      setError(t('Could not load that saved background.'))
     }
-  }, [])
+  }, [t])
 
   const deleteSaved = useCallback(async (name: string) => {
-    if (!window.confirm("Delete this saved background? This can't be undone.")) return
+    if (!window.confirm(t("Delete this saved background? This can't be undone."))) return
     try {
       await fetch(`${BG_API}/${name}`, { method: 'DELETE', headers: { 'X-Safeword': getSafeword() } })
     } catch { /* ignore */ }
     void refreshSaved()
-  }, [refreshSaved])
+  }, [refreshSaved, t])
 
   const saveCurrent = useCallback(async () => {
     if (!bgFile) return
@@ -175,15 +177,15 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       const res = await fetch(BG_API, {
         method: 'POST', headers: { 'X-Safeword': getSafeword() }, body: form,
       })
-      if (res.status === 409) { setSaveMsg('Store is full (5) — delete one first.'); return }
-      if (!res.ok) { setSaveMsg('Could not save the background.'); return }
+      if (res.status === 409) { setSaveMsg(t('Store is full (5) — delete one first.')); return }
+      if (!res.ok) { setSaveMsg(t('Could not save the background.')); return }
       setSaved((await res.json()).backgrounds ?? [])
       setBgFile(null)          // now it lives on the server
       setSavePrompt(false)
     } catch {
-      setSaveMsg('Could not save the background.')
+      setSaveMsg(t('Could not save the background.'))
     }
-  }, [bgFile])
+  }, [bgFile, t])
 
   const restorePreview = useCallback(() => {
     const ctx = canvasRef.current?.getContext('2d')
@@ -209,7 +211,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
     setError('')
     try {
       for (let p = 0; p < pageCount; p++) {
-        setProgress(`Page ${p + 1} / ${pageCount}`)
+        setProgress(t('Page {n} / {total}', { n: p + 1, total: pageCount }))
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, subtitle: trackName, stat, label, showFastest, penalties })
         drawStory(ctx, m, m.rows.length, bg, accent, bgTransform)
         const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
@@ -222,7 +224,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, pageCount, restorePreview, bgFile, t])
 
   const recordVideo = useCallback(async () => {
     const canvas = canvasRef.current
@@ -245,7 +247,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
         ? Array.from({ length: pageCount }, (_, p) => p)
         : [pageIndex]
       for (const p of pages) {
-        setProgress(pages.length > 1 ? `Recording page ${p + 1} / ${pageCount}` : 'Recording…')
+        setProgress(pages.length > 1 ? t('Recording page {n} / {total}', { n: p + 1, total: pageCount }) : t('Recording…'))
         const m = buildStoryModel(snapshot, { perPage, pageIndex: p, title, subtitle: trackName, stat, label, showFastest, penalties })
         await animatePage(ctx, m, bg, accent, bgTransform)
       }
@@ -255,14 +257,14 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       const suffix = videoScope === 'all' ? 'all' : `p${pageIndex + 1}`
       downloadBlob(blob, `story-${suffix}-${stamp()}.${mimeExtension(videoMime)}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Recording failed.')
+      setError(e instanceof Error ? e.message : t('Recording failed.'))
     } finally {
       setProgress('')
       setBusy(false)
       restorePreview()
       if (bgFile) setSavePrompt(true)
     }
-  }, [snapshot, perPage, pageIndex, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile])
+  }, [snapshot, perPage, pageIndex, title, trackName, stat, label, showFastest, penalties, bg, accent, bgTransform, videoMime, videoScope, pageCount, restorePreview, bgFile, t])
 
   // Apply a transform update, snapped to defaults near them and clamped so the
   // photo always fully covers the frame (no empty corners).
@@ -328,7 +330,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               ◀
             </button>
             <span className="timing text-xs text-ink-300">
-              Page {pageIndex + 1} / {pageCount}
+              {t('Page {n} / {total}', { n: pageIndex + 1, total: pageCount })}
             </span>
             <button
               type="button"
@@ -341,7 +343,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
           </div>
         )}
         <p className="mt-2 text-center text-[0.65rem] text-ink-500">
-          1080 × 1920 · content kept inside Instagram's safe area
+          {t("1080 × 1920 · content kept inside Instagram's safe area")}
         </p>
       </div>
 
@@ -349,34 +351,32 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
       <div className="max-w-lg space-y-5">
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <h2 className="text-sm font-bold uppercase tracking-wider text-ink-300">
-            Instagram story
+            {t('Instagram story')}
           </h2>
           <p className="mt-1 text-sm text-ink-500">
-            Black / white standings card sized for Stories with your accent colour. Post the
-            whole grid across pages, as a still image or an animated clip where positions
-            build up one by one.
+            {t('Black / white standings card sized for Stories with your accent colour. Post the whole grid across pages, as a still image or an animated clip where positions build up one by one.')}
           </p>
         </div>
 
-        <Field label="Title">
+        <Field label={t('Title')}>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Event Name"
+            placeholder={t('Event Name')}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
 
-        <Field label="Track name">
+        <Field label={t('Track name')}>
           <input
             value={trackName}
             onChange={(e) => setTrackName(e.target.value)}
-            placeholder="Track"
+            placeholder={t('Track')}
             className="w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           />
         </Field>
 
-        <Field label="Session label">
+        <Field label={t('Session label')}>
           <div className="space-y-2">
             <select
               value={labelChoice}
@@ -384,79 +384,79 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             >
               {(['Free Practice', 'Qualifying', 'Race Result', 'Custom'] as const).map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c} value={c}>{t(c)}</option>
               ))}
             </select>
             {labelChoice === 'Custom' && (
               <input
                 value={customLabel}
                 onChange={(e) => setCustomLabel(e.target.value)}
-                placeholder="Custom label"
+                placeholder={t('Custom label')}
                 className="block w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
               />
             )}
           </div>
         </Field>
 
-        <Field label="Accent colour">
+        <Field label={t('Accent colour')}>
           <AccentPicker value={accent} onChange={setAccent} />
         </Field>
 
-        <Field label="Right column">
+        <Field label={t('Right column')}>
           <select
             value={stat}
             onChange={(e) => setStat(e.target.value as StoryStat)}
             className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           >
-            <option value="best">Best lap</option>
-            <option value="gap">Gap to leader</option>
-            <option value="interval">Interval (to kart ahead)</option>
-            <option value="pits">Pit stops</option>
+            <option value="best">{t('Best lap')}</option>
+            <option value="gap">{t('Gap to leader')}</option>
+            <option value="interval">{t('Interval (to kart ahead)')}</option>
+            <option value="pits">{t('Pit stops')}</option>
           </select>
         </Field>
 
-        <Field label="Fastest-lap footer">
+        <Field label={t('Fastest-lap footer')}>
           <select
             value={showFastest ? 'show' : 'hide'}
             onChange={(e) => setShowFastest(e.target.value === 'show')}
             className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           >
-            <option value="show">Show</option>
-            <option value="hide">Hide</option>
+            <option value="show">{t('Show')}</option>
+            <option value="hide">{t('Hide')}</option>
           </select>
         </Field>
 
         {hasPenalties && (
-          <Field label="Penalties">
+          <Field label={t('Penalties')}>
             <select
               value={penalties ? 'apply' : 'off'}
               onChange={(e) => setPenalties(e.target.value === 'apply')}
               className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
             >
-              <option value="off">Ignore</option>
-              <option value="apply">Apply (final result)</option>
+              <option value="off">{t('Ignore')}</option>
+              <option value="apply">{t('Apply (final result)')}</option>
             </select>
           </Field>
         )}
 
-        <Field label="Rows per page">
+        <Field label={t('Rows per page')}>
           <select
             value={perPage}
             onChange={(e) => setPerPage(Number(e.target.value))}
             className="rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red"
           >
             {[5, 8, 10, 12].map((n) => (
-              <option key={n} value={n}>{n} per page</option>
+              <option key={n} value={n}>{t('{n} per page', { n })}</option>
             ))}
           </select>
           {pageCount > 1 && (
             <p className="mt-1 text-[0.65rem] text-ink-500">
-              {snapshot?.drivers.length ?? 0} karts across {pageCount} pages.
+              {t('{karts} karts across {pages} pages.', { karts: snapshot?.drivers.length ?? 0, pages: pageCount })}
             </p>
           )}
         </Field>
 
-        <Field label="Background (optional)">
+        <Field label={t('Background (optional)')}>
           <div className="space-y-1">
             <input
               type="file"
@@ -468,25 +468,25 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               <div className="flex items-center gap-2 text-xs text-ink-500">
                 <span className="truncate">{bgName}</span>
                 <button type="button" onClick={clearBackground} className="text-race-red">
-                  remove
+                  {t('remove')}
                 </button>
               </div>
             )}
             {bg && (
               <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-pit-800">
                 <div className="flex items-center justify-between">
-                  <span className="label-race">Frame the photo</span>
+                  <span className="label-race">{t('Frame the photo')}</span>
                   <button
                     type="button"
                     onClick={() => applyTransform(() => DEFAULT_BG_TRANSFORM)}
                     className="text-[0.7rem] font-bold uppercase tracking-wider text-ink-300 hover:text-ink-100"
                   >
-                    Reset
+                    {t('Reset')}
                   </button>
                 </div>
                 <label className="block text-xs text-ink-400">
                   <span className="flex justify-between">
-                    <span>Zoom</span>
+                    <span>{t('Zoom')}</span>
                     <span className="timing">{bgTransform.scale.toFixed(2)}×</span>
                   </span>
                   <input
@@ -499,7 +499,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 </label>
                 <label className="block text-xs text-ink-400">
                   <span className="flex justify-between">
-                    <span>Rotate</span>
+                    <span>{t('Rotate')}</span>
                     <span className="timing">{Math.round(bgTransform.rot)}°</span>
                   </span>
                   <input
@@ -511,28 +511,28 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                   <datalist id="bg-rot-ticks"><option value="0" /></datalist>
                 </label>
                 <p className="text-[0.65rem] text-ink-500">
-                  Drag the preview to move · scroll to zoom. The photo always fills the frame.
+                  {t('Drag the preview to move · scroll to zoom. The photo always fills the frame.')}
                 </p>
               </div>
             )}
 
             {savePrompt && bgFile && (
               <div className="space-y-2 rounded-lg bg-pit-950 p-3 ring-1 ring-race-red/40">
-                <p className="text-xs text-ink-200">Save this background on the server for later use?</p>
+                <p className="text-xs text-ink-200">{t('Save this background on the server for later use?')}</p>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => void saveCurrent()}
                     className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110"
                   >
-                    Save
+                    {t('Save')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setSavePrompt(false)}
                     className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600"
                   >
-                    Not now
+                    {t('Not now')}
                   </button>
                   {saveMsg && <span className="text-[0.7rem] text-race-red">{saveMsg}</span>}
                 </div>
@@ -541,14 +541,14 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
 
             {saved.length > 0 && (
               <div className="space-y-1">
-                <span className="label-race">Saved on server ({saved.length}/5)</span>
+                <span className="label-race">{t('Saved on server ({n}/5)', { n: saved.length })}</span>
                 <div className="flex flex-wrap gap-2">
                   {saved.map((s) => (
                     <div key={s.name} className="group relative">
                       <button
                         type="button"
                         onClick={() => void loadSaved(s.name)}
-                        title="Use this background"
+                        title={t('Use this background')}
                         className={`block h-14 w-9 overflow-hidden rounded ring-1 ${
                           bgName === s.name ? 'ring-race-red' : 'ring-pit-700 hover:ring-pit-500'
                         }`}
@@ -558,7 +558,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                       <button
                         type="button"
                         onClick={() => void deleteSaved(s.name)}
-                        title="Delete"
+                        title={t('Delete')}
                         className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-race-red text-[0.6rem] font-bold text-white opacity-0 group-hover:opacity-100"
                       >
                         ×
@@ -570,13 +570,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
             )}
 
             <p className="text-[0.65rem] text-ink-500">
-              A background stays in your browser and is never uploaded — unless you choose to
-              save it above, where it's kept on the server (max 5) for reuse.
+              {t("A background stays in your browser and is never uploaded — unless you choose to save it above, where it's kept on the server (max 5) for reuse.")}
             </p>
           </div>
         </Field>
 
-        <Field label="Format">
+        <Field label={t('Format')}>
           <div className="flex gap-4 text-sm">
             <label className="flex items-center gap-2">
               <input
@@ -585,7 +584,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 checked={mode === 'image'}
                 onChange={() => setMode('image')}
               />
-              Static image (PNG)
+              {t('Static image (PNG)')}
             </label>
             <label className={`flex items-center gap-2 ${videoMime ? '' : 'opacity-40'}`}>
               <input
@@ -595,12 +594,12 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 disabled={!videoMime}
                 onChange={() => setMode('video')}
               />
-              Animated video
+              {t('Animated video')}
             </label>
           </div>
           {!videoMime && (
             <p className="mt-1 text-[0.65rem] text-ink-500">
-              This browser can't record video — PNG export is still available.
+              {t("This browser can't record video — PNG export is still available.")}
             </p>
           )}
           {videoMime && mode === 'video' && pageCount > 1 && (
@@ -612,7 +611,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                   checked={videoScope === 'page'}
                   onChange={() => setVideoScope('page')}
                 />
-                This page
+                {t('This page')}
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -621,13 +620,13 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                   checked={videoScope === 'all'}
                   onChange={() => setVideoScope('all')}
                 />
-                All pages (one clip)
+                {t('All pages (one clip)')}
               </label>
             </div>
           )}
           {videoMime && mode === 'video' && (
             <p className="mt-1 text-[0.65rem] text-ink-500">
-              Recording as {mimeExtension(videoMime).toUpperCase()}.
+              {t('Recording as {format}.', { format: mimeExtension(videoMime).toUpperCase() })}
             </p>
           )}
         </Field>
@@ -641,7 +640,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                 disabled={!hasData || busy}
                 className="rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
               >
-                Download PNG{pageCount > 1 ? ' (this page)' : ''}
+                {pageCount > 1 ? t('Download PNG (this page)') : t('Download PNG')}
               </button>
               {pageCount > 1 && (
                 <button
@@ -650,7 +649,7 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
                   disabled={!hasData || busy}
                   className="rounded bg-pit-700 px-4 py-2 text-sm font-bold uppercase tracking-wider text-ink-100 hover:bg-pit-600 disabled:opacity-40"
                 >
-                  Download all pages
+                  {t('Download all pages')}
                 </button>
               )}
             </>
@@ -661,11 +660,11 @@ export function StoryStudio({ snapshot }: { snapshot: Snapshot | null }) {
               disabled={!hasData || busy || !videoMime}
               className="rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
             >
-              {busy ? 'Recording…' : 'Record & download'}
+              {busy ? t('Recording…') : t('Record & download')}
             </button>
           )}
           {progress && <span className="text-xs text-ink-300">{progress}</span>}
-          {!hasData && <span className="text-xs text-ink-500">No standings yet.</span>}
+          {!hasData && <span className="text-xs text-ink-500">{t('No standings yet.')}</span>}
           {error && <span className="text-xs text-race-red">{error}</span>}
         </div>
       </div>

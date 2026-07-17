@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RaceMessage } from '../lib/types'
+import { useT } from '../lib/i18n'
 
 const PRIORITY_STYLES: Record<RaceMessage['priority'], string> = {
   info: 'bg-race-blue text-white',
@@ -20,6 +21,7 @@ export function MessageOverlay({ message, onDismiss }: {
   message: RaceMessage | null
   onDismiss: () => void
 }) {
+  const t = useT()
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
@@ -45,9 +47,9 @@ export function MessageOverlay({ message, onDismiss }: {
     >
       <div className="flex items-baseline justify-between gap-4">
         <span className="text-xs font-bold tracking-[0.25em] opacity-80">
-          {SENDER_LABEL[message.sender]}
+          {t(SENDER_LABEL[message.sender])}
         </span>
-        <span className="text-xs opacity-70">tap to dismiss</span>
+        <span className="text-xs opacity-70">{t('tap to dismiss')}</span>
       </div>
       <p className="mt-1 text-2xl font-extrabold leading-snug">{message.text}</p>
     </button>

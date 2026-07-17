@@ -1,12 +1,16 @@
 import type { WsStatus } from '../lib/ws'
+import { LangSwitch, useT } from '../lib/i18n'
 
 export function ConnectionDot({ status }: { status: WsStatus }) {
+  const t = useT()
   const color =
     status === 'open' ? 'bg-race-green' : status === 'connecting' ? 'bg-race-yellow' : 'bg-race-red'
+  const label =
+    status === 'open' ? t('live') : status === 'connecting' ? t('connecting') : t('offline')
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-ink-500">
       <span className={`h-2 w-2 rounded-full ${color}`} />
-      {status === 'open' ? 'live' : status}
+      {label}
     </span>
   )
 }
@@ -33,7 +37,10 @@ export function PageHeader({
             {subtitle && <p className="text-xs text-ink-500 truncate">{subtitle}</p>}
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">{right}</div>
+        <div className="flex items-center gap-3 shrink-0">
+          {right}
+          <LangSwitch />
+        </div>
       </div>
       {nav && <div className="mt-2">{nav}</div>}
     </header>

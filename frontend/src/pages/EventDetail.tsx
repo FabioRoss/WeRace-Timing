@@ -5,6 +5,7 @@ import { PageHeader } from '../components/StatusBar'
 import { FlagBanner } from '../components/FlagBanner'
 import { SessionResult } from '../components/SessionResult'
 import type { SnapshotRecord } from '../lib/useSnapshot'
+import { useT } from '../lib/i18n'
 
 interface EventDetailData {
   id: string
@@ -15,6 +16,7 @@ interface EventDetailData {
 
 /** Public view of an event: one tab per session, each a full SessionResult. */
 export function EventDetail() {
+  const t = useT()
   const { id = '' } = useParams()
   const [event, setEvent] = useState<EventDetailData | null>(null)
   const [error, setError] = useState('')
@@ -34,12 +36,12 @@ export function EventDetail() {
     return () => { document.title = 'WeRace Bridge' }
   }, [event])
 
-  if (loading) return <p className="p-6 text-ink-500">Loading…</p>
+  if (loading) return <p className="p-6 text-ink-500">{t('Loading…')}</p>
   if (error || !event || event.sessions.length === 0) {
     return (
       <div className="p-6">
-        <p className="text-race-red">{error || 'Event not found.'}</p>
-        <Link to="/results" className="text-race-blue">← All results</Link>
+        <p className="text-race-red">{error || t('Event not found.')}</p>
+        <Link to="/results" className="text-race-blue">{t('← All results')}</Link>
       </div>
     )
   }
@@ -53,7 +55,7 @@ export function EventDetail() {
         right={<FlagBanner flag={session.snapshot?.race?.flag ?? 'finish'} compact />}
       />
       <main className="flex-1 space-y-4 p-4">
-        <Link to="/results" className="text-xs text-race-blue">← All results</Link>
+        <Link to="/results" className="text-xs text-race-blue">{t('← All results')}</Link>
 
         <div className="flex flex-wrap gap-2">
           {event.sessions.map((s, i) => (
@@ -61,7 +63,7 @@ export function EventDetail() {
               className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
                 i === active ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
               }`}>
-              {s.short_name || s.name || s.snapshot?.race?.run_type || `Session ${i + 1}`}
+              {s.short_name || s.name || s.snapshot?.race?.run_type || t('Session {n}', { n: i + 1 })}
             </button>
           ))}
         </div>

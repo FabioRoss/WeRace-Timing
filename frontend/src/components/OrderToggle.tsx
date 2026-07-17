@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../lib/i18n'
 
 export type OrderMode = 'race' | 'laptime'
 
@@ -20,6 +21,7 @@ export function OrderToggle({ mode, onChange }: {
   mode: OrderMode
   onChange: (m: OrderMode) => void
 }) {
+  const t = useT()
   const seg = (value: OrderMode, label: string) => (
     <button
       type="button"
@@ -33,9 +35,9 @@ export function OrderToggle({ mode, onChange }: {
   )
   return (
     <div className="flex items-center gap-1.5">
-      <span className="label-race mr-1">Order</span>
-      {seg('race', 'Default')}
-      {seg('laptime', 'Best lap')}
+      <span className="label-race mr-1">{t('Order')}</span>
+      {seg('race', t('Default'))}
+      {seg('laptime', t('Best lap'))}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { lapFraction, useServerNow } from '../lib/lapProgress'
 import type { DriverRow, Snapshot } from '../lib/types'
+import { useT } from '../lib/i18n'
 
 const CX = 150
 const CY = 150
@@ -60,6 +61,7 @@ export function TrackRing({
   compareColors?: Record<string, string>
   onSelectKart?: (kart: string) => void
 }) {
+  const t = useT()
   const serverNow = useServerNow(snapshot.updated_at)
   const prevFrac = useRef<Map<string, number>>(new Map())
   const prevMarkerFrac = useRef<number | null>(null)
@@ -290,7 +292,7 @@ export function TrackRing({
                 textAnchor="middle" dominantBaseline="central"
                 fontSize={7.5} fontWeight={700} fill="var(--color-race-green)"
               >
-                OUT
+                {t('OUT')}
               </text>
               {pitMarker.lost >= 1 && (
                 <text

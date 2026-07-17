@@ -11,6 +11,7 @@ import { TimesheetPanel } from '../components/TimesheetPanel'
 import { StoryStudio } from '../components/StoryStudio'
 import { TeamStoryStudio } from '../components/TeamStoryStudio'
 import { useSnapshotRecord } from '../lib/useSnapshot'
+import { useT } from '../lib/i18n'
 
 type Tab = 'result' | 'pdf' | 'story' | 'teamstory'
 
@@ -30,6 +31,7 @@ export function SnapshotEditor() {
 }
 
 function EditorInner() {
+  const t = useT()
   const { id = '' } = useParams()
   const url = `/api/admin/snapshots/${id}`
   const { record, error, loading, refetch } = useSnapshotRecord(url, true)
@@ -43,12 +45,12 @@ function EditorInner() {
   }, [snapshot])
   const leader = snapshot?.drivers?.[0]
 
-  if (loading) return <p className="p-6 text-ink-500">Loading…</p>
+  if (loading) return <p className="p-6 text-ink-500">{t('Loading…')}</p>
   if (error || !record || !snapshot) {
     return (
       <div className="p-6">
-        <p className="text-race-red">{error || 'Snapshot not found.'}</p>
-        <Link to="/admin/snapshots" className="text-race-blue">← Back to snapshots</Link>
+        <p className="text-race-red">{error || t('Snapshot not found.')}</p>
+        <Link to="/admin/snapshots" className="text-race-blue">{t('← Back to snapshots')}</Link>
       </div>
     )
   }
@@ -57,23 +59,23 @@ function EditorInner() {
     <div className="mx-auto flex min-h-full max-w-5xl flex-col">
       <PageHeader
         title={record.name || record.id}
-        subtitle={[record.track, `${record.driver_count ?? snapshot.drivers.length} karts`].filter(Boolean).join(' · ')}
+        subtitle={[record.track, t('{n} karts', { n: record.driver_count ?? snapshot.drivers.length })].filter(Boolean).join(' · ')}
         nav={<PageNav slot={String(record.slot ?? rememberedSlot())} />}
       />
       <main className="flex-1 space-y-4 p-4">
-        <Link to="/admin/snapshots" className="text-xs text-race-blue">← All snapshots</Link>
+        <Link to="/admin/snapshots" className="text-xs text-race-blue">{t('← All snapshots')}</Link>
 
         <DetailsCard record={record} url={url} onSaved={refetch} />
 
         <EventPicker record={record} onSaved={refetch} />
 
         <div className="flex gap-2">
-          {(['result', 'pdf', 'story', 'teamstory'] as const).map((t) => (
-            <button key={t} type="button" onClick={() => setTab(t)}
+          {(['result', 'pdf', 'story', 'teamstory'] as const).map((tabId) => (
+            <button key={tabId} type="button" onClick={() => setTab(tabId)}
               className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-                tab === t ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
+                tab === tabId ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
               }`}>
-              {TAB_LABELS[t]}
+              {t(TAB_LABELS[tabId])}
             </button>
           ))}
         </div>
@@ -85,7 +87,7 @@ function EditorInner() {
                 teamStoryConfig={record.team_story_config} />
             </div>
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-              <h3 className="label-race mb-3">Penalties &amp; adjustments</h3>
+              <h3 className="label-race mb-3">{t('Penalties & adjustments')}</h3>
               <PenaltyEditor
                 apiBase={url}
                 drivers={snapshot.drivers}
@@ -134,6 +136,7 @@ function EventPicker({ record, onSaved }: {
   record: { id: string; track: string; group_id?: string | null; group_name?: string }
   onSaved: () => void
 }) {
+  const t = useT()
   const [groups, setGroups] = useState<{ id: string; name: string; track: string }[]>([])
   const [newName, setNewName] = useState('')
   const [msg, setMsg] = useState('')
@@ -150,7 +153,7 @@ function EventPicker({ record, onSaved }: {
       await api('/api/admin/snapshot-groups/assign', {
         method: 'POST', safeword: true, body: { snapshot_ids: [record.id], ...body },
       })
-      setErr(''); setNewName(''); setMsg('Saved ✓'); setTimeout(() => setMsg(''), 2500)
+      setErr(''); setNewName(''); setMsg(t('Saved ✓')); setTimeout(() => setMsg(''), 2500)
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -162,11 +165,11 @@ function EventPicker({ record, onSaved }: {
 
   return (
     <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-      <h3 className="label-race mb-2">Event</h3>
+      <h3 className="label-race mb-2">{t('Event')}</h3>
       <p className="mb-3 text-sm text-ink-300">
         {record.group_name
-          ? <>In event <span className="font-bold text-race-red">{record.group_name}</span>.</>
-          : <span className="text-ink-500">Not in an event — grouped sessions share one public page.</span>}
+          ? <>{t('In event')} <span className="font-bold text-race-red">{record.group_name}</span>.</>
+          : <span className="text-ink-500">{t('Not in an event — grouped sessions share one public page.')}</span>}
       </p>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {options.length > 0 && (
@@ -174,25 +177,25 @@ function EventPicker({ record, onSaved }: {
             value={record.group_id ?? ''}
             onChange={(e) => { if (e.target.value) void assign({ group_id: e.target.value }) }}
             className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600">
-            <option value="">Move to event…</option>
+            <option value="">{t('Move to event…')}</option>
             {options.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         )}
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder="New event name"
+          placeholder={t('New event name')}
           className="rounded bg-pit-950 px-2 py-1 text-xs ring-1 ring-pit-600 focus:ring-race-red"
         />
         <button type="button" disabled={!newName.trim()}
           onClick={() => void assign({ group_name: newName.trim() })}
           className="rounded bg-race-red px-3 py-1 text-xs font-bold uppercase text-white hover:brightness-110 disabled:opacity-40">
-          Create event
+          {t('Create event')}
         </button>
         {record.group_id && (
           <button type="button" onClick={() => void assign({})}
             className="rounded bg-pit-700 px-3 py-1 text-xs font-bold uppercase hover:bg-pit-600">
-            Remove from event
+            {t('Remove from event')}
           </button>
         )}
         {msg && <span className="text-xs text-race-green">{msg}</span>}
@@ -207,6 +210,7 @@ function DetailsCard({ record, url, onSaved }: {
   url: string
   onSaved: () => void
 }) {
+  const t = useT()
   const [name, setName] = useState(record.name)
   const [shortName, setShortName] = useState(record.short_name ?? '')
   const [track, setTrack] = useState(record.track)
@@ -225,35 +229,35 @@ function DetailsCard({ record, url, onSaved }: {
   const save = () => {
     void patch({ name: name.trim(), short_name: shortName.trim(), track: track.trim(),
                  private_notes: priv, public_notes: pub })
-      .then(() => { setSaved('Saved ✓'); setTimeout(() => setSaved(''), 2500) })
+      .then(() => { setSaved(t('Saved ✓')); setTimeout(() => setSaved(''), 2500) })
   }
 
   return (
     <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
-          <span className="label-race">Name</span>
+          <span className="label-race">{t('Name')}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120}
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
         <label className="block">
-          <span className="label-race">Short name (event tab label)</span>
+          <span className="label-race">{t('Short name (event tab label)')}</span>
           <input value={shortName} onChange={(e) => setShortName(e.target.value)} maxLength={40}
-            placeholder="e.g. Practice, Quali, Race"
+            placeholder={t('e.g. Practice, Quali, Race')}
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
         <label className="block">
-          <span className="label-race">Track</span>
+          <span className="label-race">{t('Track')}</span>
           <input value={track} onChange={(e) => setTrack(e.target.value)} maxLength={120}
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
         <label className="block">
-          <span className="label-race">Private notes (staff only)</span>
+          <span className="label-race">{t('Private notes (staff only)')}</span>
           <textarea value={priv} onChange={(e) => setPriv(e.target.value)} rows={2} maxLength={5000}
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
         <label className="block">
-          <span className="label-race">Public notes (shown on the results page)</span>
+          <span className="label-race">{t('Public notes (shown on the results page)')}</span>
           <textarea value={pub} onChange={(e) => setPub(e.target.value)} rows={2} maxLength={5000}
             className="mt-1 w-full rounded bg-pit-950 px-3 py-2 text-sm ring-1 ring-pit-600 focus:ring-race-red" />
         </label>
@@ -261,19 +265,19 @@ function DetailsCard({ record, url, onSaved }: {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={save}
           className="rounded bg-race-red px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110">
-          Save details
+          {t('Save details')}
         </button>
         <button type="button" onClick={() => void patch({ published: !record.published })}
           className={`rounded px-3 py-1.5 text-xs font-bold uppercase ${
             record.published ? 'bg-race-green text-pit-950' : 'bg-pit-700 hover:bg-pit-600'
           }`}>
-          {record.published ? 'Published — click to unpublish' : 'Publish'}
+          {record.published ? t('Published — click to unpublish') : t('Publish')}
         </button>
         <button type="button" onClick={() => void patch({ keep: !record.keep })}
           className={`rounded px-3 py-1.5 text-xs font-bold uppercase ${
             record.keep ? 'bg-race-blue text-white' : 'bg-pit-700 hover:bg-pit-600'
           }`}>
-          {record.keep ? 'Kept forever' : 'Keep forever'}
+          {record.keep ? t('Kept forever') : t('Keep forever')}
         </button>
         {saved && <span className="text-xs text-race-green">{saved}</span>}
       </div>

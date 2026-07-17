@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Penalty } from '../lib/types'
 import { penaltyBadgeClass, penaltyKindLabel, penaltyLabel } from '../lib/penalties'
+import { useT } from '../lib/i18n'
 
 /**
  * Shared penalties & warnings log. Rendered on every dashboard
@@ -16,6 +17,7 @@ export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onR
   onServe?: (id: number, served: boolean) => void
   onRemove?: (id: number) => void
 }) {
+  const t = useT()
   const rows = useMemo(() => {
     const list = filterKart ? penalties.filter((p) => p.kart_no === filterKart) : penalties
     // Newest first.
@@ -23,7 +25,7 @@ export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onR
   }, [penalties, filterKart])
 
   if (rows.length === 0) {
-    return <p className="text-sm text-ink-500">{empty ?? 'No penalties or warnings.'}</p>
+    return <p className="text-sm text-ink-500">{empty ?? t('No penalties or warnings.')}</p>
   }
 
   return (
@@ -34,21 +36,21 @@ export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onR
             <span className="min-w-[2.5rem] font-timing font-bold">#{p.kart_no}</span>
           )}
           <span className={`rounded px-1.5 py-0.5 text-[0.65rem] font-bold ${penaltyBadgeClass(p)}`}>
-            {penaltyLabel(p)}
+            {t(penaltyLabel(p))}
           </span>
           <span className="flex-1 truncate">
-            <span className="text-ink-300">{penaltyKindLabel(p)}</span>
+            <span className="text-ink-300">{t(penaltyKindLabel(p))}</span>
             {p.reason && <span className="text-ink-100"> — {p.reason}</span>}
           </span>
           {p.kind === 'time' && !onServe && (
             <span className={`text-[0.65rem] font-semibold uppercase ${
               p.served ? 'text-race-green' : 'text-race-yellow'
             }`}>
-              {p.served ? 'served' : 'to serve'}
+              {p.served ? t('served') : t('to serve')}
             </span>
           )}
           {p.kind === 'lap' && !onRemove && (
-            <span className="text-[0.65rem] font-semibold uppercase text-ink-500">after race</span>
+            <span className="text-[0.65rem] font-semibold uppercase text-ink-500">{t('after race')}</span>
           )}
           {onServe && p.kind === 'time' && (
             <button
@@ -58,7 +60,7 @@ export function PenaltyLog({ penalties, filterKart, compact, empty, onServe, onR
                 p.served ? 'bg-pit-700 text-ink-300' : 'bg-race-green text-pit-950'
               }`}
             >
-              {p.served ? 'unserve' : 'serve'}
+              {p.served ? t('unserve') : t('serve')}
             </button>
           )}
           {onRemove && (

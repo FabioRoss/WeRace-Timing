@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import { PenaltyLog } from './PenaltyLog'
 import { LAP_PENALTY_PRESETS, PENALTY_REASONS, TIME_PENALTY_PRESETS } from '../lib/penalties'
 import type { DriverRow, Penalty } from '../lib/types'
+import { useT } from '../lib/i18n'
 
 /**
  * Assign / serve / remove penalties, with a summed "to serve in pit" panel and
@@ -20,6 +21,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
   // corrections. Snapshot-only; live Race Control leaves it off.
   allowAdjust?: boolean
 }) {
+  const t = useT()
   const [penKart, setPenKart] = useState('')
   const [penKind, setPenKind] = useState<'time' | 'lap' | 'warning' | 'adjust'>('time')
   const [penSeconds, setPenSeconds] = useState(10)
@@ -77,10 +79,10 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
 
   const assign = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!penKart) { setError('Select a kart'); return }
-    if (penKind === 'time' && penSeconds <= 0) { setError('Enter penalty seconds'); return }
-    if (penKind === 'lap' && penLaps <= 0) { setError('Enter penalty laps'); return }
-    if (penKind === 'adjust' && !adjustSec) { setError('Enter a non-zero adjustment'); return }
+    if (!penKart) { setError(t('Select a kart')); return }
+    if (penKind === 'time' && penSeconds <= 0) { setError(t('Enter penalty seconds')); return }
+    if (penKind === 'lap' && penLaps <= 0) { setError(t('Enter penalty laps')); return }
+    if (penKind === 'adjust' && !adjustSec) { setError(t('Enter a non-zero adjustment')); return }
     const body = {
       kart_no: penKart,
       kind: penKind,
@@ -88,10 +90,10 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
       laps: penKind === 'lap' ? penLaps : 0,
       reason: penReason.trim(),
     }
-    const noun = penKind === 'warning' ? 'Warning' : penKind === 'adjust' ? 'Adjustment' : 'Penalty'
+    const noun = penKind === 'warning' ? t('Warning') : penKind === 'adjust' ? t('Adjustment') : t('Penalty')
     void run(async () => {
       await api(`${apiBase}/penalty`, { body, safeword: true })
-      setSent(`${noun} applied to #${penKart}`)
+      setSent(t('{noun} applied to #{kart}', { noun, kart: penKart }))
       setPenReason('')
       setTimeout(() => setSent(''), 3000)
     })
@@ -104,12 +106,16 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
       api(`${apiBase}/penalty/${id}/served`, { body: { served: true }, safeword: true }))))
   const remove = (id: number) => {
     const p = penalties.find((x) => x.id === id)
-    const what = p ? `the ${p.kind === 'warning' ? 'warning' : 'penalty'} for #${p.kart_no}` : 'this penalty'
-    if (!window.confirm(`Remove ${what}? This cannot be undone.`)) return
+    const what = p
+      ? (p.kind === 'warning'
+          ? t('the warning for #{kart}', { kart: p.kart_no })
+          : t('the penalty for #{kart}', { kart: p.kart_no }))
+      : t('this penalty')
+    if (!window.confirm(t('Remove {what}? This cannot be undone.', { what }))) return
     void run(() => api(`${apiBase}/penalty/${id}`, { method: 'DELETE', safeword: true }))
   }
   const revert = () => {
-    if (!window.confirm('Revert to the as-finished penalties? Amendments will be lost.')) return
+    if (!window.confirm(t('Revert to the as-finished penalties? Amendments will be lost.'))) return
     void run(() => api(`${apiBase}/penalty/revert`, { safeword: true }))
   }
 
@@ -118,13 +124,13 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
       {/* Assign */}
       <form onSubmit={assign} className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="label-race text-ink-500">Kart</span>
+          <span className="label-race text-ink-500">{t('Kart')}</span>
           <select
             value={penKart}
             onChange={(e) => setPenKart(e.target.value)}
             className="rounded bg-pit-950 px-2 py-1.5 ring-1 ring-pit-600 focus:ring-race-blue"
           >
-            <option value="">Select…</option>
+            <option value="">{t('Select…')}</option>
             {karts.map((d) => (
               <option key={d.kart_no} value={d.kart_no}>
                 #{d.kart_no}{d.name ? ` — ${d.name}` : ''}
@@ -141,7 +147,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
                   ? (k === 'adjust' ? 'bg-race-blue text-white' : 'bg-race-red text-white')
                   : 'bg-pit-700'
               }`}>
-              {lbl}
+              {t(lbl)}
             </button>
           ))}
         </div>
@@ -158,7 +164,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
             <input type="number" min={1} max={3600} value={penSeconds}
               onChange={(e) => setPenSeconds(Math.max(0, parseInt(e.target.value, 10) || 0))}
               className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
-            <span className="text-xs text-ink-500">seconds</span>
+            <span className="text-xs text-ink-500">{t('seconds')}</span>
           </div>
         )}
         {penKind === 'adjust' && (
@@ -175,10 +181,11 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
               <input type="number" min={-3600} max={3600} value={adjustSec}
                 onChange={(e) => setAdjustSec(parseInt(e.target.value, 10) || 0)}
                 className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
-              <span className="text-xs text-ink-500">seconds</span>
+              <span className="text-xs text-ink-500">{t('seconds')}</span>
             </div>
             <p className="text-[0.65rem] text-ink-500">
-              A neutral timing correction (not a penalty). <b>+</b> adds time, <b>−</b> credits it back.
+              {t('A neutral timing correction (not a penalty).')}{' '}
+              <b>+</b> {t('adds time,')} <b>−</b> {t('credits it back.')}
             </p>
           </div>
         )}
@@ -195,7 +202,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
             <input type="number" min={1} max={100} value={penLaps}
               onChange={(e) => setPenLaps(Math.max(0, parseInt(e.target.value, 10) || 0))}
               className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
-            <span className="text-xs text-ink-500">laps</span>
+            <span className="text-xs text-ink-500">{t('laps')}</span>
           </div>
         )}
         {penKind !== 'adjust' && (
@@ -203,17 +210,17 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
             {PENALTY_REASONS.map((r) => (
               <button key={r} type="button" onClick={() => setPenReason(r)}
                 className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
-                {r}
+                {t(r)}
               </button>
             ))}
           </div>
         )}
         <input value={penReason} onChange={(e) => setPenReason(e.target.value)} maxLength={120}
-          placeholder={penKind === 'adjust' ? 'Reason, e.g. early pit release (optional)…' : 'Reason (optional)…'}
+          placeholder={penKind === 'adjust' ? t('Reason, e.g. early pit release (optional)…') : t('Reason (optional)…')}
           className="w-full rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue" />
         <button type="submit" disabled={busy || !penKart}
           className="rounded bg-race-red px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110">
-          Assign
+          {t('Assign')}
         </button>
         {sent && <p className="text-xs text-race-green">{sent}</p>}
         {error && <p className="text-xs text-race-red">{error}</p>}
@@ -221,9 +228,9 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
 
       {/* To serve in pit (outstanding time penalties, summed per kart) */}
       <div>
-        <h4 className="label-race mb-2 text-race-yellow">To serve in pit</h4>
+        <h4 className="label-race mb-2 text-race-yellow">{t('To serve in pit')}</h4>
         {toServeGroups.length === 0 ? (
-          <p className="text-sm text-ink-500">No time penalties outstanding.</p>
+          <p className="text-sm text-ink-500">{t('No time penalties outstanding.')}</p>
         ) : (
           <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
             {toServeGroups.map((g) => (
@@ -234,7 +241,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
                 <span className="min-w-[2.5rem] font-timing font-bold">#{g.kart}</span>
                 {inPit.has(g.kart) && (
                   <span className="rounded bg-race-red px-1.5 py-0.5 text-[0.6rem] font-bold text-white">
-                    IN PIT
+                    {t('IN PIT')}
                   </span>
                 )}
                 <span className="flex-1 truncate">
@@ -243,12 +250,12 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
                     <span className="text-ink-300"> — {[...new Set(g.reasons)].join(', ')}</span>
                   )}
                   {g.ids.length > 1 && (
-                    <span className="ml-1 text-[0.65rem] text-ink-500">({g.ids.length} penalties)</span>
+                    <span className="ml-1 text-[0.65rem] text-ink-500">({t('{n} penalties', { n: g.ids.length })})</span>
                   )}
                 </span>
                 <button type="button" onClick={() => serveKart(g.ids)}
                   className="rounded bg-race-green px-2 py-0.5 text-[0.65rem] font-bold uppercase text-pit-950">
-                  serve
+                  {t('serve')}
                 </button>
               </li>
             ))}
@@ -259,11 +266,11 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
       {/* Full log */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h4 className="label-race">All penalties &amp; warnings</h4>
+          <h4 className="label-race">{t('All penalties & warnings')}</h4>
           {canRevert && (
             <button type="button" onClick={revert} disabled={busy}
               className="rounded bg-pit-700 px-2 py-0.5 text-[0.65rem] font-bold uppercase text-ink-300 hover:bg-pit-600 disabled:opacity-40">
-              revert
+              {t('revert')}
             </button>
           )}
         </div>

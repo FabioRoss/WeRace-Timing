@@ -7,6 +7,7 @@ import { TrackRing } from './TrackRing'
 import { lapFraction, useServerNow } from '../lib/lapProgress'
 import type { Snapshot } from '../lib/types'
 import type { TeamStoryConfig } from '../lib/teamStoryRender'
+import { useT } from '../lib/i18n'
 import { fmtGap, fmtLap, fmtSector } from '../lib/format'
 
 interface Props {
@@ -52,6 +53,7 @@ export function TimingTable({
   selectable = false, selectedKarts, compareColors, onToggleKart,
   lapsBase, safeword, teamStoryConfig,
 }: Props) {
+  const t = useT()
   const { drivers, session_best_kart } = snapshot
   const byLapTime = orderMode === 'laptime'
 
@@ -145,11 +147,11 @@ export function TimingTable({
               </th>
             )}
             <th className={pad}>
-              <span className="sm:hidden">P</span>
-              <span className="hidden sm:inline">Pos</span>
+              <span className="sm:hidden">{t('P')}</span>
+              <span className="hidden sm:inline">{t('Pos')}</span>
             </th>
-            <th className={pad}>Kart</th>
-            <th className={`${pad} font-display`}>Team</th>
+            <th className={pad}>{t('Kart')}</th>
+            <th className={`${pad} font-display`}>{t('Team')}</th>
             {hasSectors && (
               <>
                 <th className={`${pad} text-right ${wide}`}>S1</th>
@@ -157,16 +159,16 @@ export function TimingTable({
                 <th className={`${pad} text-right ${wide}`}>S3</th>
               </>
             )}
-            <th className={`${pad} text-right`}>Last</th>
-            <th className={`${pad} text-right`}>Best</th>
-            <th className={`${pad} text-right`}>Gap</th>
-            <th className={`${pad} text-right ${side}`}>Int</th>
+            <th className={`${pad} text-right`}>{t('Last')}</th>
+            <th className={`${pad} text-right`}>{t('Best')}</th>
+            <th className={`${pad} text-right`}>{t('Gap')}</th>
+            <th className={`${pad} text-right ${side}`}>{t('Int')}</th>
             <th className={`${pad} text-right`}>
-              <span className="sm:hidden">Lap</span>
-              <span className="hidden sm:inline">Laps</span>
+              <span className="sm:hidden">{t('Lap')}</span>
+              <span className="hidden sm:inline">{t('Laps')}</span>
             </th>
             {hasSpeed && <th className={`${pad} text-right ${wide}`}>kph</th>}
-            <th className={`${pad} text-right ${side}`}>Pits</th>
+            <th className={`${pad} text-right ${side}`}>{t('Pits')}</th>
           </tr>
         </thead>
         <tbody>
@@ -198,7 +200,7 @@ export function TimingTable({
                       <span
                         className="inline-block h-3.5 w-3.5 rounded-sm align-middle"
                         style={{ background: SERIES_COLORS.own }}
-                        title="your kart (always shown)"
+                        title={t('your kart (always shown)')}
                       />
                     ) : (
                       <input
@@ -225,26 +227,26 @@ export function TimingTable({
                   {d.name || '—'}
                   {d.pit_state === 'in' || d.in_pit ? (
                     <span className="ml-2 rounded bg-race-yellow px-1 text-[0.6rem] font-bold text-pit-950 align-middle">
-                      PIT
+                      {t('PIT')}
                     </span>
                   ) : d.pit_state === 'out' ? (
                     <span className="ml-2 rounded bg-race-green px-1 text-[0.6rem] font-bold text-pit-950 align-middle">
-                      OUT
+                      {t('OUT')}
                     </span>
                   ) : null}
                   {d.finished && (
-                    <span className="ml-2 text-[0.6rem] text-ink-500 align-middle">FIN</span>
+                    <span className="ml-2 text-[0.6rem] text-ink-500 align-middle">{t('FIN')}</span>
                   )}
                   {penalizedKarts.has(d.kart_no) && (
                     <span className="ml-2 rounded bg-race-red px-1 text-[0.6rem] font-bold text-white align-middle"
-                      title="Outstanding penalty">
-                      PEN
+                      title={t('Outstanding penalty')}>
+                      {t('PEN')}
                     </span>
                   )}
                   {adjustedKarts.has(d.kart_no) && (
                     <span className="ml-2 rounded bg-race-blue px-1 text-[0.6rem] font-bold text-white align-middle"
-                      title="Time adjustment applied">
-                      ADJ
+                      title={t('Time adjustment applied')}>
+                      {t('ADJ')}
                     </span>
                   )}
                 </td>

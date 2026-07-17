@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import type { LapPoint } from '../lib/types'
 import { COMPARE_COLORS, LapTimeChart, SERIES_COLORS, type ChartSeries } from './LapCharts'
+import { useT } from '../lib/i18n'
 
 // Distinct series colours, cycled when more karts than colours are picked.
 const PALETTE = [SERIES_COLORS.own, ...COMPARE_COLORS, '#a78bfa', '#f43f5e'] as const
@@ -23,6 +24,7 @@ export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts
   safeword?: boolean
   maxKarts?: number
 }) {
+  const t = useT()
   const karts = useMemo(() => drivers.map((d) => d.kart_no).filter(Boolean), [drivers])
   const [selected, setSelected] = useState<string[]>(() => karts.slice(0, 3))
   const [laps, setLaps] = useState<Record<string, LapPoint[]>>({})
@@ -61,7 +63,7 @@ export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts
   return (
     <div className="space-y-3">
       <div>
-        <div className="label-race mb-2">Lap times — pick up to {maxKarts} karts</div>
+        <div className="label-race mb-2">{t('Lap times — pick up to {n} karts', { n: maxKarts })}</div>
         <div className="flex flex-wrap gap-1.5">
           {drivers.map((d) => {
             const on = selected.includes(d.kart_no)

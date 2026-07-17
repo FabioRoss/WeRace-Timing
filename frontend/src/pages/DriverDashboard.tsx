@@ -7,6 +7,7 @@ import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { MessageOverlay } from '../components/MessageOverlay'
 import { PenaltyLog } from '../components/PenaltyLog'
 import { flagAccent } from '../components/FlagBanner'
+import { useT } from '../lib/i18n'
 
 const FLAG_LABEL: Record<string, string> = {
   green: 'GREEN', yellow: 'YELLOW', red: 'RED', finish: 'FINISH',
@@ -14,6 +15,7 @@ const FLAG_LABEL: Record<string, string> = {
 }
 
 export function DriverDashboard() {
+  const t = useT()
   const { slot = '1', token = '' } = useParams()
   const [view, setView] = useState<DriverView | null>(null)
   const [message, setMessage] = useState<RaceMessage | null>(null)
@@ -31,8 +33,8 @@ export function DriverDashboard() {
   // Wake lock + tick for staleness display
   useWakeLock()
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   // Glow briefly when the driver crosses the start/finish line
@@ -45,8 +47,8 @@ export function DriverDashboard() {
     prevLap.current = laps
     if (prev !== undefined && laps > prev && !view?.in_pit) {
       setGlow(true)
-      const t = setTimeout(() => setGlow(false), 1500)
-      return () => clearTimeout(t)
+      const timer = setTimeout(() => setGlow(false), 1500)
+      return () => clearTimeout(timer)
     }
   }, [view?.laps, view?.in_pit])
 
@@ -65,11 +67,11 @@ export function DriverDashboard() {
       <Shell accent={accent} onTap={requestFullscreen}>
         <div className="grid flex-1 place-items-center px-8 text-center">
           <div>
-            <div className="label-race mb-2">Waiting for timing</div>
+            <div className="label-race mb-2">{t('Waiting for timing')}</div>
             <p className="text-xl text-ink-300">
-              Your kart isn't in the live feed yet.
+              {t("Your kart isn't in the live feed yet.")}
               <br />
-              This screen starts automatically when the session begins.
+              {t('This screen starts automatically when the session begins.')}
             </p>
             {view.time_to_go && (
               <p className="timing mt-6 text-5xl font-bold">{view.time_to_go}</p>
@@ -87,7 +89,7 @@ export function DriverDashboard() {
       {/* Top strip: session + flag + position */}
       <div className="flex items-stretch justify-between gap-3 px-4 pt-2">
         <div className="min-w-0">
-          <div className="label-race">Remaining</div>
+          <div className="label-race">{t('Remaining')}</div>
           <div className="timing truncate text-3xl font-extrabold leading-none sm:text-4xl">
             {remaining}
           </div>
@@ -98,17 +100,17 @@ export function DriverDashboard() {
               className="rounded px-3 py-1 text-sm font-extrabold tracking-[0.2em]"
               style={{ background: accent, color: '#07080c' }}
             >
-              {FLAG_LABEL[view.flag]}
+              {t(FLAG_LABEL[view.flag])}
             </span>
           )}
           {stale && (
             <span className="ml-2 rounded bg-pit-700 px-2 py-1 text-xs text-race-yellow msg-flash">
-              STALE
+              {t('STALE')}
             </span>
           )}
         </div>
         <div className="shrink-0 text-right">
-          <div className="label-race">Position</div>
+          <div className="label-race">{t('Position')}</div>
           <div className="leading-none">
             <span className="timing text-4xl font-extrabold sm:text-5xl">
               {view?.position || '–'}
@@ -121,21 +123,21 @@ export function DriverDashboard() {
       {/* Middle: gaps + last lap */}
       <div className="grid flex-1 grid-cols-3 items-center gap-2 px-4">
         <GapCell
-          label={`Ahead ${view?.kart_ahead ? `· #${view.kart_ahead}` : ''}`}
-          value={view?.position === 1 ? 'LEADER' : fmtGap(view?.gap_ahead)}
+          label={`${t('Ahead')} ${view?.kart_ahead ? `· #${view.kart_ahead}` : ''}`}
+          value={view?.position === 1 ? t('LEADER') : fmtGap(view?.gap_ahead)}
           tone="text-race-green"
         />
         <div className="min-w-0 text-center">
-          <div className="label-race">Last lap</div>
+          <div className="label-race">{t('Last lap')}</div>
           <div className="timing truncate text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
             {fmtLap(view?.last_lap_ms)}
           </div>
           <div className="mt-1 text-sm text-ink-500 timing">
-            best {fmtLap(view?.best_lap_ms)}
+            {t('best {v}', { v: fmtLap(view?.best_lap_ms) })}
           </div>
         </div>
         <GapCell
-          label={`Behind ${view?.kart_behind ? `· #${view.kart_behind}` : ''}`}
+          label={`${t('Behind')} ${view?.kart_behind ? `· #${view.kart_behind}` : ''}`}
           value={fmtGap(view?.gap_behind)}
           tone="text-race-red"
           right
@@ -144,11 +146,11 @@ export function DriverDashboard() {
 
       {/* Bottom strip */}
       <div className="grid grid-cols-4 gap-2 px-4 pb-3">
-        <Stat label="Stint" value={view?.stint_seconds != null ? fmtClock(view.stint_seconds) : '--:--'} />
-        <Stat label="Laps" value={String(view?.laps ?? '–')} />
-        <Stat label="Pits" value={String(view?.pits ?? '–')} />
+        <Stat label={t('Stint')} value={view?.stint_seconds != null ? fmtClock(view.stint_seconds) : '--:--'} />
+        <Stat label={t('Laps')} value={String(view?.laps ?? '–')} />
+        <Stat label={t('Pits')} value={String(view?.pits ?? '–')} />
         <Stat
-          label="Kart"
+          label={t('Kart')}
           value={view?.kart_no ? `#${view.kart_no}` : '–'}
           sub={view?.name}
         />
@@ -157,7 +159,7 @@ export function DriverDashboard() {
       {/* Penalties & warnings — only shown when the driver has any */}
       {view?.penalties && view.penalties.length > 0 && (
         <div className="px-4 pb-3">
-          <div className="label-race mb-1 text-race-red">Penalties &amp; warnings</div>
+          <div className="label-race mb-1 text-race-red">{t('Penalties & warnings')}</div>
           <PenaltyLog penalties={view.penalties} filterKart={view.kart_no} compact />
         </div>
       )}

@@ -12,6 +12,7 @@ import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
 import { PenaltyEditor } from '../components/PenaltyEditor'
+import { useT } from '../lib/i18n'
 import type { RaceMessage, SourceStatus } from '../lib/types'
 
 interface CatalogEntry {
@@ -39,6 +40,7 @@ export function RaceControl() {
 }
 
 function RaceControlInner() {
+  const t = useT()
   const { slot = '1' } = useParams()
   const { snapshot, messages, status } = useLive(slot)
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
@@ -110,13 +112,13 @@ function RaceControlInner() {
     if (source.connected && !prev?.connected) {
       lastErrorRef.current = ''
       console.info(`[timing source] connected to ${source.label || source.url}`)
-      if (prev) push('success', `Connected to ${source.label || source.url}`)
+      if (prev) push('success', t('Connected to {name}', { name: source.label || source.url || '' }))
     }
     if (prev?.connected && !source.connected && !source.error) {
       console.info('[timing source] disconnected')
-      push('info', 'Timing source disconnected')
+      push('info', t('Timing source disconnected'))
     }
-  }, [source, push, reportSourceError])
+  }, [source, push, reportSourceError, t])
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -141,7 +143,7 @@ function RaceControlInner() {
       config = { kind: 'replay', label: `Replay ${replayFile}`, file: replayFile, speed: 1 }
     } else {
       const entry = catalog.find((c) => c.label === selected)
-      if (!entry) throw new Error('Pick a source first')
+      if (!entry) throw new Error(t('Pick a source first'))
       config = entry
     }
     lastErrorRef.current = ''
@@ -151,10 +153,10 @@ function RaceControlInner() {
     // The backend waits for the first connect attempt, so this is a real outcome.
     if (r.source?.error && !r.source.connected) {
       reportSourceError(r.source.label || r.source.url, r.source.error)
-      setError(`Connect failed: ${r.source.error}`)
+      setError(t('Connect failed: {error}', { error: r.source.error }))
     } else if (!r.source?.connected) {
       console.warn('[timing source] no response yet, still trying:', r.source?.url)
-      push('info', 'No response from the timing server yet — still trying in the background')
+      push('info', t('No response from the timing server yet — still trying in the background'))
     }
   })
 
@@ -170,7 +172,7 @@ function RaceControlInner() {
     api(`/e/${slot}/api/admin/replay/seek`, { body: { fraction }, safeword: true }))
 
   const deleteRecording = (name: string) => {
-    if (!window.confirm(`Delete recording “${name}”? This cannot be undone.`)) return
+    if (!window.confirm(t('Delete recording “{name}”? This cannot be undone.', { name }))) return
     void act(() =>
       api(`/api/admin/recordings/${encodeURIComponent(name)}`, {
         method: 'DELETE', safeword: true,
@@ -178,7 +180,7 @@ function RaceControlInner() {
   }
 
   const resetEvent = () => {
-    if (window.confirm(`Reset all data for event ${slot}? (standings, laps, messages)`)) {
+    if (window.confirm(t('Reset all data for event {slot}? (standings, laps, messages)', { slot }))) {
       void act(() => api(`/e/${slot}/api/admin/reset`, { method: 'POST', safeword: true }))
     }
   }
@@ -188,7 +190,7 @@ function RaceControlInner() {
     if (!text.trim()) return
     const karts = target === 'select' ? [...selectedKarts] : null
     if (target === 'select' && karts!.length === 0) {
-      setError('Select at least one kart')
+      setError(t('Select at least one kart'))
       return
     }
     void act(async () => {
@@ -196,7 +198,7 @@ function RaceControlInner() {
         body: { text: text.trim(), target: karts, priority }, safeword: true,
       })
       setText('')
-      setSent(karts ? `Sent to ${karts.map((k) => `#${k}`).join(', ')}` : 'Sent to all drivers')
+      setSent(karts ? t('Sent to {karts}', { karts: karts.map((k) => `#${k}`).join(', ') }) : t('Sent to all drivers'))
       setTimeout(() => setSent(''), 3000)
     })
   }
@@ -212,7 +214,7 @@ function RaceControlInner() {
 
   const saveSnapshot = () => act(async () => {
     await api(`/e/${slot}/api/admin/snapshots`, { method: 'POST', safeword: true })
-    setSnapSaved('Saved ✓')
+    setSnapSaved(t('Saved ✓'))
     setTimeout(() => setSnapSaved(''), 3000)
   })
 
@@ -235,13 +237,13 @@ function RaceControlInner() {
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
       <ToastStack toasts={toasts} dismiss={dismiss} />
       <PageHeader
-        title={`Race Control — Event ${slot}`}
+        title={t('Race Control — Event {slot}', { slot })}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
         nav={<PageNav slot={slot} />}
         right={
           <>
             <div className="hidden text-right sm:block">
-              <div className="label-race">Remaining</div>
+              <div className="label-race">{t('Remaining')}</div>
               <div className="timing font-bold">
                 {race ? fmtRemaining(race, serverNow) : '--:--'}
               </div>
@@ -256,14 +258,14 @@ function RaceControlInner() {
         {/* Source control */}
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <div className="mb-3 flex gap-2">
-            {(['source', 'config'] as const).map((t) => (
+            {(['source', 'config'] as const).map((tab) => (
               <button
-                key={t}
+                key={tab}
                 type="button"
-                onClick={() => setCfgTab(t)}
-                className={`label-race rounded px-2 py-1 ${cfgTab === t ? 'bg-pit-700 text-ink-100' : 'text-ink-500 hover:text-ink-300'}`}
+                onClick={() => setCfgTab(tab)}
+                className={`label-race rounded px-2 py-1 ${cfgTab === tab ? 'bg-pit-700 text-ink-100' : 'text-ink-500 hover:text-ink-300'}`}
               >
-                {t === 'source' ? 'Timing source' : 'Configuration'}
+                {tab === 'source' ? t('Timing source') : t('Configuration')}
               </button>
             ))}
           </div>
@@ -273,10 +275,10 @@ function RaceControlInner() {
               <span className={`h-2.5 w-2.5 rounded-full ${source?.connected ? 'bg-race-green' : 'bg-race-red'}`} />
               <span className="truncate">
                 {source?.connected
-                  ? `${source.label || source.url} · ${source.frames_received} frames`
+                  ? t('{name} · {n} frames', { name: source.label || source.url || '', n: source.frames_received })
                   : source?.error
-                    ? `Disconnected: ${source.error}`
-                    : 'Not connected'}
+                    ? t('Disconnected: {error}', { error: source.error })
+                    : t('Not connected')}
               </span>
             </div>
             <select
@@ -284,12 +286,12 @@ function RaceControlInner() {
               onChange={(e) => setSelected(e.target.value)}
               className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
             >
-              <option value="">— pick a track —</option>
+              <option value="">{t('— pick a track —')}</option>
               {catalog.map((c) => (
                 <option key={c.label} value={c.label}>{c.label}</option>
               ))}
-              <option value="__custom__">Custom websocket URL…</option>
-              <option value="__replay__">Replay a recording…</option>
+              <option value="__custom__">{t('Custom websocket URL…')}</option>
+              <option value="__replay__">{t('Replay a recording…')}</option>
             </select>
             {selected === '__custom__' && (
               <div className="flex flex-wrap gap-2">
@@ -298,8 +300,8 @@ function RaceControlInner() {
                   onChange={(e) => setCustomKind(e.target.value as 'apex' | 'mywer')}
                   className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600"
                 >
-                  <option value="apex">Apex</option>
-                  <option value="mywer">MyWeR</option>
+                  <option value="apex">{t('Apex')}</option>
+                  <option value="mywer">{t('MyWeR')}</option>
                 </select>
                 <input
                   value={customUrl}
@@ -315,32 +317,32 @@ function RaceControlInner() {
                 onChange={(e) => setReplayFile(e.target.value)}
                 className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
               >
-                <option value="">— pick a recording —</option>
+                <option value="">{t('— pick a recording —')}</option>
                 {recordings.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
               </select>
             )}
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={connect} disabled={busy || !selected}
                 className="rounded bg-race-green px-3 py-1.5 text-sm font-bold uppercase text-pit-950 disabled:opacity-40">
-                Connect
+                {t('Connect')}
               </button>
               <button type="button" onClick={disconnect} disabled={busy}
                 className="rounded bg-pit-700 px-3 py-1.5 text-sm font-bold uppercase disabled:opacity-40">
-                Disconnect
+                {t('Disconnect')}
               </button>
               <button type="button" onClick={toggleRecording} disabled={busy || !source?.connected}
                 className={`rounded px-3 py-1.5 text-sm font-bold uppercase disabled:opacity-40 ${
                   source?.recording ? 'bg-race-red msg-flash' : 'bg-pit-700'
                 }`}>
-                {source?.recording ? '● Recording' : '○ Record'}
+                {source?.recording ? t('● Recording') : t('○ Record')}
               </button>
               <button type="button" onClick={resetEvent} disabled={busy}
                 className="rounded bg-pit-700 px-3 py-1.5 text-sm font-bold uppercase text-race-red disabled:opacity-40">
-                Reset
+                {t('Reset')}
               </button>
             </div>
             {source?.recording && (
-              <p className="text-xs text-ink-500">Writing {source.recording_file}</p>
+              <p className="text-xs text-ink-500">{t('Writing {file}', { file: source.recording_file ?? '' })}</p>
             )}
             {source?.kind === 'replay' && (source?.replay_count ?? 0) > 0 && (
               <ReplayTimeline source={source} onSeek={seekReplay} disabled={busy} />
@@ -349,7 +351,7 @@ function RaceControlInner() {
 
             {/* Session flag override: for organizers without access to the
                 track system; "Track" mirrors the timing feed. */}
-            <h3 className="label-race pt-2">Session flag</h3>
+            <h3 className="label-race pt-2">{t('Session flag')}</h3>
             <div className="flex flex-wrap gap-2">
               {([
                 ['', 'Track', 'bg-pit-600'],
@@ -372,7 +374,7 @@ function RaceControlInner() {
                       active ? activeCls : 'bg-pit-700 hover:bg-pit-600'
                     }`}
                   >
-                    {label}
+                    {t(label)}
                   </button>
                 )
               })}
@@ -383,31 +385,31 @@ function RaceControlInner() {
           {cfgTab === 'config' && (
             <div className="space-y-3 text-sm">
               <Toggle
-                label="Recalculate positions"
-                hint="Reorder karts by laps + time when the timing system keeps the start grid and never reorders."
+                label={t('Recalculate positions')}
+                hint={t('Reorder karts by laps + time when the timing system keeps the start grid and never reorders.')}
                 checked={!!snapshot?.recompute_positions}
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { recompute_positions: v }, safeword: true }))}
               />
               <Toggle
-                label="Automatic pit lane"
-                hint="Off = the track has no pit gates; the app infers pit stops, pit laps and stint time from lap times."
+                label={t('Automatic pit lane')}
+                hint={t('Off = the track has no pit gates; the app infers pit stops, pit laps and stint time from lap times.')}
                 checked={snapshot?.auto_pitlane ?? true}
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
               />
               <Toggle
-                label="Hide penalties from teams"
-                hint="On = the team dashboard hides its penalty panels (e.g. until penalties are official). Race control still sees everything."
+                label={t('Hide penalties from teams')}
+                hint={t('On = the team dashboard hides its penalty panels (e.g. until penalties are official). Race control still sees everything.')}
                 checked={!!snapshot?.hide_team_penalties}
                 disabled={busy}
                 onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { hide_team_penalties: v }, safeword: true }))}
               />
 
               <div className="pt-2">
-                <h3 className="label-race mb-2">Recordings ({recordings.length})</h3>
+                <h3 className="label-race mb-2">{t('Recordings ({n})', { n: recordings.length })}</h3>
                 {recordings.length === 0 ? (
-                  <p className="text-xs text-ink-500">No recordings on the server yet.</p>
+                  <p className="text-xs text-ink-500">{t('No recordings on the server yet.')}</p>
                 ) : (
                   <ul className="max-h-56 space-y-1 overflow-y-auto">
                     {recordings.map((r) => (
@@ -424,7 +426,7 @@ function RaceControlInner() {
                           onClick={() => deleteRecording(r.name)}
                           className="rounded bg-pit-700 px-2 py-1 text-xs font-bold uppercase text-race-red hover:bg-pit-600 disabled:opacity-40"
                         >
-                          Delete
+                          {t('Delete')}
                         </button>
                       </li>
                     ))}
@@ -437,20 +439,20 @@ function RaceControlInner() {
 
         {/* Driver messaging */}
         <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-          <h3 className="label-race mb-3">Message drivers</h3>
+          <h3 className="label-race mb-3">{t('Message drivers')}</h3>
           <form onSubmit={sendMessage} className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setTarget('all')}
                 className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
                   target === 'all' ? 'bg-race-blue' : 'bg-pit-700'
                 }`}>
-                All drivers
+                {t('All drivers')}
               </button>
               <button type="button" onClick={() => setTarget('select')}
                 className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
                   target === 'select' ? 'bg-race-blue' : 'bg-pit-700'
                 }`}>
-                Selected karts
+                {t('Selected karts')}
               </button>
               {target === 'select' && (
                 <div className="flex flex-wrap gap-1.5">
@@ -473,9 +475,9 @@ function RaceControlInner() {
             </div>
             <div className="flex flex-wrap gap-2">
               {(['Yellow flag — no overtaking', 'Green flag — race on', 'Last 5 minutes', 'Slow down — warning', 'Come to race direction after session'] as const).map((preset) => (
-                <button key={preset} type="button" onClick={() => setText(preset)}
+                <button key={preset} type="button" onClick={() => setText(t(preset))}
                   className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
-                  {preset}
+                  {t(preset)}
                 </button>
               ))}
             </div>
@@ -484,26 +486,26 @@ function RaceControlInner() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 maxLength={300}
-                placeholder="Message to drivers…"
+                placeholder={t('Message to drivers…')}
                 className="min-w-0 flex-1 basis-48 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
               />
               <select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)}
                 className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600">
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="urgent">Urgent</option>
+                <option value="info">{t('Info')}</option>
+                <option value="warning">{t('Warning')}</option>
+                <option value="urgent">{t('Urgent')}</option>
               </select>
               <button type="submit" disabled={busy || !text.trim()}
                 className="rounded bg-race-blue px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110">
-                Send
+                {t('Send')}
               </button>
             </div>
             {sent && <p className="text-xs text-race-green">{sent}</p>}
           </form>
 
-          <h3 className="label-race mb-2 mt-4">Recent messages</h3>
+          <h3 className="label-race mb-2 mt-4">{t('Recent messages')}</h3>
           <ul className="max-h-40 space-y-1.5 overflow-y-auto text-sm">
-            {recentMessages.length === 0 && <li className="text-ink-500">Nothing sent yet.</li>}
+            {recentMessages.length === 0 && <li className="text-ink-500">{t('Nothing sent yet.')}</li>}
             {recentMessages.map((m) => (
               <li key={m.id} className="rounded bg-pit-850 px-3 py-1.5">
                 <span className="mr-2 text-[0.6rem] font-bold uppercase text-ink-500">
@@ -520,10 +522,10 @@ function RaceControlInner() {
         {/* Penalties & warnings */}
         <div className="lg:col-span-3 rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="label-race">Penalties &amp; warnings</h3>
+            <h3 className="label-race">{t('Penalties & warnings')}</h3>
             <button type="button" onClick={saveSnapshot} disabled={busy || !snapshot?.drivers.length}
               className="rounded bg-pit-700 px-3 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-pit-600 disabled:opacity-40">
-              {snapSaved || 'Save snapshot'}
+              {snapSaved || t('Save snapshot')}
             </button>
           </div>
           <PenaltyEditor
@@ -532,8 +534,7 @@ function RaceControlInner() {
             penalties={snapshot?.penalties ?? []}
           />
           <p className="mt-2 text-[0.7rem] text-ink-500">
-            The team is notified a few seconds after assigning, so a mistake can be removed first.
-            “Save snapshot” archives the current result to the Snapshots page.
+            {t('The team is notified a few seconds after assigning, so a mistake can be removed first. “Save snapshot” archives the current result to the Snapshots page.')}
           </p>
         </div>
 
@@ -551,7 +552,7 @@ function RaceControlInner() {
               orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
             />
           ) : (
-            <div className="p-10 text-center text-ink-500">Connecting…</div>
+            <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
           )}
         </div>
       </div>
@@ -565,6 +566,7 @@ function ReplayTimeline({ source, onSeek, disabled }: {
   onSeek: (fraction: number) => void
   disabled?: boolean
 }) {
+  const t = useT()
   const count = source.replay_count ?? 0
   const pos = source.replay_pos ?? 0
   const [drag, setDrag] = useState<number | null>(null)
@@ -576,7 +578,7 @@ function ReplayTimeline({ source, onSeek, disabled }: {
   return (
     <div className="space-y-1">
       <div className="label-race flex items-center justify-between">
-        <span>Replay timeline</span>
+        <span>{t('Replay timeline')}</span>
         <span className="timing">{fmtClock(Math.round(elapsed))} / {fmtClock(Math.round(duration))}</span>
       </div>
       <input
@@ -590,7 +592,7 @@ function ReplayTimeline({ source, onSeek, disabled }: {
         onPointerUp={commit}
         onKeyUp={commit}
         className="w-full accent-race-blue"
-        aria-label="Seek replay position"
+        aria-label={t('Seek replay position')}
       />
     </div>
   )

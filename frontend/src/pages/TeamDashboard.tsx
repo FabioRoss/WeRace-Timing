@@ -17,6 +17,7 @@ import { PenaltyLog } from '../components/PenaltyLog'
 import { TeamStoryCard } from '../components/TeamStoryCard'
 import type { TeamStoryConfig } from '../lib/teamStoryRender'
 import { COMPARE_COLORS, GapEvolutionChart, LapTimeChart, SERIES_COLORS, type ChartSeries } from '../components/LapCharts'
+import { useT } from '../lib/i18n'
 
 interface TeamInfo {
   found: boolean
@@ -27,6 +28,7 @@ interface TeamInfo {
 }
 
 export function TeamDashboard() {
+  const t = useT()
   const { slot = '1', token = '' } = useParams()
   const { snapshot, messages, status } = useLive(slot)
   const [info, setInfo] = useState<TeamInfo | null>(null)
@@ -103,12 +105,12 @@ export function TeamDashboard() {
     if (!kart) return []
     const out: ChartSeries[] = []
     if (laps[kart]?.length)
-      out.push({ key: kart, color: SERIES_COLORS.own, label: `#${kart} (you)`, points: laps[kart], width: 3 })
+      out.push({ key: kart, color: SERIES_COLORS.own, label: t('#{kart} (you)', { kart }), points: laps[kart], width: 3 })
     selKarts.forEach((k, i) => {
       if (laps[k]?.length) out.push({ key: k, color: COMPARE_COLORS[i], label: `#${k}`, points: laps[k] })
     })
     return out
-  }, [kart, laps, selKarts])
+  }, [kart, laps, selKarts, t])
 
   // Gap chart: everyone measured against the leader — or, when the team's own
   // driver IS the leader, against the own kart so the car behind is shown.
@@ -122,7 +124,7 @@ export function TeamDashboard() {
       out.push({
         key: primaryKey,
         color: SERIES_COLORS.own,
-        label: ownIsLeader ? `#${primaryKey} behind` : `#${kart} (you)`,
+        label: ownIsLeader ? t('#{kart} behind', { kart: primaryKey }) : t('#{kart} (you)', { kart }),
         points: laps[primaryKey],
         width: 3,
       })
@@ -133,9 +135,9 @@ export function TeamDashboard() {
     return {
       reference: { key: refKey, label: `#${refKey}`, points: laps[refKey] },
       series: out,
-      title: ownIsLeader ? 'Gap to you (s, + = behind)' : 'Gap to leader (s, + = behind)',
+      title: ownIsLeader ? t('Gap to you (s, + = behind)') : t('Gap to leader (s, + = behind)'),
     }
-  }, [kart, laps, selKarts, ownIsLeader, rivals.leader?.kart_no, behindKart])
+  }, [kart, laps, selKarts, ownIsLeader, rivals.leader?.kart_no, behindKart, t])
 
   const ownMessages = useMemo(() => {
     const initial = info?.messages ?? []
@@ -229,12 +231,12 @@ export function TeamDashboard() {
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
       <ToastStack toasts={toasts} onDismiss={dismiss} />
       <PageHeader
-        title={kart ? `Pit Wall — Kart #${kart}` : 'Pit Wall'}
+        title={kart ? t('Pit Wall — Kart #{kart}', { kart }) : t('Pit Wall')}
         subtitle={[info?.name, race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
         right={
           <>
             <div className="hidden text-right sm:block">
-              <div className="label-race">Remaining</div>
+              <div className="label-race">{t('Remaining')}</div>
               <div className="timing font-bold">
                 {race ? fmtRemaining(race, serverNow) : '--:--'}
               </div>
@@ -245,10 +247,10 @@ export function TeamDashboard() {
         }
       />
 
-      {!info && <div className="p-10 text-center text-ink-500">Checking your link…</div>}
+      {!info && <div className="p-10 text-center text-ink-500">{t('Checking your link…')}</div>}
       {info && !info.found && (
         <div className="p-10 text-center text-ink-500">
-          Waiting for your kart to appear in the timing feed…
+          {t('Waiting for your kart to appear in the timing feed…')}
         </div>
       )}
 
@@ -257,18 +259,18 @@ export function TeamDashboard() {
           {/* Own kart summary */}
           <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Position" value={own ? `P${own.position}` : '–'} big />
-              <Stat label="Last lap" value={fmtLap(own?.last_lap_ms)} />
-              <Stat label="Best lap" value={fmtLap(own?.best_lap_ms)} />
-              <Stat label="Gap to leader" value={own?.position === 1 ? 'LEADER' : fmtGap(own?.gap_leader)} />
-              <Stat label="Interval ahead" value={own?.position === 1 ? '—' : fmtGap(own?.gap_ahead)} />
+              <Stat label={t('Position')} value={own ? `P${own.position}` : '–'} big />
+              <Stat label={t('Last lap')} value={fmtLap(own?.last_lap_ms)} />
+              <Stat label={t('Best lap')} value={fmtLap(own?.best_lap_ms)} />
+              <Stat label={t('Gap to leader')} value={own?.position === 1 ? t('LEADER') : fmtGap(own?.gap_leader)} />
+              <Stat label={t('Interval ahead')} value={own?.position === 1 ? '—' : fmtGap(own?.gap_ahead)} />
               {snapshot?.auto_pitlane === false && kart ? (
                 <ManualStint slot={slot} kart={kart} serverNow={serverNow} />
               ) : (
-                <Stat label="Stint" value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
+                <Stat label={t('Stint')} value={own?.stint_seconds != null ? fmtClock(own.stint_seconds) : '--:--'} />
               )}
-              <Stat label="Laps" value={String(own?.laps ?? '–')} />
-              <Stat label="Pit stops" value={String(own?.pits ?? '–')} />
+              <Stat label={t('Laps')} value={String(own?.laps ?? '–')} />
+              <Stat label={t('Pit stops')} value={String(own?.pits ?? '–')} />
             </div>
           </div>
 
@@ -283,7 +285,7 @@ export function TeamDashboard() {
 
           {/* Driver link + QR */}
           <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-            <h3 className="label-race mb-3">Driver dashboard access</h3>
+            <h3 className="label-race mb-3">{t('Driver dashboard access')}</h3>
             <div className="flex items-center gap-4">
               {info?.driver_url && (
                 <div className="shrink-0 rounded bg-white p-2">
@@ -297,7 +299,7 @@ export function TeamDashboard() {
                   onClick={() => info?.driver_url && navigator.clipboard?.writeText(info.driver_url)}
                   className="rounded bg-pit-700 px-3 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-pit-600"
                 >
-                  Copy link
+                  {t('Copy link')}
                 </button>
               </div>
             </div>
@@ -305,17 +307,17 @@ export function TeamDashboard() {
 
           {/* Message composer */}
           <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-            <h3 className="label-race mb-3">Message your driver</h3>
+            <h3 className="label-race mb-3">{t('Message your driver')}</h3>
             <form onSubmit={send} className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {(['Box this lap', 'Box in 2 laps', 'Push now', 'Save fuel', 'OK, stay out'] as const).map((preset) => (
                   <button
                     key={preset}
                     type="button"
-                    onClick={() => setText(preset)}
+                    onClick={() => setText(t(preset))}
                     className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600"
                   >
-                    {preset}
+                    {t(preset)}
                   </button>
                 ))}
               </div>
@@ -324,7 +326,7 @@ export function TeamDashboard() {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   maxLength={300}
-                  placeholder="Type a message…"
+                  placeholder={t('Type a message…')}
                   className="min-w-0 flex-1 basis-48 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
                 />
                 <select
@@ -332,28 +334,28 @@ export function TeamDashboard() {
                   onChange={(e) => setPriority(e.target.value as typeof priority)}
                   className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600"
                 >
-                  <option value="info">Info</option>
-                  <option value="warning">Warning</option>
-                  <option value="urgent">Urgent</option>
+                  <option value="info">{t('Info')}</option>
+                  <option value="warning">{t('Warning')}</option>
+                  <option value="urgent">{t('Urgent')}</option>
                 </select>
                 <button
                   type="submit"
                   disabled={sendState === 'sending' || !text.trim()}
                   className="rounded bg-race-blue px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110"
                 >
-                  Send
+                  {t('Send')}
                 </button>
               </div>
-              {sendState === 'sent' && <p className="text-xs text-race-green">Delivered to the driver dashboard.</p>}
-              {sendState === 'error' && <p className="text-xs text-race-red">Send failed — is the kart still in the feed?</p>}
+              {sendState === 'sent' && <p className="text-xs text-race-green">{t('Delivered to the driver dashboard.')}</p>}
+              {sendState === 'error' && <p className="text-xs text-race-red">{t('Send failed — is the kart still in the feed?')}</p>}
             </form>
           </div>
 
           {/* Message log */}
           <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-            <h3 className="label-race mb-3">Message log</h3>
+            <h3 className="label-race mb-3">{t('Message log')}</h3>
             <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-              {ownMessages.length === 0 && <li className="text-ink-500">No messages yet.</li>}
+              {ownMessages.length === 0 && <li className="text-ink-500">{t('No messages yet.')}</li>}
               {ownMessages.map((m) => (
                 <li key={m.id} className="rounded bg-pit-850 px-3 py-2">
                   <span className={`mr-2 text-[0.6rem] font-bold uppercase ${
@@ -372,16 +374,16 @@ export function TeamDashboard() {
           {!snapshot?.hide_team_penalties && (
             <>
               <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-                <h3 className="label-race mb-3">Your penalties &amp; warnings</h3>
+                <h3 className="label-race mb-3">{t('Your penalties & warnings')}</h3>
                 <PenaltyLog
                   penalties={snapshot?.penalties ?? []}
                   filterKart={kart}
-                  empty="None — clean so far."
+                  empty={t('None — clean so far.')}
                 />
               </div>
 
               <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-                <h3 className="label-race mb-3">All penalties &amp; warnings</h3>
+                <h3 className="label-race mb-3">{t('All penalties & warnings')}</h3>
                 <PenaltyLog penalties={snapshot?.penalties ?? []} />
               </div>
             </>
@@ -390,7 +392,7 @@ export function TeamDashboard() {
           {/* Analysis: track position ring + charts */}
           <div className="lg:col-span-3 grid gap-4 lg:grid-cols-3">
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-              <h3 className="label-race mb-3">Track position</h3>
+              <h3 className="label-race mb-3">{t('Track position')}</h3>
               {snapshot && (
                 <TrackRing
                   snapshot={snapshot}
@@ -403,7 +405,7 @@ export function TeamDashboard() {
                 />
               )}
               <div className="mt-3 flex items-center gap-2 text-sm">
-                <label className="label-race" htmlFor="pit-sec">Pit stop (s)</label>
+                <label className="label-race" htmlFor="pit-sec">{t('Pit stop (s)')}</label>
                 <input
                   id="pit-sec"
                   type="number"
@@ -414,7 +416,7 @@ export function TeamDashboard() {
                   className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600"
                 />
                 <span className="text-xs text-ink-500">
-                  tap karts to compare (up to 3)
+                  {t('tap karts to compare (up to 3)')}
                 </span>
               </div>
               {selKarts.length > 0 && snapshot && (() => {
@@ -503,6 +505,7 @@ function Stat({ label, value, big = false }: { label: string; value: string; big
 interface StintState { running: boolean; anchor: number | null; acc: number }
 
 function ManualStint({ slot, kart, serverNow }: { slot: string; kart: string; serverNow: number }) {
+  const t = useT()
   const key = `wrb_stint_${slot}_${kart}`
   const [st, setSt] = useState<StintState>(() => {
     try {
@@ -522,13 +525,13 @@ function ManualStint({ slot, kart, serverNow }: { slot: string; kart: string; se
   const btn = 'rounded bg-pit-700 px-1.5 py-0.5 text-[0.65rem] font-bold hover:bg-pit-600'
   return (
     <div className="col-span-2">
-      <div className="label-race">Stint (manual)</div>
+      <div className="label-race">{t('Stint (manual)')}</div>
       <div className="timing text-xl font-bold">{fmtClock(Math.round(elapsed))}</div>
       <div className="mt-1 flex flex-wrap gap-1">
         {st.running
-          ? <button type="button" onClick={stop} className={`${btn} text-race-yellow`}>Stop</button>
-          : <button type="button" onClick={start} className={`${btn} text-race-green`}>Start</button>}
-        <button type="button" onClick={reset} className={btn}>Reset</button>
+          ? <button type="button" onClick={stop} className={`${btn} text-race-yellow`}>{t('Stop')}</button>
+          : <button type="button" onClick={start} className={`${btn} text-race-green`}>{t('Start')}</button>}
+        <button type="button" onClick={reset} className={btn}>{t('Reset')}</button>
         <button type="button" onClick={() => nudge(-30)} className={btn}>−30s</button>
         <button type="button" onClick={() => nudge(30)} className={btn}>+30s</button>
       </div>

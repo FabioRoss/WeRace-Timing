@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useT } from '../lib/i18n'
 
 export interface ToastItem {
   id: string
@@ -42,6 +43,7 @@ export function ToastStack({ toasts, onDismiss }: {
 }
 
 function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
+  const t = useT()
   useEffect(() => {
     if (toast.urgent) return
     const t = setTimeout(onDismiss, 7000)
@@ -65,7 +67,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
           type="button"
           onClick={onDismiss}
           className="shrink-0 text-xl leading-none opacity-70 hover:opacity-100"
-          aria-label="Dismiss"
+          aria-label={t('Dismiss')}
         >
           ×
         </button>

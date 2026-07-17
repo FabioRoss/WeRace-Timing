@@ -5,6 +5,7 @@ import type { TeamStoryLogos } from '../lib/teamStory'
 import {
   teamBgUrl, teamLogos, loadBackground, paintTeamStory, type TeamStoryConfig,
 } from '../lib/teamStoryRender'
+import { useT } from '../lib/i18n'
 
 /**
  * Read-only team-story preview + download for the pit-wall dashboard. Teams
@@ -23,6 +24,7 @@ export function TeamStoryCard({
   kart: string
   config: TeamStoryConfig
 }) {
+  const t = useT()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [logos, setLogos] = useState<TeamStoryLogos | null>(null)
   const [bgImg, setBgImg] = useState<CanvasImageSource | null>(null)
@@ -51,7 +53,7 @@ export function TeamStoryCard({
       setOwnBg(await createImageBitmap(file))   // cover-fit is applied by the renderer
       setOwnName(file.name)
     } catch {
-      setBgError('Could not read that image.')
+      setBgError(t('Could not read that image.'))
     }
   }, [])
 
@@ -69,7 +71,7 @@ export function TeamStoryCard({
 
   return (
     <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-      <h3 className="label-race mb-3">Shareable story graphic</h3>
+      <h3 className="label-race mb-3">{t('Shareable story graphic')}</h3>
       <div className="flex flex-col items-start gap-4 sm:flex-row">
         <canvas
           ref={canvasRef}
@@ -80,7 +82,7 @@ export function TeamStoryCard({
         />
         <div className="min-w-0 flex-1 space-y-3">
           <p className="text-sm text-ink-400">
-            An auto-generated 1080×1920 card for your Instagram story — tag us and share your result!
+            {t('An auto-generated 1080×1920 card for your Instagram story — tag us and share your result!')}
           </p>
           <button
             type="button"
@@ -88,10 +90,10 @@ export function TeamStoryCard({
             disabled={!logos}
             className="rounded bg-race-blue px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
           >
-            Download story
+            {t('Download story')}
           </button>
           <div className="space-y-1">
-            <label className="label-race block">Your own background (optional)</label>
+            <label className="label-race block">{t('Your own background (optional)')}</label>
             <input
               type="file"
               accept="image/*"
@@ -102,13 +104,13 @@ export function TeamStoryCard({
               <div className="flex items-center gap-2 text-xs text-ink-500">
                 <span className="truncate">{ownName}</span>
                 <button type="button" onClick={clearOwn} className="text-race-red">
-                  use default
+                  {t('use default')}
                 </button>
               </div>
             )}
             {bgError && <p className="text-xs text-race-red">{bgError}</p>}
             <p className="text-[0.65rem] text-ink-500">
-              Stays in your browser — it's never uploaded, and only changes your own download.
+              {t('Stays in your browser — it\'s never uploaded, and only changes your own download.')}
             </p>
           </div>
         </div>

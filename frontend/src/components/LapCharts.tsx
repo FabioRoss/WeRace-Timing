@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import type { LapPoint } from '../lib/types'
 import { fmtLap } from '../lib/format'
+import { useT } from '../lib/i18n'
 
 /** Click-to-toggle series visibility for a Recharts legend. */
 function useHiddenSeries() {
@@ -90,6 +91,7 @@ const tooltipStyle = {
  *  off the Y-scale (so normal laps stay readable) and drawn as a vertical
  *  marker at that lap carrying the pit lap time. */
 export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; lastN?: number }) {
+  const t = useT()
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
   const trimmed = useMemo(
     () => series.map((s) => ({ ...s, points: s.points.slice(-lastN) })),
@@ -107,10 +109,10 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
   )
 
   if (rows.length < 2) {
-    return <ChartEmpty title="Lap times" note="Charts appear after a couple of laps." />
+    return <ChartEmpty title={t('Lap times')} note={t('Charts appear after a couple of laps.')} />
   }
   return (
-    <ChartFrame title="Lap times">
+    <ChartFrame title={t('Lap times')}>
       <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
         <CartesianGrid stroke={GRID_INK} vertical={false} />
         <XAxis dataKey="lap" stroke={AXIS_INK} tick={{ fill: AXIS_INK, fontSize: 11 }} tickLine={false} />
@@ -168,6 +170,7 @@ export function GapEvolutionChart({ series, reference, title = 'Gap to leader (s
   reference: { key: string; label: string; points: LapPoint[] } | null
   title?: string
 }) {
+  const t = useT()
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
   const rows = useMemo(() => {
     if (!reference) return []
@@ -187,10 +190,10 @@ export function GapEvolutionChart({ series, reference, title = 'Gap to leader (s
   }, [series, reference])
 
   if (rows.length < 2) {
-    return <ChartEmpty title="Gap to leader" note="Needs shared laps between karts." />
+    return <ChartEmpty title={t('Gap to leader')} note={t('Needs shared laps between karts.')} />
   }
   return (
-    <ChartFrame title={title}>
+    <ChartFrame title={t(title)}>
       <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
         <CartesianGrid stroke={GRID_INK} vertical={false} />
         <XAxis dataKey="lap" stroke={AXIS_INK} tick={{ fill: AXIS_INK, fontSize: 11 }} tickLine={false} />
