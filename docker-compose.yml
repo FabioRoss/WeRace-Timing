@@ -1,7 +1,12 @@
+networks:
+  edge:
+    external: true
+
 services:
   app:
     build: .
     restart: unless-stopped
+    container_name: werace-timing-app
     # Required: create backend/.env first (see backend/.env.example)
     env_file: backend/.env
     volumes:
@@ -10,26 +15,8 @@ services:
       - snapshots:/app/backend/snapshots
     expose:
       - "8000"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      # The domain(s) Caddy serves and gets Let's Encrypt certificates for.
-      # For several domains on one deploy, pass a comma-separated list, e.g.
-      #   WRB_DOMAIN="timing.example.com, timing.example.org" docker compose up -d
-      # (Caddy fetches a certificate for each; add a DNS A record per domain.)
-      WRB_DOMAIN: ${WRB_DOMAIN:?set WRB_DOMAIN, e.g. WRB_DOMAIN=timing.example.com docker compose up -d}
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
+    networks:
+      - edge
 
 volumes:
   recordings:
