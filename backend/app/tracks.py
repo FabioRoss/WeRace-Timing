@@ -58,12 +58,12 @@ def _mywer(label: str, path: str, track_name: str = "", auto_pitlane: bool | Non
 
 
 TRACK_CATALOG: list[SourceConfig] = [
-    _mywer("Rozzano (MyWeR)", "/live/37/ranking/", track_name="Big Kart Rozzano"),
+    _mywer("Rozzano (MyWeR)", "/live/37/ranking/", track_name="Big Kart Rozzano", auto_pitlane=True, recompute_positions=False, hide_team_penalties=True),
     # Christel runs by-laps races the software expresses as timed and never
     # reorders, and has no pit-lane timing → recompute the order, infer pits.
     _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Circuito Christel Village",
            auto_pitlane=False, recompute_positions=True),
-    _mywer("Extremakart (MyWeR)", "/live/47/ranking/", track_name="Extrema Kart"),
+    _mywer("Extremakart (MyWeR)", "/live/47/ranking/", track_name="Extrema Kart", auto_pitlane=True, recompute_positions=False),
     _apex(
         "Cremona (Apex)", 7203,
         page="https://www.apex-timing.com/live-timing/cremona-circuit/index.html",
