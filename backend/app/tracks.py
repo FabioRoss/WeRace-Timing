@@ -80,5 +80,5 @@ TRACK_CATALOG: list[SourceConfig] = [
     #_mywer("GH Moto (MyWeR)", "/live/41/ranking/"),
     #_mywer("Misano (MyWeR)", "/live/34/ranking/"),
     #_mywer("Alpe Adria (MyWeR)", "/live/25/ranking/"),
-    SourceConfig(kind="simulator", label="Simulator (demo race)"),
+    #SourceConfig(kind="simulator", label="Simulator (demo race)"),
 ]
