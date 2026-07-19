@@ -73,6 +73,10 @@ class Event:
         cls = SOURCE_CLASSES.get(config.kind)
         if cls is None:
             raise ValueError(f"unknown source kind: {config.kind}")
+        # Load this track's Race-Control defaults onto the slot (tracks.py may set
+        # them per catalog entry). Only fields the entry actually specifies are
+        # applied; the operator can still toggle any of them live afterwards.
+        self._apply_config_defaults(config)
         self.source = cls(config, self._on_data, self._on_frame, self._reset_state)
         self.source.start()
         # Wait (briefly) for the first connect attempt to succeed or fail so
@@ -87,6 +91,17 @@ class Event:
                  self.slot, config.label or config.url, config.kind,
                  self.source.status.connected, self.source.status.error)
         return self.source_status()
+
+    def _apply_config_defaults(self, config: SourceConfig) -> None:
+        """Apply a catalog entry's optional RC settings to the slot on connect.
+        None fields are left as-is so custom/replay connects don't clobber the
+        current settings."""
+        if config.auto_pitlane is not None:
+            self.state.auto_pitlane = config.auto_pitlane
+        if config.recompute_positions is not None:
+            self.state.recompute_positions = config.recompute_positions
+        if config.hide_team_penalties is not None:
+            self.state.hide_team_penalties = config.hide_team_penalties
 
     async def disconnect_source(self) -> None:
         if self.source:

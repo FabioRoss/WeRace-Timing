@@ -183,3 +183,10 @@ class SourceConfig(BaseModel):
     # For replay: recording filename inside recordings dir.
     file: str = ""
     speed: float = 1.0              # replay speed multiplier
+    # Optional Race-Control defaults loaded onto the slot when this entry is
+    # connected (set per TRACK_CATALOG entry in tracks.py). None = leave the
+    # slot's current value untouched; a bool applies it as the starting value,
+    # which the operator can still override live in the RC config tab.
+    auto_pitlane: bool | None = None
+    recompute_positions: bool | None = None
+    hide_team_penalties: bool | None = None

@@ -7,11 +7,26 @@ APEX_ORIGIN_ALT = "https://apex-timing.com"
 MYWER_ORIGIN = "https://stg.mk.time2race.it"
 
 
-# `track_name` is an OPTIONAL clean display name. Leave it "" to use whatever the
-# MyWeR/Apex feed reports; set it to override that name everywhere the session is
-# shown/exported, e.g. `_mywer("Rozzano (MyWeR)", "/live/37/ranking/", "Kartodromo Rozzano")`.
+# Per-entry defaults you can pre-set here so a track is ready the moment you
+# connect (all still overridable live in the RC config tab):
+#   track_name          OPTIONAL clean display name. "" = use the feed's name;
+#                       set it to override that name everywhere the session is
+#                       shown/exported.
+#   auto_pitlane        False for venues WITHOUT pit-lane timing gates → pits and
+#                       stint times are inferred from lap times. True (or unset)
+#                       for gate venues → everything comes from the feed.
+#   recompute_positions True when the timing software keeps the start grid and
+#                       never reorders (christel/some MyWeR by-laps) → rebuild the
+#                       order from laps + total time.
+#   hide_team_penalties True to keep the team dashboard's penalty panels hidden
+#                       (e.g. until penalties are official).
+# Leave a field as None/"" to not touch it. Example:
+#   _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Circuito Christel Village",
+#          auto_pitlane=False, recompute_positions=True)
 def _apex(label: str, port: int, origin: str = APEX_ORIGIN, page: str = "",
-          track_name: str = "") -> SourceConfig:
+          track_name: str = "", auto_pitlane: bool | None = None,
+          recompute_positions: bool | None = None,
+          hide_team_penalties: bool | None = None) -> SourceConfig:
     # The live feed is served from live-data.apex-timing.com (wss works there);
     # www.apex-timing.com resets the TLS handshake on these ports.
     return SourceConfig(
@@ -21,22 +36,33 @@ def _apex(label: str, port: int, origin: str = APEX_ORIGIN, page: str = "",
         url=f"wss://live-data.apex-timing.com:{port}/",
         origin=origin,
         page=page,
+        auto_pitlane=auto_pitlane,
+        recompute_positions=recompute_positions,
+        hide_team_penalties=hide_team_penalties,
     )
 
 
-def _mywer(label: str, path: str, track_name: str = "") -> SourceConfig:
+def _mywer(label: str, path: str, track_name: str = "", auto_pitlane: bool | None = None,
+           recompute_positions: bool | None = None,
+           hide_team_penalties: bool | None = None) -> SourceConfig:
     return SourceConfig(
         kind="mywer",
         label=label,
         track_name=track_name,
         url=f"wss://api-stg.mk.time2race.it{path}",
         origin=MYWER_ORIGIN,
+        auto_pitlane=auto_pitlane,
+        recompute_positions=recompute_positions,
+        hide_team_penalties=hide_team_penalties,
     )
 
 
 TRACK_CATALOG: list[SourceConfig] = [
     _mywer("Rozzano (MyWeR)", "/live/37/ranking/", track_name="Big Kart Rozzano"),
-    _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Circuito Christel Village"),
+    # Christel runs by-laps races the software expresses as timed and never
+    # reorders, and has no pit-lane timing → recompute the order, infer pits.
+    _mywer("Christel (MyWeR)", "/live/42/ranking/", track_name="Circuito Christel Village",
+           auto_pitlane=False, recompute_positions=True),
     _mywer("Extremakart (MyWeR)", "/live/47/ranking/", track_name="Extrema Kart"),
     _apex(
         "Cremona (Apex)", 7203,

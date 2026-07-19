@@ -144,12 +144,19 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   corrected via snapshot.updated_at.
 - **Crossing glow**: state-driven `.lap-glow` class for 1.5s, keyed on new lap anchors
   (prog_from === 0 + fresh prog_ts), NOT on the laps counter (speed traps corrupt it).
-- **Pit-lap flags**: `_track_laps` sets `LapRecord.pit` live (feed pits/in_pit, plus the
-  long-lap heuristic when `auto_pitlane` off — but only once a clean baseline exists, so
-  early laps or laps after a reset can be missed). `lap_chart()` therefore ALSO recomputes
-  pit laps statelessly via `infer_pit_laps` (a lap > max(median*1.6, median+20s) of the
-  kart's own times), OR-ed with the stored flag. Both the team-dashboard lap charts and the
-  PDF read `lap_chart()`, so pit markers are always complete regardless of the setting.
+- **Pit-lap flags — feed-only on gate venues, inferred only without gates**: `_track_laps`
+  sets `LapRecord.pit` live (feed pits/in_pit; the long-lap heuristic runs **only when
+  `auto_pitlane` off**). `lap_chart()` (the single source for the team-dashboard lap charts,
+  the DriverDetail modal's pace/consistency + pit-marked rows, the PDF lap grid, and the PDF
+  **stint segmentation** via `_stints_of`) mirrors that: with `auto_pitlane` **ON** it trusts
+  the stored (feed) flag ONLY — no `infer_pit_laps`, so gate venues never get pace-heuristic
+  guesses anywhere; with `auto_pitlane` **OFF** it ORs in `infer_pit_laps` (a lap >
+  max(median*1.6, median+20s)) to recover stops the feed can't report. **Tradeoff of feed-only
+  on gate venues**: a pit the feed under-reports on a lap (or one straddling a mid-session
+  connect/reset before a baseline) is no longer back-filled — the feed is taken as ground truth.
+  Pit **count** (`row.pits`) and **duration** (`last_pit_ms`/`total_pit_ms`, PDF `state.pit_stops`)
+  are already feed-sourced on gate venues; the pit *forecast* (`_infer_pit`) and manual stint are
+  already `auto_pitlane`-off only.
 - **Ordering**: server positions (rX|# / position column) are authoritative; karts
   without one sort after by best lap. `OrderToggle` re-sorts client-side by best lap
   (races only). `EventState.update` re-sorts by DriverRow.position — emit meaningful
@@ -211,6 +218,15 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   across reset, surfaced on `EventSnapshot`, set via `POST /e/{slot}/api/admin/settings`,
   reported by the status endpoint, toggled in the RC config tab. Recommended for
   christel/MyWeR by-laps races: recompute ON, auto pit lane OFF.
+  **Per-track defaults**: `SourceConfig` carries optional `auto_pitlane` /
+  `recompute_positions` / `hide_team_penalties` (bool | None). A `TRACK_CATALOG` entry
+  (tracks.py, via the `_apex`/`_mywer` helpers) can pre-set them so the slot is ready on
+  connect: `Event._apply_config_defaults` (in `connect_source`, before the source starts)
+  applies each non-None field to `state`; None leaves the current value, so custom/replay
+  connects never clobber it. The operator can still toggle any of them live afterwards. The
+  catalog JSON round-trips through `/api/admin/tracks` → RC POSTs the whole entry to
+  `/connect`, so the fields ride along. Christel is wired this way as the worked example
+  (`auto_pitlane=False, recompute_positions=True`).
 - **Post-session exports (Export page, `/e/{slot}/export`, safeword-gated)**: two
   deliverables built from *live* EventState (no server-side archive — generate before
   disconnecting/resetting the source; the page banners this while `race.ended` is false).
