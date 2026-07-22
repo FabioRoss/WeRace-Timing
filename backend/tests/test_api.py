@@ -78,7 +78,21 @@ def test_recording_in_progress_is_not_deletable(client, tmp_path, monkeypatch):
         event.recorder.stop()
     ok = client.get("/api/admin/tracks", headers={"X-Safeword": "boxbox"})
     assert ok.status_code == 200
-    assert any(c["kind"] == "simulator" for c in ok.json()["catalog"])
+    assert isinstance(ok.json()["catalog"], list) and ok.json()["catalog"]
+
+
+def test_simulator_entry_only_in_dev_mode(client):
+    from app.config import get_settings
+    import pytest as _pytest
+    settings = get_settings()
+    hdr = {"X-Safeword": "boxbox"}
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "dev_mode", False)
+        cat = client.get("/api/admin/tracks", headers=hdr).json()["catalog"]
+        assert not any(c["kind"] == "simulator" for c in cat)     # hidden in prod
+        mp.setattr(settings, "dev_mode", True)
+        cat = client.get("/api/admin/tracks", headers=hdr).json()["catalog"]
+        assert any(c["kind"] == "simulator" for c in cat)         # shown in dev
 
 
 def _png_bytes(w: int = 32, h: int = 32, color=(200, 40, 40)) -> bytes:

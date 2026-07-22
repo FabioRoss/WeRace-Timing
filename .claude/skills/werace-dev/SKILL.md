@@ -485,6 +485,11 @@ penalty_seq, original_penalties}`.
 - **End-to-end replay**: copy a fixture into `backend/recordings/`, run
   `uvicorn app.main:app`, open `/e/1/control` (safeword default: `boxbox`), pick
   "Replay a recording…" (POST the connect API with `"speed": 10` to fast-forward).
+- **Dev mode / Simulator**: the `Simulator (demo race)` catalog entry is **dev-only** —
+  `tracks.catalog(dev_mode=…)` appends it (from `SIMULATOR`) only when
+  `Settings.dev_mode` is on (`WRB_DEV_MODE=1`), so it never shows in production's Race
+  Control dropdown. The connect endpoint still accepts a `{"kind":"simulator"}` config
+  directly regardless, so tests/scripts can always drive it.
 - **Browser verification**: Playwright + the preinstalled Chromium
   (`executablePath: '/opt/pw-browsers/chromium'`); put throwaway scripts in
   `frontend/node_modules/` (gitignored) so ESM resolves the local playwright package.

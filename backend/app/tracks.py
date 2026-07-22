@@ -80,5 +80,14 @@ TRACK_CATALOG: list[SourceConfig] = [
     #_mywer("GH Moto (MyWeR)", "/live/41/ranking/"),
     #_mywer("Misano (MyWeR)", "/live/34/ranking/"),
     #_mywer("Alpe Adria (MyWeR)", "/live/25/ranking/"),
-    #SourceConfig(kind="simulator", label="Simulator (demo race)"),
 ]
+
+# Dev-only: a synthetic demo race. Surfaced in the Race Control catalog only when
+# Settings.dev_mode is on (see routers/admin.py) so it never appears in production.
+SIMULATOR = SourceConfig(kind="simulator", label="Simulator (demo race)")
+
+
+def catalog(*, dev_mode: bool = False) -> list[SourceConfig]:
+    """The track catalog for the given environment — the production tracks, plus
+    the Simulator entry when running in development."""
+    return [*TRACK_CATALOG, SIMULATOR] if dev_mode else list(TRACK_CATALOG)

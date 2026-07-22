@@ -14,7 +14,7 @@ from ..config import get_settings
 from ..models import Flag, Penalty, SourceConfig
 from ..security import check_safeword, make_token
 from ..state import EventState
-from ..tracks import TRACK_CATALOG
+from ..tracks import catalog
 from .public import get_event
 
 router = APIRouter(dependencies=[Depends(check_safeword)])
@@ -39,7 +39,7 @@ def tracks() -> dict:
             (p.name for p in settings.recordings_dir.glob("*.ndjson")), reverse=True
         )
     return {
-        "catalog": [c.model_dump() for c in TRACK_CATALOG],
+        "catalog": [c.model_dump() for c in catalog(dev_mode=settings.dev_mode)],
         "recordings": recordings,
     }
 
