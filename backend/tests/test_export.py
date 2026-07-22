@@ -370,3 +370,44 @@ def test_timesheet_pdf_with_adjustment_renders(client):
     event.state.add_penalty("32", "adjust", seconds=15, reason="Timing correction")
     r = client.get("/e/1/api/export/timesheet.pdf?penalties=1")
     assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+
+
+def _grid_styles():
+    from app.routers.export import _accent_kit
+    from reportlab.lib.styles import getSampleStyleSheet
+    base = getSampleStyleSheet()
+    kit = _accent_kit("#e10600")
+    return {
+        "Legend": base["Normal"], "ReportSmall": base["Normal"],
+        "SectionHead": base["Heading2"], "MiniCap": base["Normal"],
+        "KartHead": base["Heading3"], "Cell": base["Normal"],
+        "accent": kit["accent"], "accent_text": kit["text"], "accent_dark_hex": "#e10600",
+    }
+
+
+def test_pdf_lap_grid_follows_adjusted_order(client):
+    from app.routers.export import _lap_grid_tables, _penalty_adjusted_drivers
+    event = _seed_with_laps()   # feed order: 32 then 36, both on 10 laps
+    styles = _grid_styles()
+    # Default (no penalties) → feed order: kart 32 column first.
+    assert _lap_grid_tables(event.state, styles)[1].text == "Karts #32, #36"
+    # A +5 lap adjustment to 36 makes it the winner → the grid follows suit.
+    event.state.add_penalty("36", "adjust", laps=5, reason="Missed laps")
+    order = [d.kart_no for d in _penalty_adjusted_drivers(event.state)]
+    assert order == ["36", "32"]
+    assert _lap_grid_tables(event.state, styles, order=order)[1].text == "Karts #36, #32"
+
+
+def test_pdf_pit_stint_sections_follow_adjusted_order(client):
+    from app.routers.export import _pit_and_stint_sections, _penalty_adjusted_drivers
+    event = _seed_with_laps()
+    styles = _grid_styles()
+    heads = lambda flows: [f._content[0].text for f in flows if hasattr(f, "_content")]
+    # Feed order first.
+    feed = _pit_and_stint_sections(event.state, styles, True, True, False)
+    assert heads(feed)[0].startswith("Kart #32")
+    # Adjusted order (36 promoted) reorders the per-kart blocks.
+    event.state.add_penalty("36", "adjust", laps=5, reason="Missed laps")
+    order = [d.kart_no for d in _penalty_adjusted_drivers(event.state)]
+    adj = _pit_and_stint_sections(event.state, styles, True, True, False, order=order)
+    assert heads(adj)[0].startswith("Kart #36")

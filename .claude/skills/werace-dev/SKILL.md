@@ -265,7 +265,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     inferred pit laps with an optional `pitest` estimate = pit-lap − median, disclaimed);
     stints = a run of non-pit laps, duration = Σ its lap times (pit laps excluded) + lap
     count + disclaimer (uses lap times not the replay-compressed `ts`). Disclaimers render
-    once at the top of the section. `event`/`session`
+    once at the top of the section. **When penalties are applied** (`penalties=1`) every
+    per-kart table follows the recomputed classification order, not feed order: an `order`
+    (kart numbers from `_penalty_adjusted_drivers`) threads into `_pit_and_stint_sections`
+    and `_lap_grid_tables` (grid **column** order too), so the whole sheet — classification,
+    pit/stint blocks, lap-by-lap grid — reads in the same final order. `event`/`session`
     override the names on the sheet + the download filename (`{event}-{session}-{date}.pdf`,
     slugified). Pages 2+ carry a slim
     running header (event · session / track) and every page's footer carries

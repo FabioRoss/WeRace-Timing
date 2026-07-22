@@ -463,13 +463,16 @@ def _adjustments_summary_table(state: EventState, styles) -> list:
     ]
 
 
-def _lap_grid_tables(state: EventState, styles) -> list:
+def _lap_grid_tables(state: EventState, styles, order: list[str] | None = None) -> list:
     """Chrono-style lap-by-lap grid: one row per lap, one column per kart.
     Fastest lap per kart is filled with the accent colour (contrast text); pit
     laps are filled dark. Wraps karts across blocks so a wide field doesn't
-    overflow the page."""
+    overflow the page. `order` (kart numbers) sets the column order — the
+    penalty-adjusted classification order when penalties are applied, else feed
+    order."""
     chart = state.lap_chart(last_n=100000)  # full history
-    karts = [d.kart_no for d in state.drivers if chart.get(d.kart_no)]
+    kart_order = order or [d.kart_no for d in state.drivers]
+    karts = [k for k in kart_order if chart.get(k)]
     if not karts:
         return [Paragraph("No lap data recorded yet.", styles["ReportSmall"])]
 
@@ -583,9 +586,12 @@ def _stints_of(recs: list) -> list[tuple[int, int, int, int, int]]:
 
 def _pit_and_stint_sections(
     state: EventState, styles, include_pits: bool, include_stints: bool, pit_estimate: bool,
+    order: list[str] | None = None,
 ) -> list:
     """One block per kart (heading + its pit-stops and stint tables side by side),
-    which is far clearer than cramming every kart into two shared tables."""
+    which is far clearer than cramming every kart into two shared tables. `order`
+    (kart numbers) sets the block order — the penalty-adjusted classification
+    order when penalties are applied, else feed order."""
     chart = state.lap_chart(last_n=100000)
     # Feed-measured pit history on gate venues; otherwise inferred pit laps.
     use_feed = state.auto_pitlane and any(state.pit_stops.values())
@@ -655,17 +661,20 @@ def _pit_and_stint_sections(
         cell.append(t)
         return cell
 
+    names = {d.kart_no: d.name for d in state.drivers}
+    kart_order = order or [d.kart_no for d in state.drivers]
     any_kart = False
-    for d in state.drivers:
-        recs = chart.get(d.kart_no, [])
+    for kart_no in kart_order:
+        recs = chart.get(kart_no, [])
         if not recs:
             continue
         any_kart = True
-        label = f"Kart #{d.kart_no}" + (f" — {d.name}" if d.name else "")
+        name = names.get(kart_no, "")
+        label = f"Kart #{kart_no}" + (f" — {name}" if name else "")
         block: list = [Paragraph(label, styles["KartHead"])]
         cells = []
         if include_pits:
-            cells.append(pit_cell(d.kart_no, recs))
+            cells.append(pit_cell(kart_no, recs))
         if include_stints:
             cells.append(stint_cell(recs))
         if len(cells) == 2:
@@ -871,16 +880,20 @@ def build_timesheet_pdf(
         story.append(Spacer(1, 4 * mm))
         story.append(_pace_trend(state, kit["accent"]))
 
+    # When penalties/adjustments are applied, every per-kart table follows the
+    # same recomputed classification order as the standings above.
+    order = [d.kart_no for d in adjusted] if adjusted else None
+
     if include_pits or include_stints:
         if include_charts:
             story.append(Spacer(1, 6 * mm))
         story += _pit_and_stint_sections(
-            state, styles, include_pits, include_stints, pit_estimate)
+            state, styles, include_pits, include_stints, pit_estimate, order=order)
 
     if include_grid:
         story.append(PageBreak())
         story.append(Paragraph("Lap by lap", styles["SectionHead"]))
-        story += _lap_grid_tables(state, styles)
+        story += _lap_grid_tables(state, styles, order=order)
 
     doc.build(story, onLaterPages=_later_pages, canvasmaker=NumberedCanvas)
     return buf.getvalue()
