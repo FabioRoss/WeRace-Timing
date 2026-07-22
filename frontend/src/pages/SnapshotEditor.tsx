@@ -11,6 +11,7 @@ import { TimesheetPanel } from '../components/TimesheetPanel'
 import { StoryStudio } from '../components/StoryStudio'
 import { TeamStoryStudio } from '../components/TeamStoryStudio'
 import { useSnapshotRecord } from '../lib/useSnapshot'
+import { penaltyAdjustedDrivers } from '../lib/penalties'
 import { useT } from '../lib/i18n'
 
 type Tab = 'result' | 'pdf' | 'story' | 'teamstory'
@@ -44,6 +45,19 @@ function EditorInner() {
     return { ms: snapshot.session_best_ms, kart: snapshot.session_best_kart }
   }, [snapshot])
   const leader = snapshot?.drivers?.[0]
+
+  // Preview toggle: show the standings as recorded, or recomputed with the
+  // outstanding penalties + adjustments applied (the same fold the PDF uses),
+  // so staff can eyeball the final order before generating the PDF.
+  const [showAdjusted, setShowAdjusted] = useState(false)
+  const applicable = useMemo(
+    () => (snapshot?.penalties ?? []).some((p) => p.kind !== 'warning' && !p.served),
+    [snapshot],
+  )
+  const shownSnapshot = useMemo(
+    () => (showAdjusted && snapshot ? { ...snapshot, drivers: penaltyAdjustedDrivers(snapshot) } : snapshot),
+    [showAdjusted, snapshot],
+  )
 
   if (loading) return <p className="p-6 text-ink-500">{t('Loading…')}</p>
   if (error || !record || !snapshot) {
@@ -83,7 +97,20 @@ function EditorInner() {
         {tab === 'result' && (
           <>
             <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
-              <TimingTable snapshot={snapshot} ring={false} progress={false} lapsBase={url} safeword
+              {applicable && (
+                <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
+                  <span className="label-race text-ink-500">{t('Standings')}</span>
+                  {([[false, 'As recorded'], [true, 'Penalties & adjustments applied']] as const).map(([v, lbl]) => (
+                    <button key={lbl} type="button" onClick={() => setShowAdjusted(v)}
+                      className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+                        showAdjusted === v ? 'bg-race-blue text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
+                      }`}>
+                      {t(lbl)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <TimingTable snapshot={shownSnapshot ?? snapshot} ring={false} progress={false} lapsBase={url} safeword
                 teamStoryConfig={record.team_story_config} />
             </div>
             <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
