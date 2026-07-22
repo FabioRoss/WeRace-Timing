@@ -100,11 +100,13 @@ class Penalty(BaseModel):
                    classification. Results-only (no pit serving); applies while
                    present, removed by deleting it.
       - "warning": no effect on the result; a formal notice only.
-      - "adjust":  a neutral time **correction** (not a sanction) — `seconds` is
-                   SIGNED and folded into the kart's total time exactly like a
-                   time penalty. Always applied (never "served"), and rendered
-                   neutrally rather than as a penalty. Used for organizer-side
-                   timing errors (e.g. an early pit release).
+      - "adjust":  a neutral **correction** (not a sanction), always applied
+                   (never "served") and rendered neutrally. Either a time
+                   correction — SIGNED `seconds` folded into total time like a
+                   time penalty — or a lap correction — SIGNED `laps` ADDED to
+                   the kart's lap count (e.g. +2 to give back laps a transponder
+                   missed, −1 to remove a double-counted one). Used for
+                   organizer-side timing errors.
     Only UNSERVED time/lap penalties + adjustments are applied to the PDF result.
     """
 
@@ -113,7 +115,7 @@ class Penalty(BaseModel):
     kart_no: str
     kind: Literal["time", "lap", "warning", "adjust"]
     seconds: int = 0                    # time penalties / adjustments: seconds added (adjust: signed)
-    laps: int = 0                       # lap penalties: laps subtracted from the count
+    laps: int = 0                       # lap penalties: laps subtracted; lap adjustments: signed laps added
     reason: str = ""
     served: bool = False                # time penalties: served in the pit lane
     # Whether the delayed team notification has already been sent. Staff get a

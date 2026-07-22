@@ -26,7 +26,9 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
   const [penKind, setPenKind] = useState<'time' | 'lap' | 'warning' | 'adjust'>('time')
   const [penSeconds, setPenSeconds] = useState(10)
   const [penLaps, setPenLaps] = useState(1)
+  const [adjustMode, setAdjustMode] = useState<'seconds' | 'laps'>('seconds')
   const [adjustSec, setAdjustSec] = useState(24)   // signed; + adds time, − credits back
+  const [adjustLaps, setAdjustLaps] = useState(1)  // signed; + gives laps back, − removes
   const [penReason, setPenReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState('')
@@ -82,12 +84,15 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
     if (!penKart) { setError(t('Select a kart')); return }
     if (penKind === 'time' && penSeconds <= 0) { setError(t('Enter penalty seconds')); return }
     if (penKind === 'lap' && penLaps <= 0) { setError(t('Enter penalty laps')); return }
-    if (penKind === 'adjust' && !adjustSec) { setError(t('Enter a non-zero adjustment')); return }
+    const adjustVal = adjustMode === 'seconds' ? adjustSec : adjustLaps
+    if (penKind === 'adjust' && !adjustVal) { setError(t('Enter a non-zero adjustment')); return }
     const body = {
       kart_no: penKart,
       kind: penKind,
-      seconds: penKind === 'time' ? penSeconds : penKind === 'adjust' ? adjustSec : 0,
-      laps: penKind === 'lap' ? penLaps : 0,
+      seconds: penKind === 'time' ? penSeconds
+        : penKind === 'adjust' && adjustMode === 'seconds' ? adjustSec : 0,
+      laps: penKind === 'lap' ? penLaps
+        : penKind === 'adjust' && adjustMode === 'laps' ? adjustLaps : 0,
       reason: penReason.trim(),
     }
     const noun = penKind === 'warning' ? t('Warning') : penKind === 'adjust' ? t('Adjustment') : t('Penalty')
@@ -169,23 +174,55 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
         )}
         {penKind === 'adjust' && (
           <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[-30, -10, -5, 5, 10, 30].map((s) => (
-                <button key={s} type="button" onClick={() => setAdjustSec(s)}
-                  className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
-                    adjustSec === s ? 'bg-race-blue text-white' : 'bg-pit-700'
+            <div className="flex flex-wrap gap-1.5">
+              {(['seconds', 'laps'] as const).map((m) => (
+                <button key={m} type="button" onClick={() => setAdjustMode(m)}
+                  className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
+                    adjustMode === m ? 'bg-race-blue text-white' : 'bg-pit-700'
                   }`}>
-                  {s > 0 ? `+${s}` : s}s
+                  {m === 'seconds' ? t('Time (s)') : t('Laps')}
                 </button>
               ))}
-              <input type="number" min={-3600} max={3600} value={adjustSec}
-                onChange={(e) => setAdjustSec(parseInt(e.target.value, 10) || 0)}
-                className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
-              <span className="text-xs text-ink-500">{t('seconds')}</span>
             </div>
+            {adjustMode === 'seconds' ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[-30, -10, -5, 5, 10, 30].map((s) => (
+                  <button key={s} type="button" onClick={() => setAdjustSec(s)}
+                    className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
+                      adjustSec === s ? 'bg-race-blue text-white' : 'bg-pit-700'
+                    }`}>
+                    {s > 0 ? `+${s}` : s}s
+                  </button>
+                ))}
+                <input type="number" min={-3600} max={3600} value={adjustSec}
+                  onChange={(e) => setAdjustSec(parseInt(e.target.value, 10) || 0)}
+                  className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
+                <span className="text-xs text-ink-500">{t('seconds')}</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[-2, -1, 1, 2].map((l) => (
+                  <button key={l} type="button" onClick={() => setAdjustLaps(l)}
+                    className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
+                      adjustLaps === l ? 'bg-race-blue text-white' : 'bg-pit-700'
+                    }`}>
+                    {l > 0 ? `+${l}` : l}
+                  </button>
+                ))}
+                <input type="number" min={-100} max={100} value={adjustLaps}
+                  onChange={(e) => setAdjustLaps(parseInt(e.target.value, 10) || 0)}
+                  className="w-20 rounded bg-pit-950 px-2 py-1 ring-1 ring-pit-600" />
+                <span className="text-xs text-ink-500">{t('laps')}</span>
+              </div>
+            )}
             <p className="text-[0.65rem] text-ink-500">
-              {t('A neutral timing correction (not a penalty).')}{' '}
-              <b>+</b> {t('adds time,')} <b>−</b> {t('credits it back.')}
+              {adjustMode === 'seconds' ? (
+                <>{t('A neutral timing correction (not a penalty).')}{' '}
+                  <b>+</b> {t('adds time,')} <b>−</b> {t('credits it back.')}</>
+              ) : (
+                <>{t('A neutral lap correction (not a penalty).')}{' '}
+                  <b>+</b> {t('gives laps back,')} <b>−</b> {t('removes them.')}</>
+              )}
             </p>
           </div>
         )}

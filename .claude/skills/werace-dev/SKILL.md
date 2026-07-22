@@ -193,16 +193,22 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   UNSERVED penalties applied (time→+total_time, lap→−laps), re-sorted `(-laps,total)`
   with fresh pos/gap/interval (reuses `_classify_gap`), titled "penalties applied", plus
   a `_penalties_summary_table` (served + warnings excluded; final-result disclaimer).
-- **Time adjustments** (`Penalty.kind == "adjust"`): a NEUTRAL, non-disciplinary correction of
-  organizer-side timing errors (e.g. an early pit release), with a **signed** `seconds`. Folded
-  into the classification exactly like a time penalty (`_outstanding_penalties` sums time+adjust
-  seconds; always applied — no "served"), but kept apart from penalties everywhere: excluded from
-  `_penalties_summary_table`, listed in a separate neutral `_adjustments_summary_table` (dark
-  header, "Time adjustments"), the classification title reads "(… adjustments applied)"; `lib/
-  penalties.ts` labels it "Time adjustment"/"+24s"/"−10s" with a blue badge; `PenaltyEditor`
-  exposes it behind an **`allowAdjust`** prop (snapshot editor only — `± seconds`, negative
-  credits time back; live Race Control omits it); `TimingTable` shows a neutral **ADJ** badge, not
-  red PEN. `AdminPenalty.seconds` allows negatives; `_penalty_fields` requires adjust `!= 0`.
+- **Adjustments** (`Penalty.kind == "adjust"`): a NEUTRAL, non-disciplinary correction of
+  organizer-side timing errors, either a **signed `seconds`** (time correction, e.g. an early pit
+  release) OR a **signed `laps`** (lap correction, e.g. +2 to give back laps a transponder missed,
+  −1 to remove a double-counted one). Folded into the classification like a penalty but signed:
+  `_outstanding_penalties` sums time+adjust seconds into total time and keeps `laps` as a **signed
+  net delta** (lap penalties subtract, lap adjustments add); `_penalty_adjusted_drivers` does
+  `laps = max(0, laps + delta)` then re-sorts `(-laps, total)`, so a lap adjustment moves a kart up/
+  down the order. Always applied (no "served"), and kept apart from penalties everywhere: excluded
+  from `_penalties_summary_table`, listed in a separate neutral `_adjustments_summary_table` (dark
+  header, "Adjustments", amount via `_adjust_amount` → "+24s"/"+2 laps"), the classification title
+  reads "(… adjustments applied)"; `lib/penalties.ts` labels it "Time adjustment"/"Lap adjustment"
+  ("+24s"/"−10s"/"+2 laps") with a blue badge and mirrors the signed-lap fold in
+  `penaltyAdjustedDrivers` (feeds the story). `PenaltyEditor` exposes it behind **`allowAdjust`**
+  (snapshot editor only; a Time(s)/Laps sub-mode toggle, negative credits back; live Race Control
+  omits it); `TimingTable` shows a neutral **ADJ** badge, not red PEN. `AdminPenalty.seconds`/`laps`
+  allow negatives; `_penalty_fields` requires adjust to have a non-zero seconds or laps.
 - **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
   start/finish line) while the field keeps lapping, so the marker sits at
   (ownFraction − pitTime/pace) mod 1 — the karts near it NOW are the traffic at

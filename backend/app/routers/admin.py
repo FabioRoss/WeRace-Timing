@@ -327,25 +327,26 @@ class AdminPenalty(BaseModel):
     kart_no: str = Field(min_length=1, max_length=10)
     kind: str                                            # time | lap | warning | adjust
     seconds: int = Field(default=0, ge=-3600, le=3600)   # time (>0) / adjust (signed, !=0)
-    laps: int = Field(default=0, ge=0, le=100)           # lap penalties
+    laps: int = Field(default=0, ge=-100, le=100)         # lap penalty (>0) / lap adjust (signed)
     reason: str = Field(default="", max_length=120)
 
 
 def _penalty_fields(body: AdminPenalty) -> tuple[str, int, int]:
     """Validate a penalty body → (kind, seconds, laps). Shared by the live and
-    saved-snapshot penalty endpoints. `adjust` is a neutral time correction with
-    a SIGNED, non-zero seconds (snapshot-only in the UI)."""
+    saved-snapshot penalty endpoints. `adjust` is a neutral correction with a
+    SIGNED, non-zero seconds OR laps (snapshot-only in the UI)."""
     kind = body.kind
     if kind not in ("time", "lap", "warning", "adjust"):
         raise HTTPException(status_code=422, detail="kind must be time, lap, warning or adjust")
     if kind == "time" and body.seconds <= 0:
         raise HTTPException(status_code=422, detail="time penalty needs seconds > 0")
-    if kind == "adjust" and body.seconds == 0:
-        raise HTTPException(status_code=422, detail="adjustment needs non-zero seconds")
+    if kind == "adjust" and body.seconds == 0 and body.laps == 0:
+        raise HTTPException(status_code=422, detail="adjustment needs a non-zero seconds or laps")
     if kind == "lap" and body.laps <= 0:
         raise HTTPException(status_code=422, detail="lap penalty needs laps > 0")
     seconds = body.seconds if kind in ("time", "adjust") else 0
-    return kind, seconds, (body.laps if kind == "lap" else 0)
+    laps = body.laps if kind in ("lap", "adjust") else 0
+    return kind, seconds, laps
 
 
 @router.post("/e/{slot}/api/admin/penalty")
