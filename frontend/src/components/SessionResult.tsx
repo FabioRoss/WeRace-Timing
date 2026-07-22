@@ -3,6 +3,7 @@ import { TimingTable } from './TimingTable'
 import { PenaltyLog } from './PenaltyLog'
 import { OrderToggle, useOrderMode } from './OrderToggle'
 import { SnapshotLapCharts } from './SnapshotLapCharts'
+import { penaltyAdjustedDrivers } from '../lib/penalties'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -20,6 +21,14 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
   const [orderMode, setOrderMode] = useOrderMode()
   const pdfUrl = useMemo(() => `${baseUrl}/timesheet.pdf?t=${Date.now()}`, [baseUrl])
   const [downloading, setDownloading] = useState(false)
+
+  // The public result is the FINAL classification: when there are outstanding
+  // penalties/adjustments, show the standings recomputed with them applied
+  // (same fold as the PDF). No applicable ones → the recorded order, untouched.
+  const finalSnapshot = useMemo(() => {
+    const applicable = (snapshot.penalties ?? []).some((p) => p.kind !== 'warning' && !p.served)
+    return applicable ? { ...snapshot, drivers: penaltyAdjustedDrivers(snapshot) } : snapshot
+  }, [snapshot])
 
   return (
     <div className="space-y-4">
@@ -39,7 +48,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
           </div>
         )}
         <TimingTable
-          snapshot={snapshot}
+          snapshot={finalSnapshot}
           orderMode={isRace ? orderMode : 'race'}
           ring={false}
           progress={false}
