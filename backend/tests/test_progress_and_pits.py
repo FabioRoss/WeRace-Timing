@@ -180,19 +180,27 @@ def test_pit_stops_history_records_feed_pits():
     assert state.pit_stops["7"] == [(3, 25000), (7, 23000)]
 
 
-def test_lap_chart_recomputes_missed_pit_laps():
-    # auto_pitlane on (gates) → the feed reports no pits, so no pit is flagged
-    # live; but lap_chart recomputes from the lap times, so an anomalously long
-    # lap (e.g. a driver change / stop, or a pit missed after a session reset)
-    # is still marked. This is what feeds both the dashboard and the PDF.
-    state = EventState(1)
-    state.auto_pitlane = True
-    for lap, ms in [(1, 40000), (2, 40500), (3, 39800), (4, 95000), (5, 40200)]:
-        state.update(RaceInfo(), [make_row(laps=lap, last_lap_ms=ms)])
+def test_lap_chart_infers_pits_only_without_gates():
+    # A long lap (a stop the feed didn't flag) is only inferred when there are NO
+    # pit-lane gates. With auto_pitlane ON, lap_chart trusts the feed's pit flag
+    # only and never second-guesses it — so this venue's dashboards/PDF show
+    # exactly the feed's pits, no pace-heuristic guesses.
+    laps = [(1, 40000), (2, 40500), (3, 39800), (4, 95000), (5, 40200)]
 
-    assert not any(rec.pit for rec in state.lap_history["7"])  # nothing stored live
-    chart = state.lap_chart(karts=["7"])
-    assert [p["lap"] for p in chart["7"] if p["pit"]] == [4]
+    gated = EventState(1)
+    gated.auto_pitlane = True
+    for lap, ms in laps:
+        gated.update(RaceInfo(), [make_row(laps=lap, last_lap_ms=ms)])
+    assert not any(rec.pit for rec in gated.lap_history["7"])   # feed flagged none
+    chart = gated.lap_chart(karts=["7"])
+    assert [p["lap"] for p in chart["7"] if p["pit"]] == []     # and none inferred
+
+    ungated = EventState(2)
+    ungated.auto_pitlane = False
+    for lap, ms in laps:
+        ungated.update(RaceInfo(), [make_row(laps=lap, last_lap_ms=ms)])
+    chart = ungated.lap_chart(karts=["7"])
+    assert [p["lap"] for p in chart["7"] if p["pit"]] == [4]    # inferred here
 
 
 def test_laps_api_includes_pit_flag():

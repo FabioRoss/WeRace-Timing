@@ -33,6 +33,23 @@ async def test_connect_reports_first_attempt_error():
     await event.disconnect_source()
 
 
+def test_connect_loads_track_config_defaults():
+    # A catalog entry may pre-set RC defaults; connecting applies them so the
+    # slot is ready. Fields left None must not clobber the current values.
+    event = Event(1)
+    event.state.auto_pitlane = True
+    event.state.recompute_positions = False
+    event.state.hide_team_penalties = True
+
+    event._apply_config_defaults(SourceConfig(
+        kind="mywer", label="Christel", url=DEAD_URL,
+        auto_pitlane=False, recompute_positions=True,   # hide_team_penalties=None
+    ))
+    assert event.state.auto_pitlane is False            # applied
+    assert event.state.recompute_positions is True      # applied
+    assert event.state.hide_team_penalties is True      # untouched (None)
+
+
 async def test_disconnect_is_prompt_and_clears_error():
     event = Event(1)
     await event.connect_source(SourceConfig(kind="mywer", label="Dead", url=DEAD_URL))

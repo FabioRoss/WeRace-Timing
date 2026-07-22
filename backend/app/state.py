@@ -472,16 +472,19 @@ class EventState:
     def lap_chart(self, karts: list[str] | None = None, last_n: int = 300) -> dict:
         """Lap history for team-manager analysis charts + the PDF timesheet.
 
-        Pit laps are recomputed here from the lap times (`infer_pit_laps`) rather
-        than trusting only the flag stored at record time, so the markers are
-        always complete — even for pits the live detector missed (auto pit-lane
-        on, or laps right after a session reset). The stored flag is preserved.
+        Pit laps come straight from the stored `pit` flag, which on gate venues
+        (`auto_pitlane` on) is exactly what the feed reported — we never second-
+        guess it with a pace heuristic there. Only when `auto_pitlane` is OFF (no
+        pit-lane timing) do we OR in `infer_pit_laps`, a stateless pass over the
+        lap times that recovers pit laps the live incremental detector missed
+        (e.g. laps right after a session reset, before a clean baseline existed).
         """
         selected = karts or self.kart_numbers()
         result: dict = {}
         for kart in selected:
             recs = self.lap_history.get(kart, [])[-last_n:]
-            pit_laps = infer_pit_laps(recs)
+            # Feed-timed venues: trust the feed's pit flag only, no inference.
+            pit_laps = set() if self.auto_pitlane else infer_pit_laps(recs)
             result[kart] = [
                 {
                     "lap": rec.lap_no, "ms": rec.lap_ms, "pos": rec.position,

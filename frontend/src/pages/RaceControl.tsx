@@ -23,6 +23,11 @@ interface CatalogEntry {
   origin: string
   file: string
   speed: number
+  // Optional per-track RC defaults loaded on connect (tracks.py); ride along
+  // with the entry when we POST it to /connect. null = leave the slot as-is.
+  auto_pitlane?: boolean | null
+  recompute_positions?: boolean | null
+  hide_team_penalties?: boolean | null
 }
 
 interface RecordingInfo {

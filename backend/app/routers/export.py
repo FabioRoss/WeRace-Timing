@@ -587,10 +587,12 @@ def _pit_and_stint_sections(
             "Est. stop = the pit lap's time minus the kart's median lap — inferred from "
             "lap times, not measured (this venue has no pit-lane timing).", styles["Legend"]))
     if include_stints:
+        caveat = ("" if state.auto_pitlane else
+                  " On tracks without pit-lane timing this is an approximation — the "
+                  "partial lap around a stop isn't counted.")
         out.append(Paragraph(
             "Stint duration = the sum of that stint's racing-lap times (a stint is a run of "
-            "consecutive non-pit laps; pit laps are excluded). On tracks without pit-lane "
-            "timing this is an approximation — the partial lap around a stop isn't counted.",
+            "consecutive non-pit laps; pit laps are excluded)." + caveat,
             styles["Legend"]))
     out.append(Spacer(1, 2 * mm))
 
