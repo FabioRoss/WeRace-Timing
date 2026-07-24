@@ -465,10 +465,15 @@ penalty_seq, original_penalties}`.
   `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults). Event tabs + card session
   chips label with the snapshot's **`short_name`** (editable in the editor's DetailsCard, e.g.
   Practice/Quali/Race), falling back to `name` then run_type; `short_name` rides in `meta_of` so it
-  reaches `/api/results` + `/api/events`. `SessionResult` opens with a `.checker` chequered-flag strip
-  (the finished-session decoration, replacing the dropped ring's start/finish). `EventDetail`'s header
-  carries the `FlagBanner` chip like `ResultsDetail`.
+  reaches `/api/results` + `/api/events`. The public result/event/index headers carry a small
+  `components/CheckerFlag` chequered-flag mark via `PageHeader`'s `left` slot (the finished-session
+  motif); `ResultsDetail`/`EventDetail` no longer show a `FlagBanner`, and `SessionResult` no longer
+  opens with a full-width `.checker` strip. `ResultsIndex` event cards dropped the red "EVENT" badge.
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
+- **Full-session lap chart**: `LapCharts.LapTimeChart` takes `fullSession` — when set it plots every
+  lap (no `lastN` trim) and `ChartFrame` scrolls horizontally (`overflow-x-auto` + a `minWidth` of
+  ~26px/lap; when it fits the frame, `w-full` wins and it just fills). Enabled on the public
+  `SnapshotLapCharts` and the Team-manager dashboard; live `DriverDetail` keeps the last-40 default.
 - **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
   `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into
   `index.html` for **published** `results/{id}` paths only (else the plain shell). `snapshots.og_meta`

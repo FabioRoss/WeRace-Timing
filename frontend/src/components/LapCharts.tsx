@@ -66,14 +66,22 @@ function buildRows(series: ChartSeries[], field: (p: LapPoint, s: ChartSeries) =
   return [...byLap.values()].sort((a, b) => (a.lap as number) - (b.lap as number))
 }
 
-function ChartFrame({ title, children }: { title: string; children: React.ReactElement }) {
+function ChartFrame({ title, minWidth, children }: {
+  title: string
+  minWidth?: number   // when set, the plot keeps this width and the frame scrolls horizontally
+  children: React.ReactElement
+}) {
   return (
     <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
       <h3 className="label-race mb-3">{title}</h3>
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
-          {children}
-        </ResponsiveContainer>
+      <div className={minWidth ? 'overflow-x-auto' : ''}>
+        {/* min-width larger than the frame forces the plot wide (→ scroll);
+            when it fits, w-full wins and the plot just fills the frame. */}
+        <div className="h-56 w-full" style={minWidth ? { minWidth } : undefined}>
+          <ResponsiveContainer width="100%" height="100%">
+            {children}
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   )
@@ -90,12 +98,16 @@ const tooltipStyle = {
 /** Lap-time trend: own kart vs its selected comparisons. Pit laps are kept
  *  off the Y-scale (so normal laps stay readable) and drawn as a vertical
  *  marker at that lap carrying the pit lap time. */
-export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; lastN?: number }) {
+export function LapTimeChart({ series, lastN = 40, fullSession = false }: {
+  series: ChartSeries[]
+  lastN?: number
+  fullSession?: boolean   // show every lap of the session, scrolling horizontally when there are many
+}) {
   const t = useT()
   const { hidden, onLegendClick, legendFormatter } = useHiddenSeries()
   const trimmed = useMemo(
-    () => series.map((s) => ({ ...s, points: s.points.slice(-lastN) })),
-    [series, lastN],
+    () => (fullSession ? series : series.map((s) => ({ ...s, points: s.points.slice(-lastN) }))),
+    [series, lastN, fullSession],
   )
   const rows = useMemo(
     () => buildRows(trimmed, (p) => (p.pit ? null : p.ms)),   // pit laps off the scale
@@ -111,8 +123,11 @@ export function LapTimeChart({ series, lastN = 40 }: { series: ChartSeries[]; la
   if (rows.length < 2) {
     return <ChartEmpty title={t('Lap times')} note={t('Charts appear after a couple of laps.')} />
   }
+  // Show the whole session: keep ~26px per lap so long races scroll horizontally
+  // instead of squashing every lap into the frame.
+  const minWidth = fullSession ? rows.length * 26 : undefined
   return (
-    <ChartFrame title={t('Lap times')}>
+    <ChartFrame title={t('Lap times')} minWidth={minWidth}>
       <LineChart data={rows} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
         <CartesianGrid stroke={GRID_INK} vertical={false} />
         <XAxis dataKey="lap" stroke={AXIS_INK} tick={{ fill: AXIS_INK, fontSize: 11 }} tickLine={false} />

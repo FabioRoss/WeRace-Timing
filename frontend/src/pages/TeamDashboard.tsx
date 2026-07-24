@@ -458,7 +458,7 @@ export function TeamDashboard() {
               })()}
             </div>
             <div className="grid content-start gap-4 lg:col-span-2">
-              <LapTimeChart series={lapSeries} />
+              <LapTimeChart series={lapSeries} fullSession />
               <GapEvolutionChart series={gap.series} reference={gap.reference} title={gap.title} />
             </div>
           </div>

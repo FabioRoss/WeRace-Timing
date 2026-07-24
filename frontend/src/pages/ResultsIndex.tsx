@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
+import { CheckerFlag } from '../components/CheckerFlag'
 import type { EventGroup, SnapshotMeta } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -31,7 +32,7 @@ export function ResultsIndex() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-4xl flex-col">
-      <PageHeader title={t('Results')} subtitle={t('Published events & sessions')} />
+      <PageHeader title={t('Results')} subtitle={t('Published events & sessions')} left={<CheckerFlag />} />
       <main className="flex-1 space-y-3 p-4">
         <Link to="/" className="text-xs text-race-blue">{t('← Home')}</Link>
         {tracks.length > 1 && (
@@ -56,12 +57,7 @@ export function ResultsIndex() {
         {shownEvents.map((e) => (
           <Link key={e.id} to={`/events/${e.id}`}
             className="block rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 hover:ring-race-red">
-            <div className="flex items-center gap-2">
-              <span className="rounded bg-race-red px-1.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-wider text-white">
-                {t('Event')}
-              </span>
-              <span className="font-bold">{e.name}</span>
-            </div>
+            <div className="font-bold">{e.name}</div>
             <div className="mt-0.5 text-xs text-ink-500">
               {[e.track, e.sessions.length === 1 ? t('{n} session', { n: 1 }) : t('{n} sessions', { n: e.sessions.length })]
                 .filter(Boolean).join(' · ')}

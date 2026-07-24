@@ -83,7 +83,7 @@ export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts
           })}
         </div>
       </div>
-      <LapTimeChart series={series} />
+      <LapTimeChart series={series} fullSession />
     </div>
   )
 }
