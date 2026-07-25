@@ -45,7 +45,7 @@ export function GeneralDashboard() {
           </div>
         </div>
         <div className="flex items-center">
-          <div className="w-full">
+          <div className="w-full h-full">
             <FlagBanner flag={race?.flag ?? 'none'} className="h-full flex items-center justify-center" />
           </div>
         </div>
