@@ -18,11 +18,13 @@ export function ConnectionDot({ status }: { status: WsStatus }) {
 export function PageHeader({
   title,
   subtitle,
+  left,
   right,
   nav,
 }: {
   title: string
   subtitle?: string
+  left?: React.ReactNode
   right?: React.ReactNode
   nav?: React.ReactNode
 }) {
@@ -30,6 +32,7 @@ export function PageHeader({
     <header className="border-b border-pit-700 px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
+          {left}
           <div className="min-w-0">
             <h1 className="text-base font-bold leading-tight uppercase tracking-wider truncate">
               {title}

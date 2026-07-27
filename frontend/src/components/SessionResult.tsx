@@ -3,6 +3,7 @@ import { TimingTable } from './TimingTable'
 import { PenaltyLog } from './PenaltyLog'
 import { OrderToggle, useOrderMode } from './OrderToggle'
 import { SnapshotLapCharts } from './SnapshotLapCharts'
+import { penaltyAdjustedDrivers } from '../lib/penalties'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -21,11 +22,16 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
   const pdfUrl = useMemo(() => `${baseUrl}/timesheet.pdf?t=${Date.now()}`, [baseUrl])
   const [downloading, setDownloading] = useState(false)
 
+  // The public result is the FINAL classification: when there are outstanding
+  // penalties/adjustments, show the standings recomputed with them applied
+  // (same fold as the PDF). No applicable ones → the recorded order, untouched.
+  const finalSnapshot = useMemo(() => {
+    const applicable = (snapshot.penalties ?? []).some((p) => p.kind !== 'warning' && !p.served)
+    return applicable ? { ...snapshot, drivers: penaltyAdjustedDrivers(snapshot) } : snapshot
+  }, [snapshot])
+
   return (
     <div className="space-y-4">
-      {/* Chequered-flag strip — the finished-session decoration. */}
-      <div className="checker h-3 w-full rounded-sm" />
-
       {record.public_notes && (
         <div className="rounded-xl bg-pit-900 p-4 text-sm text-ink-200 ring-1 ring-pit-800">
           {record.public_notes}
@@ -39,7 +45,7 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
           </div>
         )}
         <TimingTable
-          snapshot={snapshot}
+          snapshot={finalSnapshot}
           orderMode={isRace ? orderMode : 'race'}
           ring={false}
           progress={false}

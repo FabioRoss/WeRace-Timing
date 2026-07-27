@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # long while still connected, infer it ended and auto-save once.
     autosave_idle_s: float = 150.0
 
+    # Development mode: surfaces dev-only conveniences (e.g. the Simulator entry
+    # in the Race Control track catalog). Off in production; set WRB_DEV_MODE=1
+    # in a dev environment.
+    dev_mode: bool = False
+
     host: str = "0.0.0.0"
     port: int = 8000
 

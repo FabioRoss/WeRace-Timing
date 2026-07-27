@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/StatusBar'
-import { FlagBanner } from '../components/FlagBanner'
+import { CheckerFlag } from '../components/CheckerFlag'
 import { SessionResult } from '../components/SessionResult'
 import { useSnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
@@ -13,7 +13,6 @@ export function ResultsDetail() {
   const { record, error, loading } = useSnapshotRecord(`/api/results/${id}`, false)
 
   const snapshot = record?.snapshot ?? null
-  const race = snapshot?.race
 
   useEffect(() => {
     if (record) document.title = `${record.name || 'Results'} — WeRace`
@@ -35,7 +34,7 @@ export function ResultsDetail() {
       <PageHeader
         title={record.name || record.id}
         subtitle={record.track}
-        right={<FlagBanner flag={race?.flag ?? 'finish'} compact />}
+        left={<CheckerFlag />}
       />
       <main className="flex-1 space-y-4 p-4">
         <Link to="/results" className="text-xs text-race-blue">{t('← All results')}</Link>

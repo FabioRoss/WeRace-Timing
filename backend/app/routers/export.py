@@ -282,8 +282,9 @@ def _classification_table(state: EventState, styles, drivers: list | None = None
 
 
 def _outstanding_penalties(state: EventState) -> dict[str, dict]:
-    """Per-kart outstanding totals folded into the classification: seconds added
-    (unserved time penalties + signed time adjustments), laps subtracted, and the
+    """Per-kart outstanding totals folded into the classification: `seconds` added
+    (unserved time penalties + signed time adjustments) and `laps` as a SIGNED net
+    delta (lap penalties subtract, lap adjustments add their signed value), plus the
     individual items. Served time penalties and warnings are excluded — the result
     only reflects what's still standing. Adjustments are always applied (they have
     no served state)."""
@@ -293,23 +294,26 @@ def _outstanding_penalties(state: EventState) -> dict[str, dict]:
             continue
         agg = out.setdefault(p.kart_no, {"seconds": 0, "laps": 0, "items": []})
         agg["seconds"] += p.seconds if p.kind in ("time", "adjust") else 0
-        agg["laps"] += p.laps if p.kind == "lap" else 0
+        if p.kind == "lap":
+            agg["laps"] -= p.laps          # a lap penalty removes laps
+        elif p.kind == "adjust":
+            agg["laps"] += p.laps          # a lap adjustment is signed (give back / remove)
         agg["items"].append(p)
     return out
 
 
 def _penalty_adjusted_drivers(state: EventState) -> list[DriverRow]:
     """The classification recomputed with outstanding penalties applied: time
-    penalties add to total time, lap penalties subtract laps. Re-sorted by
-    (-laps, total time) — mirroring EventState._recompute_order — with fresh
-    positions and gap-to-leader."""
+    penalties/adjustments shift total time, lap penalties/adjustments shift the lap
+    count (signed). Re-sorted by (-laps, total time) — mirroring
+    EventState._recompute_order — with fresh positions and gap-to-leader."""
     pens = _outstanding_penalties(state)
     adjusted: list[DriverRow] = []
     for d in state.drivers:
         nd = d.model_copy()
         agg = pens.get(d.kart_no)
         if agg:
-            nd.laps = max(0, d.laps - agg["laps"])
+            nd.laps = max(0, d.laps + agg["laps"])
             if d.total_time_ms is not None:
                 nd.total_time_ms = d.total_time_ms + agg["seconds"] * 1000
         adjusted.append(nd)
@@ -408,18 +412,27 @@ def _penalties_summary_table(state: EventState, styles) -> list:
     ]
 
 
+def _adjust_amount(p) -> str:
+    """Signed adjustment amount, ASCII (base-14 fonts are Latin-1 only): a lap
+    correction reads "+2 laps" / "-1 lap", a time correction "+24s" / "-10s"."""
+    if p.laps:
+        n = abs(p.laps)
+        return f"{'+' if p.laps >= 0 else '-'}{n} lap{'' if n == 1 else 's'}"
+    return f"+{p.seconds}s" if p.seconds >= 0 else f"-{abs(p.seconds)}s"
+
+
 def _adjustments_summary_table(state: EventState, styles) -> list:
-    """A neutral list of the signed time adjustments folded into the result — a
-    correction of organizer-side timing errors, not a sanction, so it is styled
-    plainly (dark header, no accent) and kept apart from the penalties summary.
-    Amounts use ASCII '+'/'-' (base-14 fonts are Latin-1 only)."""
-    adjustments = [p for p in state.penalties if p.kind == "adjust" and p.seconds]
+    """A neutral list of the signed adjustments folded into the result — time
+    (seconds) or lap corrections of organizer-side timing errors, not sanctions,
+    so styled plainly (dark header, no accent) and kept apart from the penalties
+    summary."""
+    adjustments = [p for p in state.penalties if p.kind == "adjust" and (p.seconds or p.laps)]
     if not adjustments:
         return []
     names = {d.kart_no: d.name for d in state.drivers}
     rows: list = [["Kart", "Driver", "Adjustment", "Reason"]]
     for p in sorted(adjustments, key=lambda p: (_kart_key(p.kart_no), p.kart_no, p.id)):
-        amount = f"+{p.seconds}s" if p.seconds >= 0 else f"-{abs(p.seconds)}s"
+        amount = _adjust_amount(p)
         rows.append([p.kart_no, Paragraph(names.get(p.kart_no, "") or "", styles["Cell"]),
                      amount, Paragraph(p.reason or "—", styles["Cell"])])
     table = Table(rows, colWidths=[14 * mm, 46 * mm, 26 * mm, 100 * mm], repeatRows=1)
@@ -442,21 +455,24 @@ def _adjustments_summary_table(state: EventState, styles) -> list:
     ]))
     return [
         Spacer(1, 5 * mm),
-        Paragraph("Time adjustments", styles["SectionHead"]),
+        Paragraph("Adjustments", styles["SectionHead"]),
         Paragraph(
-            "Neutral timing corrections (not penalties) already included in the "
+            "Neutral timing/lap corrections (not penalties) already included in the "
             "classification above.", styles["Legend"]),
         table,
     ]
 
 
-def _lap_grid_tables(state: EventState, styles) -> list:
+def _lap_grid_tables(state: EventState, styles, order: list[str] | None = None) -> list:
     """Chrono-style lap-by-lap grid: one row per lap, one column per kart.
     Fastest lap per kart is filled with the accent colour (contrast text); pit
     laps are filled dark. Wraps karts across blocks so a wide field doesn't
-    overflow the page."""
+    overflow the page. `order` (kart numbers) sets the column order — the
+    penalty-adjusted classification order when penalties are applied, else feed
+    order."""
     chart = state.lap_chart(last_n=100000)  # full history
-    karts = [d.kart_no for d in state.drivers if chart.get(d.kart_no)]
+    kart_order = order or [d.kart_no for d in state.drivers]
+    karts = [k for k in kart_order if chart.get(k)]
     if not karts:
         return [Paragraph("No lap data recorded yet.", styles["ReportSmall"])]
 
@@ -570,9 +586,12 @@ def _stints_of(recs: list) -> list[tuple[int, int, int, int, int]]:
 
 def _pit_and_stint_sections(
     state: EventState, styles, include_pits: bool, include_stints: bool, pit_estimate: bool,
+    order: list[str] | None = None,
 ) -> list:
     """One block per kart (heading + its pit-stops and stint tables side by side),
-    which is far clearer than cramming every kart into two shared tables."""
+    which is far clearer than cramming every kart into two shared tables. `order`
+    (kart numbers) sets the block order — the penalty-adjusted classification
+    order when penalties are applied, else feed order."""
     chart = state.lap_chart(last_n=100000)
     # Feed-measured pit history on gate venues; otherwise inferred pit laps.
     use_feed = state.auto_pitlane and any(state.pit_stops.values())
@@ -642,17 +661,20 @@ def _pit_and_stint_sections(
         cell.append(t)
         return cell
 
+    names = {d.kart_no: d.name for d in state.drivers}
+    kart_order = order or [d.kart_no for d in state.drivers]
     any_kart = False
-    for d in state.drivers:
-        recs = chart.get(d.kart_no, [])
+    for kart_no in kart_order:
+        recs = chart.get(kart_no, [])
         if not recs:
             continue
         any_kart = True
-        label = f"Kart #{d.kart_no}" + (f" — {d.name}" if d.name else "")
+        name = names.get(kart_no, "")
+        label = f"Kart #{kart_no}" + (f" — {name}" if name else "")
         block: list = [Paragraph(label, styles["KartHead"])]
         cells = []
         if include_pits:
-            cells.append(pit_cell(d.kart_no, recs))
+            cells.append(pit_cell(kart_no, recs))
         if include_stints:
             cells.append(stint_cell(recs))
         if len(cells) == 2:
@@ -858,16 +880,20 @@ def build_timesheet_pdf(
         story.append(Spacer(1, 4 * mm))
         story.append(_pace_trend(state, kit["accent"]))
 
+    # When penalties/adjustments are applied, every per-kart table follows the
+    # same recomputed classification order as the standings above.
+    order = [d.kart_no for d in adjusted] if adjusted else None
+
     if include_pits or include_stints:
         if include_charts:
             story.append(Spacer(1, 6 * mm))
         story += _pit_and_stint_sections(
-            state, styles, include_pits, include_stints, pit_estimate)
+            state, styles, include_pits, include_stints, pit_estimate, order=order)
 
     if include_grid:
         story.append(PageBreak())
         story.append(Paragraph("Lap by lap", styles["SectionHead"]))
-        story += _lap_grid_tables(state, styles)
+        story += _lap_grid_tables(state, styles, order=order)
 
     doc.build(story, onLaterPages=_later_pages, canvasmaker=NumberedCanvas)
     return buf.getvalue()

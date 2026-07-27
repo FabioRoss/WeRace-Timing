@@ -27,7 +27,7 @@ export function Landing() {
     <div className="mx-auto flex h-full max-w-lg flex-col justify-center gap-6 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold uppercase tracking-widest">WeRace Bridge</h1>
+          <h1 className="text-3xl font-extrabold uppercase tracking-widest">WeRace Timing</h1>
           <p className="mt-1 text-sm text-ink-500">{t('Live timing relay & team dashboards')}</p>
         </div>
         <LangSwitch />

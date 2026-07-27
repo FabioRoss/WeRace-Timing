@@ -193,16 +193,22 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
   UNSERVED penalties applied (time→+total_time, lap→−laps), re-sorted `(-laps,total)`
   with fresh pos/gap/interval (reuses `_classify_gap`), titled "penalties applied", plus
   a `_penalties_summary_table` (served + warnings excluded; final-result disclaimer).
-- **Time adjustments** (`Penalty.kind == "adjust"`): a NEUTRAL, non-disciplinary correction of
-  organizer-side timing errors (e.g. an early pit release), with a **signed** `seconds`. Folded
-  into the classification exactly like a time penalty (`_outstanding_penalties` sums time+adjust
-  seconds; always applied — no "served"), but kept apart from penalties everywhere: excluded from
-  `_penalties_summary_table`, listed in a separate neutral `_adjustments_summary_table` (dark
-  header, "Time adjustments"), the classification title reads "(… adjustments applied)"; `lib/
-  penalties.ts` labels it "Time adjustment"/"+24s"/"−10s" with a blue badge; `PenaltyEditor`
-  exposes it behind an **`allowAdjust`** prop (snapshot editor only — `± seconds`, negative
-  credits time back; live Race Control omits it); `TimingTable` shows a neutral **ADJ** badge, not
-  red PEN. `AdminPenalty.seconds` allows negatives; `_penalty_fields` requires adjust `!= 0`.
+- **Adjustments** (`Penalty.kind == "adjust"`): a NEUTRAL, non-disciplinary correction of
+  organizer-side timing errors, either a **signed `seconds`** (time correction, e.g. an early pit
+  release) OR a **signed `laps`** (lap correction, e.g. +2 to give back laps a transponder missed,
+  −1 to remove a double-counted one). Folded into the classification like a penalty but signed:
+  `_outstanding_penalties` sums time+adjust seconds into total time and keeps `laps` as a **signed
+  net delta** (lap penalties subtract, lap adjustments add); `_penalty_adjusted_drivers` does
+  `laps = max(0, laps + delta)` then re-sorts `(-laps, total)`, so a lap adjustment moves a kart up/
+  down the order. Always applied (no "served"), and kept apart from penalties everywhere: excluded
+  from `_penalties_summary_table`, listed in a separate neutral `_adjustments_summary_table` (dark
+  header, "Adjustments", amount via `_adjust_amount` → "+24s"/"+2 laps"), the classification title
+  reads "(… adjustments applied)"; `lib/penalties.ts` labels it "Time adjustment"/"Lap adjustment"
+  ("+24s"/"−10s"/"+2 laps") with a blue badge and mirrors the signed-lap fold in
+  `penaltyAdjustedDrivers` (feeds the story). `PenaltyEditor` exposes it behind **`allowAdjust`**
+  (snapshot editor only; a Time(s)/Laps sub-mode toggle, negative credits back; live Race Control
+  omits it); `TimingTable` shows a neutral **ADJ** badge, not red PEN. `AdminPenalty.seconds`/`laps`
+  allow negatives; `_penalty_fields` requires adjust to have a non-zero seconds or laps.
 - **Pit-rejoin marker** (team ring): the driver rejoins at the pit EXIT (by the
   start/finish line) while the field keeps lapping, so the marker sits at
   (ownFraction − pitTime/pace) mod 1 — the karts near it NOW are the traffic at
@@ -259,7 +265,11 @@ JSON snapshots `{"data": {"race": {...}, "drivers": [...]}}`.
     inferred pit laps with an optional `pitest` estimate = pit-lap − median, disclaimed);
     stints = a run of non-pit laps, duration = Σ its lap times (pit laps excluded) + lap
     count + disclaimer (uses lap times not the replay-compressed `ts`). Disclaimers render
-    once at the top of the section. `event`/`session`
+    once at the top of the section. **When penalties are applied** (`penalties=1`) every
+    per-kart table follows the recomputed classification order, not feed order: an `order`
+    (kart numbers from `_penalty_adjusted_drivers`) threads into `_pit_and_stint_sections`
+    and `_lap_grid_tables` (grid **column** order too), so the whole sheet — classification,
+    pit/stint blocks, lap-by-lap grid — reads in the same final order. `event`/`session`
     override the names on the sheet + the download filename (`{event}-{session}-{date}.pdf`,
     slugified). Pages 2+ carry a slim
     running header (event · session / track) and every page's footer carries
@@ -455,10 +465,15 @@ penalty_seq, original_penalties}`.
   `/results/:id` + `/events/:id` (SessionResult / tabbed SessionResults). Event tabs + card session
   chips label with the snapshot's **`short_name`** (editable in the editor's DetailsCard, e.g.
   Practice/Quali/Race), falling back to `name` then run_type; `short_name` rides in `meta_of` so it
-  reaches `/api/results` + `/api/events`. `SessionResult` opens with a `.checker` chequered-flag strip
-  (the finished-session decoration, replacing the dropped ring's start/finish). `EventDetail`'s header
-  carries the `FlagBanner` chip like `ResultsDetail`.
+  reaches `/api/results` + `/api/events`. The public result/event/index headers carry a small
+  `components/CheckerFlag` chequered-flag mark via `PageHeader`'s `left` slot (the finished-session
+  motif); `ResultsDetail`/`EventDetail` no longer show a `FlagBanner`, and `SessionResult` no longer
+  opens with a full-width `.checker` strip. `ResultsIndex` event cards dropped the red "EVENT" badge.
   `PageNav` gains a Snapshots chip; `Landing` a Results link.
+- **Full-session lap chart**: `LapCharts.LapTimeChart` takes `fullSession` — when set it plots every
+  lap (no `lastN` trim) and `ChartFrame` scrolls horizontally (`overflow-x-auto` + a `minWidth` of
+  ~26px/lap; when it fits the frame, `w-full` wins and it just fills). Enabled on the public
+  `SnapshotLapCharts` and the Team-manager dashboard; live `DriverDetail` keeps the last-40 default.
 - **Link previews (Open Graph)**: the SPA can't set per-page meta (crawlers don't run JS), so the
   `main.py` SPA fallback string-injects a per-result `<title>` + `og:*`/`twitter:` tags into
   `index.html` for **published** `results/{id}` paths only (else the plain shell). `snapshots.og_meta`
@@ -475,6 +490,11 @@ penalty_seq, original_penalties}`.
 - **End-to-end replay**: copy a fixture into `backend/recordings/`, run
   `uvicorn app.main:app`, open `/e/1/control` (safeword default: `boxbox`), pick
   "Replay a recording…" (POST the connect API with `"speed": 10` to fast-forward).
+- **Dev mode / Simulator**: the `Simulator (demo race)` catalog entry is **dev-only** —
+  `tracks.catalog(dev_mode=…)` appends it (from `SIMULATOR`) only when
+  `Settings.dev_mode` is on (`WRB_DEV_MODE=1`), so it never shows in production's Race
+  Control dropdown. The connect endpoint still accepts a `{"kind":"simulator"}` config
+  directly regardless, so tests/scripts can always drive it.
 - **Browser verification**: Playwright + the preinstalled Chromium
   (`executablePath: '/opt/pw-browsers/chromium'`); put throwaway scripts in
   `frontend/node_modules/` (gitignored) so ESM resolves the local playwright package.

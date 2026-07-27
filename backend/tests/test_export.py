@@ -286,6 +286,50 @@ def test_negative_adjustment_credits_time(client):
     assert [d.kart_no for d in adj] == ["12", "7"]
 
 
+def test_lap_adjustment_adds_laps_and_reorders(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()   # kart 7 & 12 both on lap 20, 7 leads by 0.5s
+    # A transponder missed a lap for kart 12: give it back → 21 laps, jumps ahead.
+    event.state.add_penalty("12", "adjust", laps=1, reason="Missed lap (transponder)")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+    assert adj[0].kart_no == "12" and adj[0].laps == 21 and adj[0].position == 1
+
+
+def test_negative_lap_adjustment_removes_laps(client):
+    from app.routers.export import _penalty_adjusted_drivers
+    event = _seed_two_close()
+    # A double-counted lap on the leader is removed → 19 laps, drops behind 12.
+    event.state.add_penalty("7", "adjust", laps=-1, reason="Double-counted lap")
+    adj = _penalty_adjusted_drivers(event.state)
+    assert [d.kart_no for d in adj] == ["12", "7"]
+    assert adj[1].kart_no == "7" and adj[1].laps == 19
+
+
+def test_lap_adjustment_in_adjustments_block_not_penalties(client):
+    from app.routers.export import _penalties_summary_table, _adjustments_summary_table
+    event = _seed_two_close()
+    event.state.add_penalty("7", "lap", laps=1, reason="Cutting")          # disciplinary
+    event.state.add_penalty("12", "adjust", laps=2, reason="Missed laps")  # neutral
+    styles = _pen_styles()
+    pen_rows = _penalties_summary_table(event.state, styles)[-1]._cellvalues
+    adj_rows = _adjustments_summary_table(event.state, styles)[-1]._cellvalues
+    assert [r[0] for r in pen_rows] == ["Kart", "7", ""]        # only the lap PENALTY
+    assert adj_rows[1][0] == "12" and adj_rows[1][2] == "+2 laps"
+
+
+def test_penalty_fields_lap_adjust_validation():
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from app.routers.admin import _penalty_fields, AdminPenalty
+    # adjust with both seconds and laps zero → rejected
+    with _pytest.raises(HTTPException):
+        _penalty_fields(AdminPenalty(kart_no="7", kind="adjust", seconds=0, laps=0))
+    # a signed lap adjustment is accepted, seconds cleared
+    kind, seconds, laps = _penalty_fields(AdminPenalty(kart_no="7", kind="adjust", laps=-2))
+    assert kind == "adjust" and seconds == 0 and laps == -2
+
+
 def test_adjustment_split_from_penalties_summary(client):
     from app.routers.export import _penalties_summary_table, _adjustments_summary_table
     event = _seed_two_close()
@@ -326,3 +370,44 @@ def test_timesheet_pdf_with_adjustment_renders(client):
     event.state.add_penalty("32", "adjust", seconds=15, reason="Timing correction")
     r = client.get("/e/1/api/export/timesheet.pdf?penalties=1")
     assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+
+
+def _grid_styles():
+    from app.routers.export import _accent_kit
+    from reportlab.lib.styles import getSampleStyleSheet
+    base = getSampleStyleSheet()
+    kit = _accent_kit("#e10600")
+    return {
+        "Legend": base["Normal"], "ReportSmall": base["Normal"],
+        "SectionHead": base["Heading2"], "MiniCap": base["Normal"],
+        "KartHead": base["Heading3"], "Cell": base["Normal"],
+        "accent": kit["accent"], "accent_text": kit["text"], "accent_dark_hex": "#e10600",
+    }
+
+
+def test_pdf_lap_grid_follows_adjusted_order(client):
+    from app.routers.export import _lap_grid_tables, _penalty_adjusted_drivers
+    event = _seed_with_laps()   # feed order: 32 then 36, both on 10 laps
+    styles = _grid_styles()
+    # Default (no penalties) → feed order: kart 32 column first.
+    assert _lap_grid_tables(event.state, styles)[1].text == "Karts #32, #36"
+    # A +5 lap adjustment to 36 makes it the winner → the grid follows suit.
+    event.state.add_penalty("36", "adjust", laps=5, reason="Missed laps")
+    order = [d.kart_no for d in _penalty_adjusted_drivers(event.state)]
+    assert order == ["36", "32"]
+    assert _lap_grid_tables(event.state, styles, order=order)[1].text == "Karts #36, #32"
+
+
+def test_pdf_pit_stint_sections_follow_adjusted_order(client):
+    from app.routers.export import _pit_and_stint_sections, _penalty_adjusted_drivers
+    event = _seed_with_laps()
+    styles = _grid_styles()
+    heads = lambda flows: [f._content[0].text for f in flows if hasattr(f, "_content")]
+    # Feed order first.
+    feed = _pit_and_stint_sections(event.state, styles, True, True, False)
+    assert heads(feed)[0].startswith("Kart #32")
+    # Adjusted order (36 promoted) reorders the per-kart blocks.
+    event.state.add_penalty("36", "adjust", laps=5, reason="Missed laps")
+    order = [d.kart_no for d in _penalty_adjusted_drivers(event.state)]
+    adj = _pit_and_stint_sections(event.state, styles, True, True, False, order=order)
+    assert heads(adj)[0].startswith("Kart #36")

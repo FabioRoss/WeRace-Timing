@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
-import { FlagBanner } from '../components/FlagBanner'
+import { CheckerFlag } from '../components/CheckerFlag'
 import { SessionResult } from '../components/SessionResult'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
@@ -52,7 +52,7 @@ export function EventDetail() {
       <PageHeader
         title={event.name}
         subtitle={event.track}
-        right={<FlagBanner flag={session.snapshot?.race?.flag ?? 'finish'} compact />}
+        left={<CheckerFlag />}
       />
       <main className="flex-1 space-y-4 p-4">
         <Link to="/results" className="text-xs text-race-blue">{t('← All results')}</Link>

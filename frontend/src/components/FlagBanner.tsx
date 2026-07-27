@@ -11,14 +11,14 @@ const FLAG_STYLES: Record<Flag, { label: string; cls: string }> = {
   stopped: { label: 'SESSION STOPPED', cls: 'bg-race-red text-white' },
 }
 
-export function FlagBanner({ flag, compact = false }: { flag: Flag; compact?: boolean }) {
+export function FlagBanner({ flag, compact = false, className }: { flag: Flag; compact?: boolean, className?: string }) {
   const t = useT()
   const style = FLAG_STYLES[flag] ?? FLAG_STYLES.none
   return (
     <div
       className={`rounded font-bold uppercase tracking-widest text-center ${style.cls} ${
         compact ? 'px-3 py-1 text-xs' : 'px-4 py-2 text-sm'
-      }`}
+      } ${className ?? ''}`}
     >
       {flag === 'finish' ? <span className="text-shadow-none select-none">▓</span> : t(style.label)}
     </div>
