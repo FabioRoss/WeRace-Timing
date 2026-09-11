@@ -314,3 +314,191 @@ def test_repeated_grid_html_does_not_duplicate_rows():
     assert grid.row_order == sorted(set(grid.row_order))
     karts = [d.kart_no for d in grid.standings()]
     assert karts == ["607", "318"]
+
+
+# ------------------------------------------------- custom deployment templates
+#
+# The Lenovo South Milano venue renders the grid differently to Cremona: header
+# cells abbreviate their id to a bare "cN", the kart number and position hang off
+# a nested <div>/<p> rather than the <td>, there are no sector loops (so no
+# s1/s2/s3 columns and crossings arrive as a bare "rX|*||"), and the last column
+# is average speed labelled "Vm". Each of those silently produced a wrong grid
+# before: with no header cell ever matched, the decoder fell back to Cremona's
+# DEFAULT_COLUMNS and reported lap times as sectors, laps as the gap, and grid
+# row ids as kart numbers.
+
+CUSTOM_GRID_HTML = (
+    '<tbody>'
+    '<tr data-id="r0" class="head" data-pos="0">'
+    '<td data-id="c1" data-type="grp"></td>'
+    '<td data-id="c2" data-type="sta"></td>'
+    '<td data-id="c3" data-type="rk">Cla</td>'
+    '<td data-id="c4" data-type="no">Kart</td>'
+    '<td data-id="c5" data-type="nat">Paese</td>'
+    '<td data-id="c6" data-type="dr">Pilota</td>'
+    '<td data-id="c7" data-type="llp">Ultimo T.</td>'
+    '<td data-id="c8" data-type="blp">Giro mig.</td>'
+    '<td data-id="c9" data-type="gap">Distacco</td>'
+    '<td data-id="c10" data-type="int">Interv.</td>'
+    '<td data-id="c11" data-type="tlp">Giri</td>'
+    '<td data-id="c12" data-type="">Categoria</td>'
+    '<td data-id="c13" data-type="">Vm</td>'
+    '</tr>'
+    '<tr data-id="r157" data-pos="1">'
+    '<td data-id="r157c1" class="in"></td><td data-id="r157c2" class="in"></td>'
+    '<td class="rk"><div><p data-id="r157c3">1</p></div></td>'
+    '<td class="no"><div data-id="r157c4" class="no20">29</div></td>'
+    '<td data-id="r157c5" class=" nat"></td>'
+    '<td data-id="r157c6" class="dr"> CANNES RACING 1</td>'
+    '<td data-id="r157c7">1:09.960</td><td data-id="r157c8" class="ib">1:09.813</td>'
+    '<td data-id="r157c9"></td><td data-id="r157c10"></td>'
+    '<td data-id="r157c11">46</td><td data-id="r157c12"></td>'
+    '<td data-id="r157c13">71.16</td>'
+    '</tr>'
+    '<tr data-id="r158" data-pos="2">'
+    '<td data-id="r158c1" class="in"></td><td data-id="r158c2" class="in"></td>'
+    '<td class="rk"><div><p data-id="r158c3">2</p></div></td>'
+    '<td class="no"><div data-id="r158c4" class="no20">18</div></td>'
+    '<td data-id="r158c5" class=" nat"></td>'
+    '<td data-id="r158c6" class="dr"> SKART</td>'
+    '<td data-id="r158c7">1:09.838</td><td data-id="r158c8" class="ib">1:09.831</td>'
+    '<td data-id="r158c9">0.018</td><td data-id="r158c10">0.018</td>'
+    '<td data-id="r158c11">45</td><td data-id="r158c12"></td>'
+    '<td data-id="r158c13">71.14</td>'
+    '</tr>'
+    '</tbody>'
+)
+
+
+def make_custom_grid() -> ApexGrid:
+    grid = ApexGrid()
+    grid.apply("grid|" + CUSTOM_GRID_HTML)
+    return grid
+
+
+def test_bare_header_cell_ids_resolve_columns():
+    """Header cells ided "cN" (row implied by the <tr>) must still map columns —
+    otherwise the decoder silently falls back to another venue's layout."""
+    grid = make_custom_grid()
+    assert grid.header_row == 0
+    assert grid.columns == {
+        2: "status", 3: "position", 4: "kart", 5: "nation", 6: "name",
+        7: "last", 8: "best", 9: "gap", 10: "interval", 11: "laps",
+        13: "speed",                      # "Vm" = velocita media
+    }
+    # the resolved header must win over the header-less fallback
+    assert grid.columns != grid.fallback_columns
+
+
+def test_nested_cell_ids_are_read():
+    """Kart number and position live on a nested <div>/<p>, not the <td>."""
+    rows = make_custom_grid().standings()
+    assert [d.kart_no for d in rows] == ["29", "18"]      # not the row ids
+    assert [d.position for d in rows] == [1, 2]
+    assert [d.name for d in rows] == ["CANNES RACING 1", "SKART"]
+
+
+def test_custom_grid_maps_times_laps_and_speed():
+    """Regression: these used to land in the sector/gap columns."""
+    p1, p2 = make_custom_grid().standings()
+    assert p1.last_lap_ms == 69960
+    assert p1.best_lap_ms == 69813
+    assert p1.laps == 46
+    assert p1.speed == "71.16"
+    assert p2.gap_leader == "0.018"
+    assert p2.gap_ahead == "0.018"
+    # no sector loops at this venue
+    assert (p1.s1_ms, p1.s2_ms, p1.s3_ms) == (None, None, None)
+
+
+def test_head_class_marks_header_row_not_lowest_id():
+    """Karts start at r157 here; picking "lowest row id" as the header would be
+    right by luck only because r0 exists. Without r0 the class must decide."""
+    html = CUSTOM_GRID_HTML.replace('data-id="r0"', 'data-id="r400"')
+    grid = ApexGrid()
+    grid.apply("grid|" + html)
+    assert grid.header_row == 400
+    assert [d.kart_no for d in grid.standings()] == ["29", "18"]
+
+
+def test_grid_data_pos_seeds_standing_order():
+    """<tr data-pos> orders a freshly loaded grid before any rX|#|n arrives."""
+    grid = make_custom_grid()
+    assert grid.row_pos == {157: 1, 158: 2}
+
+
+def test_bare_crossing_sweeps_whole_lap():
+    """Venues without sector loops post "rX|*||" with no reference times; the
+    kart's own lap time then has to drive the progress bar (it used to freeze
+    at a third of a lap with no duration, pinning the ring to the start line)."""
+    grid = make_custom_grid()
+    grid.apply("r157|*||")
+    row = next(d for d in grid.standings() if d.kart_no == "29")
+    assert row.prog_from == 0.0
+    assert row.prog_to == 1.0
+    assert row.prog_ms == 69960          # its last lap
+
+
+def test_bare_crossing_without_any_lap_time_is_safe():
+    grid = ApexGrid()
+    grid.apply("grid|" + CUSTOM_GRID_HTML.replace("1:09.960", "").replace("1:09.813", ""))
+    grid.apply("r157|*||")
+    row = next(d for d in grid.standings() if d.kart_no == "29")
+    assert row.prog_ms is None           # nothing to interpolate with
+    assert 0.0 <= row.prog_to <= 1.0
+
+
+def test_lenovo_custom_replay():
+    """End-to-end over the real capture that exposed all of the above."""
+    grid = replay_fixture("lenovo_custom.ndjson")
+    rows = grid.standings()
+
+    assert grid.columns[7] == "last" and grid.columns[11] == "laps"
+    assert grid.race.run_type == "Free Practice 1"
+    assert grid.race.session_kind == "timed"
+
+    # real kart numbers (1..60-ish), never the r157+ grid row ids
+    assert all(d.kart_no.isdigit() and int(d.kart_no) < 100 for d in rows)
+    assert len(rows) == 52
+    assert max(d.laps for d in rows) == 6
+
+    leader = rows[0]
+    assert leader.position == 1
+    assert leader.name                       # team names come from the grid
+    assert leader.best_lap_ms and 60000 < leader.best_lap_ms < 80000
+    assert leader.speed                      # "Vm" column
+
+    # practice ranks by best lap, so the decoder should have said so
+    bests = [d.best_lap_ms for d in rows if d.best_lap_ms]
+    assert bests == sorted(bests)
+
+    # no sector columns exist at this venue
+    assert all(d.s1_ms is None and d.s2_ms is None for d in rows)
+    # crossings still animate the ring
+    assert sum(1 for d in rows if d.prog_ms) > 20
+
+
+def test_countdown_class_is_a_millisecond_clock():
+    """This venue labels the session clock "countdown", not "count" — unhandled,
+    the raw millisecond figure was rendered to spectators as the time left."""
+    grid = ApexGrid()
+    grid.apply("dyn1|countdown|579360")
+    assert grid.race.time_to_go == "09:39"
+    assert grid.race.togo_ms == 579360
+    assert grid.race.counting is True
+    assert grid.race.race_time == ""
+
+
+def test_countdown_direction_needs_no_second_sample():
+    """"count" infers direction by comparing samples; "countdown" states it, so
+    the very first frame must already read as time remaining."""
+    grid = ApexGrid()
+    grid.apply("dyn1|countdown|3600886")
+    assert grid.race.time_to_go == "1:00:00"
+    assert grid.race.race_time == ""
+
+
+def test_dyn_text_clock_still_passes_through():
+    grid = ApexGrid()
+    grid.apply("dyn1|text|01:00:00")
+    assert grid.race.time_to_go == "01:00:00"

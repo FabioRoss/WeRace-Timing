@@ -88,14 +88,29 @@ Line format `<target>|<class>|<value>`; newline-separated inside ws frames.
   PREVIOUS lap's segment durations = expected time to the next timing point. These
   drive the progress bars/ring (prog_* anchors).
 - `rX|*in|0` / `*out|0` pit lane entry/exit (we derive pit durations from these).
-- `dyn1|count|<ms>` session clock (up = elapsed, down = remaining → countdown anchor).
+- `dyn1|count|<ms>` **or** `dyn1|countdown|<ms>` session clock (up = elapsed, down =
+  remaining → countdown anchor). `countdown` states the direction outright, so it must not
+  wait for a second sample to infer it; an unrecognised class renders raw ms to spectators.
 - Cremona columns (header-less fallback DEFAULT_COLUMNS): c3 pos, c4 kart, c5 name,
   c6-8 S1-3, c9 last, c10 best, c11 gap, c13 laps. A speed trap can occupy c13 —
   decimal values auto-demote it to `speed` and laps remap to c14/c12.
+- **Grid HTML varies per deployment — never assume Cremona's shape** (verified against the
+  Lenovo South Milano capture, `tests/fixtures/lenovo_custom.ndjson`):
+  - Header cells may abbreviate their id to a bare `cN` (row implied by the `<tr>`).
+  - The `data-id` may hang off a nested `<div>`/`<p>` rather than the `<td>` — kart number
+    and position commonly do.
+  - The header row is the one marked `class="head"` (karts can start at r157, so "lowest
+    row id" would otherwise eat a real kart); `<tr data-pos="n">` seeds standing order.
+  - Venues with no sector loops omit s1/s2/s3 entirely and post bare `rX|*||` crossings
+    (no reference times) — progress then sweeps 0→1 over the kart's own last/best lap,
+    else the ring pins every kart to the start line. Label `Vm` = average speed.
+  Any of these silently falls back to DEFAULT_COLUMNS and produces a plausible-but-wrong
+  grid (lap times shown as sectors, laps as the gap, row ids as kart numbers), so assert on
+  `grid.columns` when adding a venue — an empty dict means nothing was resolved.
 - Mid-session joins get NO grid frame → kart numbers fall back to row ids. Mitigations:
   page-HTML grid bootstrap (SourceConfig.page) and the first_frames diagnostic
-  (`GET /e/{slot}/api/admin/status`). Whether a live connect sends `grid|` is STILL
-  UNVERIFIED — check first_frames at the next live session.
+  (`GET /e/{slot}/api/admin/status`). A live connect DOES send `grid|` (confirmed on the
+  Lenovo custom capture: 5 grid frames, one per session).
 - **Track-name override**: `SourceConfig.track_name` (optional, set per `TRACK_CATALOG` entry in
   `tracks.py`; empty = use the feed's name). Applied ONCE in `Event._on_data` (the seam every
   source funnels through) before `state.update`, so it flows to the snapshot broadcast (dashboards/

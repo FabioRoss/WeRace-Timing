@@ -9,6 +9,8 @@ HTML timing grid client-side. Verified against a live capture from Cremona
 with the target first, then a CSS style class, then the text value:
 
     grid|<html table>        full grid; cells carry data-id="rXcY" (+ data-type)
+                             on the <td> or on a nested <div>/<p>, and header
+                             cells may abbreviate it to a bare "cN"
     rXcY|class|text          set cell text + style. Time styles: tn=normal,
                              ti=personal best, tb=session best, ib=info.
                              Status column: sr=crossed line, si=pit in,
@@ -21,17 +23,19 @@ with the target first, then a CSS style class, then the text value:
     rX|#|26                  move row X to standing position 26
     rX|*in|0 / rX|*out|0     kart entered / left the pit lane
     rX|*|<ms>|<ms>, *i1, *i2 lap-complete + sector reference times (ignored)
-    dyn1|count|<ms>          session clock in milliseconds
+    dyn1|count/countdown|<ms> session clock in milliseconds
     brNcM|class|text         "best" banner rows (best sectors/lap) (ignored)
     title1/title2|…|<text>   event + session names
     light|<class>|<value>    track light (green/yellow/red/finish)
     clear|grid / clear|      reset the grid
     init/css/js/msg/com/...  presentation-only, ignored
 
-Row r0 is the header row when a grid frame was received; column meaning is
-resolved from header cell data-type attributes and/or label text
+The header row is the one marked class="head" (else the lowest row id); column
+meaning is resolved from its cells' data-type attributes and/or label text
 (multilingual). When the stream starts mid-session (no grid frame),
 DEFAULT_COLUMNS — the layout observed at Cremona — is used as a fallback.
+Venues without sector loops omit the s1/s2/s3 columns entirely and post bare
+"rX|*||" crossings, so lap progress falls back to the kart's own lap time.
 """
 
 from __future__ import annotations
@@ -50,9 +54,18 @@ from .base import WebSocketSource
 log = logging.getLogger(__name__)
 
 CELL_ID = re.compile(r"^r(\d+)c(\d+)$")
+# Header rows abbreviate cell ids to a bare "cN" — the row is implied by the
+# enclosing <tr> (seen on the Lenovo South Milano custom deployment).
+BARE_CELL_ID = re.compile(r"^c(\d+)$")
 ROW_ID = re.compile(r"^r(\d+)$")
 BEST_ID = re.compile(r"^br\d+(c\d+)?$")
 TAGS = re.compile(r"<[^>]+>")
+
+# Elements that never carry a closing tag — kept off the parser's tag stack.
+VOID_TAGS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+})
 
 # Column layout observed live at Cremona; used when no grid header was seen
 # (stream joined mid-session). c1/c2 are status/indicator columns, c12 unclear.
@@ -80,7 +93,7 @@ LABEL_MAP = [
     (re.compile(r"(meilleur|best|migliore|beste)", re.I), "best"),
     (re.compile(r"(ecart|écart|gap|distacco)", re.I), "gap"),
     (re.compile(r"(interv|int\.)", re.I), "interval"),
-    (re.compile(r"(km/h|kmh|speed|vitesse|velocit)", re.I), "speed"),
+    (re.compile(r"(km/h|kmh|speed|vitesse|velocit|^v\.?m\.?$)", re.I), "speed"),
     (re.compile(r"(tours|laps|giri|runden)", re.I), "laps"),
     (re.compile(r"(stands|pits|pit stop|box)", re.I), "pits"),
 ]
@@ -113,50 +126,90 @@ def _format_clock(ms: int) -> str:
 
 
 class _GridHTMLParser(HTMLParser):
-    """Extracts cells (data-id/id -> {text, type}) from an Apex grid table."""
+    """Extracts cells (data-id/id -> {text, type}) from an Apex grid table.
+
+    Deployments differ in where they hang the cell id: on the <td> itself, or
+    on a nested <div>/<p> (kart number and position commonly), and header rows
+    abbreviate it to a bare "cN". So resolve ids against the enclosing <tr> and
+    capture the text of whichever element carries the id, at any depth.
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.cells: dict[str, dict] = {}
         self.row_order: list[int] = []
-        self._current: str | None = None
-        self._buf: list[str] = []
+        self.head_row: int | None = None      # <tr class="head">, when marked
+        self.row_pos: dict[int, int] = {}     # <tr data-pos="n"> seed positions
+        self._row: int | None = None
+        self._stack: list[tuple[str, str | None]] = []
+        self._buf: dict[str, list[str]] = {}
+
+    def _cell_id(self, a: dict) -> str | None:
+        """Normalise this element's cell id to "rXcY", or None if it has none."""
+        raw = a.get("data-id") or a.get("id") or ""
+        if CELL_ID.match(raw):
+            return raw
+        bare = BARE_CELL_ID.match(raw)
+        if bare and self._row is not None:
+            return f"r{self._row}c{bare.group(1)}"
+        return None
 
     def handle_starttag(self, tag: str, attrs) -> None:
         a = dict(attrs)
         if tag == "tr":
-            rid = a.get("data-id") or a.get("id") or ""
-            m = ROW_ID.match(rid)
-            # Pages/grid frames can contain the table more than once (desktop +
-            # mobile copies) — never record the same row twice.
-            if m and int(m.group(1)) not in self.row_order:
-                self.row_order.append(int(m.group(1)))
-        elif tag in ("td", "th"):
-            cid = a.get("data-id") or a.get("id") or ""
-            if CELL_ID.match(cid):
-                self._flush()
-                self._current = cid
-                self.cells[cid] = {
-                    "text": "",
-                    "type": a.get("data-type", ""),
-                    "class": a.get("class", ""),
-                }
+            m = ROW_ID.match(a.get("data-id") or a.get("id") or "")
+            self._row = int(m.group(1)) if m else None
+            if self._row is not None:
+                if "head" in (a.get("class") or "").split():
+                    self.head_row = self._row
+                try:
+                    pos = int(a.get("data-pos") or 0)
+                except ValueError:
+                    pos = 0
+                if pos > 0:
+                    self.row_pos.setdefault(self._row, pos)
+                # Grid frames can contain the table more than once (desktop +
+                # mobile copies) — never record the same row twice.
+                if self._row not in self.row_order:
+                    self.row_order.append(self._row)
+        if tag in VOID_TAGS:
+            return
+        cid = self._cell_id(a)
+        self._stack.append((tag, cid))
+        if cid is not None:
+            self._buf[cid] = []
+            self.cells[cid] = {
+                "text": "",
+                "type": a.get("data-type", ""),
+                "class": a.get("class", ""),
+            }
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("td", "th"):
-            self._flush()
+        if tag in VOID_TAGS:
+            return
+        # Unwind to the matching open tag, closing anything left unclosed.
+        while self._stack:
+            open_tag, cid = self._stack.pop()
+            if cid is not None:
+                self._flush(cid)
+            if open_tag == tag:
+                return
 
     def handle_data(self, data: str) -> None:
-        if self._current:
-            self._buf.append(data)
+        for _, cid in reversed(self._stack):
+            if cid is not None:      # text belongs to the innermost tagged element
+                self._buf.setdefault(cid, []).append(data)
+                return
 
-    def _flush(self) -> None:
-        if self._current:
-            self.cells[self._current]["text"] = " ".join(
-                "".join(self._buf).split()
-            )
-            self._current = None
-            self._buf = []
+    def _flush(self, cid: str) -> None:
+        self.cells[cid]["text"] = " ".join("".join(self._buf.get(cid, [])).split())
+
+    def close(self) -> None:
+        super().close()
+        while self._stack:
+            _, cid = self._stack.pop()
+            if cid is not None:
+                self._flush(cid)
 
 
 class ApexGrid:
@@ -254,10 +307,12 @@ class ApexGrid:
             log.debug("apex: ignored command: %.80s", line)
 
     def _dyn(self, klass: str, text: str) -> None:
-        """Session clock. `count` carries milliseconds; other dyns are text."""
-        if klass == "count" and text.isdigit():
+        """Session clock. `count`/`countdown` carry milliseconds; others text."""
+        if klass in ("count", "countdown") and text.isdigit():
             ms = int(text)
-            if self._last_count is not None and ms != self._last_count:
+            if klass == "countdown":
+                self._count_down = True      # the class states the direction
+            elif self._last_count is not None and ms != self._last_count:
                 self._count_down = ms < self._last_count
             self._last_count = ms
             clock = _format_clock(ms)
@@ -327,24 +382,36 @@ class ApexGrid:
             if lap_ms:
                 self.lap_expected[row] = lap_ms
             exp = self.lap_expected.get(row)
-            to = ref / exp if ref and exp else 1 / 3
-            self.prog[row] = {"ts": now, "from": 0.0, "to": min(to, 1.0), "ms": ref}
+            if ref and exp:
+                to = min(ref / exp, 1.0)
+                self.prog[row] = {"ts": now, "from": 0.0, "to": to, "ms": ref}
+                return
+            # Venues without sector loops post a bare "rX|*||" crossing: there
+            # is no reference time and no *i1/*i2 to follow. The kart's own lap
+            # time is then the only estimate of how long the next lap takes, so
+            # sweep the whole lap over it rather than freezing the bar.
+            est = exp or self._cell_ms(row, "last") or self._cell_ms(row, "best")
+            if est:
+                self.prog[row] = {"ts": now, "from": 0.0, "to": 1.0, "ms": est}
+            else:
+                self.prog[row] = {"ts": now, "from": 0.0, "to": 1 / 3, "ms": ref}
             return
 
         ref = num(0)
         exp = self.lap_expected.get(row)
         prev = self.prog.get(row) or {"to": 0.0}
         if klass == "*i1":       # sector 1 posted; ref = expected s2 ms
-            s1 = self._sector_ms(row, "s1")
+            s1 = self._cell_ms(row, "s1")
             frm = s1 / exp if s1 and exp else prev["to"]
             to = frm + ref / exp if ref and exp else frm
         else:                    # *i2: sector 2 posted; ref = expected s3 ms
-            s1, s2 = self._sector_ms(row, "s1"), self._sector_ms(row, "s2")
+            s1, s2 = self._cell_ms(row, "s1"), self._cell_ms(row, "s2")
             frm = (s1 + s2) / exp if s1 and s2 and exp else prev["to"]
             to = 1.0
         self.prog[row] = {"ts": now, "from": min(frm, 1.0), "to": min(to, 1.0), "ms": ref}
 
-    def _sector_ms(self, row: int, semantic: str) -> int | None:
+    def _cell_ms(self, row: int, semantic: str) -> int | None:
+        """This row's cell for a semantic column, parsed as a duration."""
         cols = self.columns or self.fallback_columns
         col = next((c for c, s in cols.items() if s == semantic), None)
         if col is None:
@@ -377,7 +444,17 @@ class ApexGrid:
                 self.cells[(row, col)] = cell
                 if row not in self.row_order:
                     self.row_order.append(row)
-        self.header_row = min(self.row_order) if self.row_order else None
+        # A row explicitly marked class="head" beats "lowest row id" — grids
+        # whose karts start at r157 would otherwise sacrifice a real kart.
+        if parser.head_row is not None:
+            self.header_row = parser.head_row
+        else:
+            self.header_row = min(self.row_order) if self.row_order else None
+        # data-pos gives the standing order straight away, so a freshly loaded
+        # grid renders in order instead of waiting for the next rX|#|n burst.
+        self.row_pos.update(
+            {r: p for r, p in parser.row_pos.items() if r != self.header_row}
+        )
         self._resolve_columns()
         self.dirty = True
 
