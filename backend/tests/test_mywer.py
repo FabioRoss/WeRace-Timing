@@ -1,7 +1,7 @@
 import json
 
 from app.models import Flag
-from app.sources.mywer import decode_mywer
+from app.sources.mywer import MyWerDecoder, decode_mywer
 
 
 def make_payload():
@@ -252,3 +252,77 @@ def test_duplicate_racenos_tiebreak_by_time():
     _, drivers = decode_mywer(json.dumps(payload))
     assert len(drivers) == 1
     assert drivers[0].name == "New"
+
+
+# ------------------------------------------------------------ team identities
+#
+# Endurance events register a TEAM rather than a person: the trackside boards
+# show the team name, and MyWeR carries it in "team". The decoder read only
+# "fullname", so an event whose entries name the team and leave the per-driver
+# fields blank showed an unnamed field online while the track displays were fine.
+
+def team_frame(entries):
+    return json.dumps({"data": {
+        "race": {"flag": "G", "runname": "Endurance 3h", "runtype": "E"},
+        "drivers": entries,
+    }})
+
+
+def test_team_name_is_used_when_the_driver_fields_are_blank():
+    race, drivers = decode_mywer(team_frame([
+        {"raceno": "7", "position": 1, "laps": 30, "fullname": "", "team": "Oraken 3"},
+    ]))
+    assert [d.name for d in drivers] == ["Oraken 3"]
+
+
+def test_team_wins_over_the_driver_currently_aboard():
+    """The column is the entry's identity, and the person aboard rotates."""
+    _, drivers = decode_mywer(team_frame([
+        {"raceno": "7", "position": 1, "laps": 30,
+         "fullname": "Mario Rossi", "team": "Oraken 3"},
+    ]))
+    assert [d.name for d in drivers] == ["Oraken 3"]
+
+
+def test_individual_sessions_still_show_the_driver():
+    """No team registered -> unchanged behaviour (fullname, then nickname)."""
+    _, drivers = decode_mywer(team_frame([
+        {"raceno": "7", "position": 1, "laps": 30, "fullname": "Mario Rossi", "team": ""},
+        {"raceno": "8", "position": 2, "laps": 30, "fullname": "", "nickname": "vale"},
+    ]))
+    assert [d.name for d in drivers] == ["Mario Rossi", "vale"]
+
+
+def test_name_is_taken_from_a_sibling_entry_of_the_same_kart():
+    """Only some of a kart's registered-driver entries carry the name, and the
+    entry that wins on freshness need not be one of them."""
+    _, drivers = decode_mywer(team_frame([
+        # freshest (positioned, most laps) but anonymous
+        {"raceno": "7", "position": 1, "laps": 30, "fullname": "", "team": ""},
+        # a reserve driver's entry, unpositioned, but it names the team
+        {"raceno": "7", "position": 0, "laps": 0, "team": "Oraken 3"},
+    ]))
+    assert len(drivers) == 1
+    assert drivers[0].name == "Oraken 3"
+    assert drivers[0].laps == 30          # still the freshest entry's state
+
+
+def test_a_frame_without_names_does_not_blank_the_field():
+    """A later frame that omits the name must not wipe what is on screen."""
+    dec = MyWerDecoder()
+    dec.decode(team_frame([{"raceno": "7", "position": 1, "laps": 30, "team": "Oraken 3"}]))
+    _, drivers = dec.decode(team_frame([{"raceno": "7", "position": 1, "laps": 31}]))
+    assert drivers[0].name == "Oraken 3"
+    assert drivers[0].laps == 31
+
+
+def test_a_new_session_forgets_the_previous_names():
+    """Kart 7 can be a different team in the next session."""
+    dec = MyWerDecoder()
+    dec.decode(team_frame([{"raceno": "7", "position": 1, "laps": 30, "team": "Oraken 3"}]))
+    nxt = json.dumps({"data": {
+        "race": {"flag": "W", "runname": "Final", "runtype": "F"},
+        "drivers": [{"raceno": "7", "position": 1, "laps": 0}],
+    }})
+    _, drivers = dec.decode(nxt)
+    assert drivers[0].name == ""

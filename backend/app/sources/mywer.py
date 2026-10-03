@@ -22,6 +22,12 @@ Verified against a live Rozzano capture (tests/fixtures/rozzano.ndjson):
   and a "drv" index): team/endurance sessions list the same raceno once per
   registered driver. Entries must be collapsed to one row per kart, keeping
   the freshest (positioned, most laps, newest time).
+- An entry's identity may live in "team", "fullname" or "nickname". Endurance
+  events register the TEAM (what the trackside boards show) and can leave the
+  per-driver fields blank, so "team" wins when set. Only some of a kart's
+  entries carry a name, and the freshest one is not necessarily among them, so
+  a name found on any sibling entry is kept — and remembered per kart, because
+  a frame that omits it must not blank a name already on screen.
 
 Lap/pit times come as "HH:MM:SS.ffffff" with all-zeros meaning "no time".
 """
@@ -59,6 +65,7 @@ class MyWerDecoder:
 
     def __init__(self) -> None:
         self._race: dict = {}
+        self._names: dict[str, str] = {}      # kart -> last known entry name
 
     def decode(self, text: str) -> tuple[RaceInfo | None, list[DriverRow] | None]:
         doc = json.loads(text)
@@ -66,7 +73,12 @@ class MyWerDecoder:
 
         race: RaceInfo | None = None
         if "race" in data:
-            for key, value in (data["race"] or {}).items():
+            incoming = data["race"] or {}
+            run = str(incoming.get("runname") or "").strip()
+            previous = str(self._race.get("runname") or "").strip()
+            if run and previous and run != previous:
+                self._names.clear()           # names belonged to the old session
+            for key, value in incoming.items():
                 if value is not None:
                     self._race[key] = value
             race = self._build_race()
@@ -75,17 +87,26 @@ class MyWerDecoder:
         if "drivers" in data:
             # One entry per registered DRIVER; collapse to one row per kart.
             by_kart: dict[str, dict] = {}
+            names: dict[str, str] = {}
             for d in data["drivers"] or []:
                 kart = str(d.get("raceno") or "").strip()
                 if not kart:
                     continue
+                # The entry that wins on freshness is not always the one
+                # carrying the name, so collect names across all of them.
+                name = self._entry_name(d)
+                if name:
+                    names[kart] = name
                 current = by_kart.get(kart)
                 if current is None or self._fresher(d, current):
                     by_kart[kart] = d
             drivers = []
-            for d in by_kart.values():
-                row = self._build_driver(d)
+            for kart, d in by_kart.items():
+                name = names.get(kart) or self._names.get(kart, "")
+                row = self._build_driver(d, name)
                 if row is not None:
+                    if row.name:
+                        self._names[kart] = row.name
                     drivers.append(row)
         return race, drivers
 
@@ -151,7 +172,17 @@ class MyWerDecoder:
         )
 
     @staticmethod
-    def _build_driver(d: dict) -> DriverRow | None:
+    def _entry_name(d: dict) -> str:
+        """The entry's display identity. Team events register the team and may
+        send no per-driver name at all, so "team" takes precedence."""
+        for key in ("team", "fullname", "nickname"):
+            value = str(d.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _build_driver(d: dict, name: str = "") -> DriverRow | None:
         kart_no = str(d.get("raceno") or "").strip()
         if not kart_no:
             return None
@@ -159,7 +190,7 @@ class MyWerDecoder:
         in_pit = bool(d.get("pit"))
         return DriverRow(
             kart_no=kart_no,
-            name=str(d.get("fullname") or "").strip(),
+            name=name or MyWerDecoder._entry_name(d),
             position=int(d.get("position") or 0),
             transponder=d.get("transp1"),
             last_lap_ms=parse_duration_ms(d.get("lasttime")),
