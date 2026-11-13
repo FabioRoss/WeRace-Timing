@@ -146,7 +146,7 @@ export function TeamStoryStudio({
   const hasData = drivers.length > 0
 
   return (
-    <div className="grid gap-6 md:grid-cols-[300px_1fr]">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
       {/* Preview */}
       <div>
         <canvas
@@ -165,7 +165,7 @@ export function TeamStoryStudio({
 
       {/* Controls */}
       <div className="max-w-lg space-y-5">
-        <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+        <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <h2 className="text-sm font-bold uppercase tracking-wider text-ink-300">
             {t('Team story graphic')}
           </h2>

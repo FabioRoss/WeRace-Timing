@@ -496,6 +496,52 @@ penalty_seq, original_penalties}`.
   1200×630 card at `GET /api/results/{id}/card.png` (published only; `_load_font` uses DejaVu, added
   to the Docker image via `fonts-dejavu-core`). `ResultsDetail` also sets `document.title`.
 
+## Frontend UI conventions (mobile-first)
+
+Phones are the primary surface. These rules exist because each was a real bug:
+
+- **Every grid declares its columns.** `grid gap-4 lg:grid-cols-3` has NO column template below
+  `lg`, so its single implicit track is `auto`-sized and grows to the widest child's min-content
+  (a long `<select>` option, a chip row, a wide chart) — the whole page then scrolls sideways.
+  Always add a base `grid-cols-1` (= `minmax(0,1fr)`). Arbitrary tracks use `minmax(0,1fr)`,
+  never a bare `1fr` (= `minmax(auto,1fr)`). Panels are `min-w-0`.
+- **Wide content scrolls in its own box with `.scroll-x`** (`index.css`): `overflow-x:auto` plus
+  `contain: inline-size`. A scroll container still reports its content's min-width to an
+  auto-sized parent track; containment stops that. This was the "worse as laps go on" bug: the
+  full-session chart is `laps × 26px` wide and pushed the Team page to ~4,000px at 150 laps.
+- **Layout primitives** live in `components/ui.tsx`: `Page`, `Panel`, `Collapse` (animated
+  show/hide, `inert` when closed), `Segmented`, `Tabs` (sticky under the race strip via
+  `--strip-h`), `CountBadge`, `useIsDesktop`. Buttons/inputs use `.btn`/`.chip`/`.field`.
+- **Touch targets**: under `(pointer: coarse)` every button/select/input is ≥40px tall (global
+  rule in `index.css`). Links styled as controls need `min-h-10` themselves (rule skips `<a>`).
+- **Header** (`StatusBar.PageHeader`): right-hand controls wrap below the title on phones instead
+  of squeezing it. Live dashboards add the sticky `RaceStrip` (flag colour, remaining, best).
+- **Optional sections never reflow the page**: an optional panel goes at the END of its column
+  (in a `Collapse`), or shares a fixed-height box behind a switch. Team: messages + penalties share
+  the desktop `Feed` (fixed `h-72`); while race control holds penalties the Penalties view shows
+  a note in place, the tab's count badge is suppressed, and `TimingTable showPenalties={false}`
+  drops PEN/ADJ badges. Desktop dashboards use independent flex columns, never an auto-flowing
+  grid of conditionally rendered cards.
+- **TimingTable on phones** is 5 columns with two-line rows (P | Kart | Team + `L14 · 2 pit` +
+  badges | Last/Best | Gap/Int) and fits 360px. Status badges sit outside the truncating name.
+- **Charts** (`LapCharts.TimeChart`): y-axis in a fixed column beside the scrolling plot, shared
+  precomputed domain/ticks (`niceScale`); HTML legend chips outside the scroll area; live charts
+  open on the latest laps and follow new ones unless scrolled back (`startAt='end'`), results
+  open on lap 1.
+- **Pop-ups only for fresh messages.** On every (re)connect the server replays recent messages
+  (live: last 20; driver: last 10). Clients age them against the server clock — `server_ts` on
+  each snapshot / driver payload (`updated_at` stalls while the feed is idle) — and pop up only
+  messages < 45s old. Penalty pop-ups come from the race-control notification MESSAGE (sent after
+  the grace window, suppressed while held), never from watching the penalty list (that fires
+  before staff can retract a mistake, and doubles the alert).
+- **Driver screen**: no history. Messages (incl. penalty/warning notifications) are full-screen,
+  self-closing alerts queued one after another (info 6s, warning 8s, urgent 10s, tap to skip);
+  shown ids are remembered in `localStorage` so reconnects replay nothing. A small `PEN +Ns`
+  marker sums unserved, notified time penalties. The driver payload omits penalties while held.
+- **UI audit harness**: seed a backend (christel race, 52-kart lenovo, a synthetic 150-lap race),
+  then for each page × width (360/390/1440) measure page overflow against the DEVICE width — with
+  mobile emulation Chrome widens the layout viewport to fit overflow, so `innerWidth` lies.
+
 ## Development workflow
 
 - Backend tests: `cd backend && pip install -e ".[dev]" && python -m pytest`

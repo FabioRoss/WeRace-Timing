@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
 import { CheckerFlag } from '../components/CheckerFlag'
+import { Page } from '../components/ui'
 import type { EventGroup, SnapshotMeta } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -31,19 +32,19 @@ export function ResultsIndex() {
   const empty = shownEvents.length === 0 && shownLoose.length === 0
 
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col">
+    <Page width="max-w-4xl" className="pb-8">
       <PageHeader title={t('Results')} subtitle={t('Published events & sessions')} left={<CheckerFlag />} />
-      <main className="flex-1 space-y-3 p-4">
-        <Link to="/" className="text-xs text-race-blue">{t('← Home')}</Link>
+      <main className="flex-1 space-y-3 px-3 pt-3 sm:px-4 sm:pt-4">
+        <Link to="/" className="inline-flex min-h-10 items-center text-sm text-race-blue">{t('← Home')}</Link>
         {tracks.length > 1 && (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:flex-wrap sm:px-0">
             <button type="button" onClick={() => setTrack('')}
-              className={`rounded-full px-3 py-1 text-xs ${!track ? 'bg-race-blue' : 'bg-pit-700'}`}>
+              className={`chip ${!track ? 'bg-race-blue! text-white' : ''}`}>
               {t('All tracks')}
             </button>
             {tracks.map((tk) => (
               <button key={tk} type="button" onClick={() => setTrack(tk)}
-                className={`rounded-full px-3 py-1 text-xs ${track === tk ? 'bg-race-blue' : 'bg-pit-700'}`}>
+                className={`chip ${track === tk ? 'bg-race-blue! text-white' : ''}`}>
                 {tk}
               </button>
             ))}
@@ -56,8 +57,11 @@ export function ResultsIndex() {
 
         {shownEvents.map((e) => (
           <Link key={e.id} to={`/events/${e.id}`}
-            className="block rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 hover:ring-race-red">
-            <div className="font-bold">{e.name}</div>
+            className="block rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800 transition hover:ring-race-red active:scale-[0.99]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 truncate text-base font-bold">{e.name}</div>
+              <span className="shrink-0 text-xl text-ink-500" aria-hidden>›</span>
+            </div>
             <div className="mt-0.5 text-xs text-ink-500">
               {[e.track, e.sessions.length === 1 ? t('{n} session', { n: 1 }) : t('{n} sessions', { n: e.sessions.length })]
                 .filter(Boolean).join(' · ')}
@@ -74,25 +78,30 @@ export function ResultsIndex() {
 
         {shownLoose.map((m) => (
           <Link key={m.id} to={`/results/${m.id}`}
-            className="block rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 hover:ring-race-red">
-            <div className="font-bold">{m.name || m.id}</div>
+            className="block rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800 transition hover:ring-race-red active:scale-[0.99]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 truncate text-base font-bold">{m.name || m.id}</div>
+              <span className="shrink-0 text-xl text-ink-500" aria-hidden>›</span>
+            </div>
             <div className="mt-0.5 text-xs text-ink-500">
               {[m.track, t('{n} karts', { n: m.driver_count ?? 0 }),
                 m.created_at ? new Date(m.created_at * 1000).toLocaleDateString() : '']
                 .filter(Boolean).join(' · ')}
             </div>
             {m.podium && m.podium.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-3 text-sm">
+              <ol className="mt-3 grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
                 {m.podium.map((p) => (
-                  <span key={p.kart_no} className="text-ink-300">
-                    <span className="font-bold text-race-red">P{p.position}</span> #{p.kart_no} {p.name}
-                  </span>
+                  <li key={p.kart_no} className="flex min-w-0 items-center gap-2 rounded-lg bg-pit-850 px-2.5 py-1.5">
+                    <span className="timing font-extrabold text-race-red">P{p.position}</span>
+                    <span className="timing text-ink-500">#{p.kart_no}</span>
+                    <span className="truncate text-ink-100">{p.name}</span>
+                  </li>
                 ))}
-              </div>
+              </ol>
             )}
           </Link>
         ))}
       </main>
-    </div>
+    </Page>
   )
 }

@@ -6,6 +6,7 @@ import { SnapshotLapCharts } from './SnapshotLapCharts'
 import { penaltyAdjustedDrivers } from '../lib/penalties'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
+import { Panel } from './ui'
 
 /**
  * The public read-only body for one saved session: public notes, the
@@ -31,19 +32,18 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
   }, [snapshot])
 
   return (
-    <div className="space-y-4">
+    <div className="grid min-w-0 grid-cols-1 gap-3 sm:gap-4">
       {record.public_notes && (
-        <div className="rounded-xl bg-pit-900 p-4 text-sm text-ink-200 ring-1 ring-pit-800">
+        <div className="rounded-2xl bg-race-blue/10 px-4 py-3 text-sm text-ink-100 ring-1 ring-race-blue/30">
           {record.public_notes}
         </div>
       )}
 
-      <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
-        {isRace && (
-          <div className="flex justify-end px-3 pt-3">
-            <OrderToggle mode={orderMode} onChange={setOrderMode} />
-          </div>
-        )}
+      <Panel
+        title={t('Classification')}
+        actions={isRace ? <OrderToggle mode={orderMode} onChange={setOrderMode} /> : undefined}
+        bodyClass=""
+      >
         <TimingTable
           snapshot={finalSnapshot}
           orderMode={isRace ? orderMode : 'race'}
@@ -52,24 +52,25 @@ export function SessionResult({ record, baseUrl }: { record: SnapshotRecord; bas
           lapsBase={baseUrl}
           teamStoryConfig={record.team_story_config}
         />
-      </div>
+      </Panel>
 
       {snapshot.penalties.length > 0 && (
-        <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <h3 className="label-race mb-3">{t('Penalties & warnings')}</h3>
+        <Panel title={t('Penalties & warnings')}>
           <PenaltyLog penalties={snapshot.penalties} />
-        </div>
+        </Panel>
       )}
 
       <SnapshotLapCharts baseUrl={baseUrl} drivers={snapshot.drivers} />
 
-      <a
-        href={pdfUrl}
-        onClick={() => { setDownloading(true); setTimeout(() => setDownloading(false), 1500) }}
-        className="inline-block rounded bg-race-red px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110"
-      >
-        {downloading ? t('Preparing…') : t('Download PDF timesheet')}
-      </a>
+      <div>
+        <a
+          href={pdfUrl}
+          onClick={() => { setDownloading(true); setTimeout(() => setDownloading(false), 1500) }}
+          className="btn btn-danger w-full sm:w-auto"
+        >
+          {downloading ? t('Preparing…') : t('Download PDF timesheet')}
+        </a>
+      </div>
     </div>
   )
 }

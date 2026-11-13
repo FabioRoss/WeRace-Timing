@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Segmented } from './ui'
 import { useT } from '../lib/i18n'
 
 export type OrderMode = 'race' | 'laptime'
@@ -22,22 +23,13 @@ export function OrderToggle({ mode, onChange }: {
   onChange: (m: OrderMode) => void
 }) {
   const t = useT()
-  const seg = (value: OrderMode, label: string) => (
-    <button
-      type="button"
-      onClick={() => onChange(value)}
-      className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-        mode === value ? 'bg-race-blue' : 'bg-pit-700 hover:bg-pit-600'
-      }`}
-    >
-      {label}
-    </button>
-  )
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="label-race mr-1">{t('Order')}</span>
-      {seg('race', t('Default'))}
-      {seg('laptime', t('Best lap'))}
-    </div>
+    <Segmented
+      label={t('Order')}
+      size="sm"
+      value={mode}
+      onChange={onChange}
+      options={[{ value: 'race', label: t('Default') }, { value: 'laptime', label: t('Best lap') }]}
+    />
   )
 }

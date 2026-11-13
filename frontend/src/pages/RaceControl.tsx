@@ -6,6 +6,7 @@ import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
+import { Segmented } from '../components/ui'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
@@ -259,20 +260,19 @@ function RaceControlInner() {
         }
       />
 
-      <div className="grid gap-4 p-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 px-3 pt-3 pb-6 sm:gap-4 sm:px-4 sm:pt-4 lg:grid-cols-3">
         {/* Source control */}
-        <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <div className="mb-3 flex gap-2">
-            {(['source', 'config'] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setCfgTab(tab)}
-                className={`label-race rounded px-2 py-1 ${cfgTab === tab ? 'bg-pit-700 text-ink-100' : 'text-ink-500 hover:text-ink-300'}`}
-              >
-                {tab === 'source' ? t('Timing source') : t('Configuration')}
-              </button>
-            ))}
+        <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
+          <div className="mb-3">
+            <Segmented
+              size="sm"
+              value={cfgTab}
+              onChange={setCfgTab}
+              options={[
+                { value: 'source', label: t('Timing source') },
+                { value: 'config', label: t('Configuration') },
+              ]}
+            />
           </div>
           {cfgTab === 'source' && (
           <div className="space-y-3">
@@ -443,7 +443,7 @@ function RaceControlInner() {
         </div>
 
         {/* Driver messaging */}
-        <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
+        <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
           <h3 className="label-race mb-3">{t('Message drivers')}</h3>
           <form onSubmit={sendMessage} className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -525,7 +525,7 @@ function RaceControlInner() {
         </div>
 
         {/* Penalties & warnings */}
-        <div className="lg:col-span-3 rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+        <div className="lg:col-span-3 min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="label-race">{t('Penalties & warnings')}</h3>
             <button type="button" onClick={saveSnapshot} disabled={busy || !snapshot?.drivers.length}
@@ -544,7 +544,7 @@ function RaceControlInner() {
         </div>
 
         {/* Standings */}
-        <div className="lg:col-span-3 rounded-xl bg-pit-900 ring-1 ring-pit-800">
+        <div className="lg:col-span-3 min-w-0 rounded-2xl bg-pit-900 ring-1 ring-pit-800">
           {snapshot?.race.session_kind === 'race' && (
             <div className="flex justify-end px-3 pt-3">
               <OrderToggle mode={orderMode} onChange={setOrderMode} />

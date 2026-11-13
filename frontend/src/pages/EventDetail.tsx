@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { PageHeader } from '../components/StatusBar'
 import { CheckerFlag } from '../components/CheckerFlag'
 import { SessionResult } from '../components/SessionResult'
+import { Page, Tabs } from '../components/ui'
 import type { SnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -48,28 +49,24 @@ export function EventDetail() {
 
   const session = event.sessions[Math.min(active, event.sessions.length - 1)]
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col">
+    <Page width="max-w-4xl" className="pb-8">
       <PageHeader
         title={event.name}
         subtitle={event.track}
         left={<CheckerFlag />}
       />
-      <main className="flex-1 space-y-4 p-4">
-        <Link to="/results" className="text-xs text-race-blue">{t('← All results')}</Link>
-
-        <div className="flex flex-wrap gap-2">
-          {event.sessions.map((s, i) => (
-            <button key={s.id} type="button" onClick={() => setActive(i)}
-              className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-                i === active ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
-              }`}>
-              {s.short_name || s.name || s.snapshot?.race?.run_type || t('Session {n}', { n: i + 1 })}
-            </button>
-          ))}
-        </div>
-
-        <SessionResult record={session} baseUrl={`/api/results/${session.id}`} />
+      <Tabs<string>
+        value={String(Math.min(active, event.sessions.length - 1))}
+        onChange={(v) => setActive(Number(v))}
+        tabs={event.sessions.map((s, i) => ({
+          id: String(i),
+          label: s.short_name || s.name || s.snapshot?.race?.run_type || t('Session {n}', { n: i + 1 }),
+        }))}
+      />
+      <main className="flex-1 space-y-3 px-3 pt-3 sm:space-y-4 sm:px-4 sm:pt-4">
+        <Link to="/results" className="inline-flex min-h-10 items-center text-sm text-race-blue">{t('← All results')}</Link>
+        <SessionResult key={session.id} record={session} baseUrl={`/api/results/${session.id}`} />
       </main>
-    </div>
+    </Page>
   )
 }

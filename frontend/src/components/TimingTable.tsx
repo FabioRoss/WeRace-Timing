@@ -30,6 +30,9 @@ interface Props {
   // modal offers a per-team "Download story" button (the per-team download the
   // team dashboard can't provide from a saved result).
   teamStoryConfig?: TeamStoryConfig
+  // false when race control is holding penalties back from this viewer (the
+  // team dashboard with "hide team penalties" on): no PEN/ADJ badges either.
+  showPenalties?: boolean
 }
 
 function barStyle(pct: number, smooth: boolean): CSSProperties {
@@ -51,7 +54,7 @@ export function TimingTable({
   snapshot, highlightKart, compact = false, orderMode = 'race', ring = true,
   progress = true,
   selectable = false, selectedKarts, compareColors, onToggleKart,
-  lapsBase, safeword, teamStoryConfig,
+  lapsBase, safeword, teamStoryConfig, showPenalties = true,
 }: Props) {
   const t = useT()
   const { drivers, session_best_kart } = snapshot
@@ -62,20 +65,22 @@ export function TimingTable({
   // are tracked separately (a neutral ADJ badge) — they aren't sanctions.
   const adjustedKarts = useMemo(() => {
     const s = new Set<string>()
+    if (!showPenalties) return s
     for (const p of snapshot.penalties ?? []) {
-      if (p.kind === 'adjust' && p.seconds) s.add(p.kart_no)
+      if (p.kind === 'adjust' && (p.seconds || p.laps)) s.add(p.kart_no)
     }
     return s
-  }, [snapshot.penalties])
+  }, [snapshot.penalties, showPenalties])
   const penalizedKarts = useMemo(() => {
     const s = new Set<string>()
+    if (!showPenalties) return s
     for (const p of snapshot.penalties ?? []) {
       if (p.kind === 'warning' || p.kind === 'adjust') continue
       if (p.kind === 'time' && p.served) continue
       s.add(p.kart_no)
     }
     return s
-  }, [snapshot.penalties])
+  }, [snapshot.penalties, showPenalties])
   const [detailKart, setDetailKart] = useState<string | null>(null)
 
   // ~3 fps waypoints for the progress bars; CSS transitions glide between them
@@ -116,7 +121,7 @@ export function TimingTable({
   if (drivers.length === 0) {
     return (
       <div className="p-10 text-center text-ink-500">
-        Waiting for timing data…
+        {t('Waiting for timing data…')}
       </div>
     )
   }
@@ -127,9 +132,12 @@ export function TimingTable({
     : drivers
   const hasSectors = drivers.some((d) => d.s1_ms || d.s2_ms || d.s3_ms)
   const hasSpeed = drivers.some((d) => d.speed)
-  const pad = compact ? 'px-1.5 py-1 sm:px-2' : 'px-1.5 py-1.5 sm:px-3 sm:py-2'
-  const side = 'hidden sm:table-cell'   // columns dropped on portrait phones
-  const wide = 'hidden lg:table-cell'   // sector columns: desktop only
+  // Phones get two-line rows (5 columns that fit 360px); from `sm` up each
+  // figure has its own column. `desk` cells exist only on the wide layout.
+  const pad = compact ? 'px-1 py-1.5 sm:px-2 sm:py-1' : 'px-1 py-1.5 sm:px-3 sm:py-2'
+  const desk = 'hidden sm:table-cell'
+  const wide = 'hidden lg:table-cell'   // sectors + speed: desktop only
+  const phone = 'sm:hidden'
   return (
     <div>
       {ring && (
@@ -137,16 +145,16 @@ export function TimingTable({
           <TrackRing snapshot={snapshot} highlightKart={highlightKart} />
         </div>
       )}
-      <div className="overflow-x-auto">
-      <table className="w-full text-xs sm:text-sm timing">
+      <div className="scroll-x">
+      <table className="w-full text-[13px] sm:text-sm timing">
         <thead>
           <tr className="label-race border-b border-pit-700 text-left">
             {selectable && (
-              <th className={pad} title="Add to comparison charts">
+              <th className={`${pad} w-7`} title={t('Add to comparison charts')}>
                 <ChartColIcon />
               </th>
             )}
-            <th className={pad}>
+            <th className={`${pad} text-center sm:text-left`}>
               <span className="sm:hidden">{t('P')}</span>
               <span className="hidden sm:inline">{t('Pos')}</span>
             </th>
@@ -159,16 +167,15 @@ export function TimingTable({
                 <th className={`${pad} text-right ${wide}`}>S3</th>
               </>
             )}
-            <th className={`${pad} text-right`}>{t('Last')}</th>
-            <th className={`${pad} text-right`}>{t('Best')}</th>
-            <th className={`${pad} text-right`}>{t('Gap')}</th>
-            <th className={`${pad} text-right ${side}`}>{t('Int')}</th>
-            <th className={`${pad} text-right`}>
-              <span className="sm:hidden">{t('Lap')}</span>
-              <span className="hidden sm:inline">{t('Laps')}</span>
-            </th>
+            <th className={`${pad} text-right ${phone}`}>{t('Last')}<span className="text-ink-500"> / </span>{t('Best')}</th>
+            <th className={`${pad} text-right ${phone}`}>{t('Gap')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Last')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Best')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Gap')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Int')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Laps')}</th>
             {hasSpeed && <th className={`${pad} text-right ${wide}`}>kph</th>}
-            <th className={`${pad} text-right ${side}`}>{t('Pits')}</th>
+            <th className={`${pad} text-right ${desk}`}>{t('Pits')}</th>
           </tr>
         </thead>
         <tbody>
@@ -180,12 +187,24 @@ export function TimingTable({
             const pct = showBar ? (lapFraction(d, serverNow) ?? 0) * 100 : 0
             const smooth = pct >= (prevPctRef.current.get(d.kart_no) ?? 0)
             prevPctRef.current.set(d.kart_no, pct)
+            const gap = rank === 1 ? '—' : fmtGap(d.gap_leader)
+            const interval = rank === 1 ? '' : fmtGap(d.gap_ahead)
+            const bestClass = hasSessionBest ? 'text-race-purple font-bold' : 'text-ink-300'
+            const badges = (
+              <StatusBadges
+                inPit={d.pit_state === 'in' || d.in_pit}
+                out={d.pit_state === 'out'}
+                finished={d.finished}
+                penalized={penalizedKarts.has(d.kart_no)}
+                adjusted={adjustedKarts.has(d.kart_no)}
+              />
+            )
             return (
               <tr
                 key={d.kart_no}
                 style={barStyle(pct, smooth)}
                 onClick={() => setDetailKart(d.kart_no)}
-                className={`cursor-pointer border-b border-pit-800 ${
+                className={`cursor-pointer border-b border-pit-800 transition-colors hover:bg-pit-800/60 ${
                   flashing.has(d.kart_no) ? 'lap-glow' : ''
                 } ${
                   // Own-row highlight wins over the zebra (both set background-color).
@@ -198,16 +217,17 @@ export function TimingTable({
                   <td className={pad} onClick={(e) => e.stopPropagation()}>
                     {own ? (
                       <span
-                        className="inline-block h-3.5 w-3.5 rounded-sm align-middle"
+                        className="inline-block h-4 w-4 rounded-sm align-middle"
                         style={{ background: SERIES_COLORS.own }}
                         title={t('your kart (always shown)')}
                       />
                     ) : (
                       <input
                         type="checkbox"
+                        aria-label={t('Compare #{kart}', { kart: d.kart_no })}
                         checked={selectedKarts?.includes(d.kart_no) ?? false}
                         onChange={() => onToggleKart?.(d.kart_no)}
-                        className="h-3.5 w-3.5 cursor-pointer align-middle"
+                        className="h-4 w-4 cursor-pointer align-middle"
                         style={
                           selectedKarts?.includes(d.kart_no) && compareColors?.[d.kart_no]
                             ? { accentColor: compareColors[d.kart_no] }
@@ -217,38 +237,25 @@ export function TimingTable({
                     )}
                   </td>
                 )}
-                <td className={`${pad} font-bold`}>{rank}</td>
+                <td className={`${pad} text-center font-bold sm:text-left`}>{rank}</td>
                 <td className={pad}>
-                  <span className="inline-block min-w-7 rounded bg-pit-700 px-1 py-0.5 text-center font-bold sm:min-w-9 sm:px-1.5">
+                  <span className="inline-block min-w-8 rounded-md bg-pit-700 px-1 py-0.5 text-center font-bold sm:min-w-9 sm:px-1.5">
                     {d.kart_no}
                   </span>
                 </td>
-                <td className={`${pad} font-display max-w-20 truncate sm:max-w-48`}>
-                  {d.name || '—'}
-                  {d.pit_state === 'in' || d.in_pit ? (
-                    <span className="ml-2 rounded bg-race-yellow px-1 text-[0.6rem] font-bold text-pit-950 align-middle">
-                      {t('PIT')}
-                    </span>
-                  ) : d.pit_state === 'out' ? (
-                    <span className="ml-2 rounded bg-race-green px-1 text-[0.6rem] font-bold text-pit-950 align-middle">
-                      {t('OUT')}
-                    </span>
-                  ) : null}
-                  {d.finished && (
-                    <span className="ml-2 text-[0.6rem] text-ink-500 align-middle">{t('FIN')}</span>
-                  )}
-                  {penalizedKarts.has(d.kart_no) && (
-                    <span className="ml-2 rounded bg-race-red px-1 text-[0.6rem] font-bold text-white align-middle"
-                      title={t('Outstanding penalty')}>
-                      {t('PEN')}
-                    </span>
-                  )}
-                  {adjustedKarts.has(d.kart_no) && (
-                    <span className="ml-2 rounded bg-race-blue px-1 text-[0.6rem] font-bold text-white align-middle"
-                      title={t('Time adjustment applied')}>
-                      {t('ADJ')}
-                    </span>
-                  )}
+                {/* Team: the cell absorbs spare width (w-full) and may shrink to
+                    nothing (max-w-0), so long names truncate instead of widening
+                    the table. Badges sit outside the truncating text. */}
+                <td className={`${pad} w-full max-w-0 font-display`}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{d.name || '—'}</span>
+                    <span className="hidden shrink-0 sm:inline-flex">{badges}</span>
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-ink-500 sm:hidden">
+                    <span className="timing shrink-0">{t('L{n}', { n: d.laps })}</span>
+                    {d.pits > 0 && <span className="timing shrink-0">· {t('{n} pit', { n: d.pits })}</span>}
+                    {badges}
+                  </div>
                 </td>
                 {hasSectors && (
                   <>
@@ -257,25 +264,25 @@ export function TimingTable({
                     <td className={`${pad} text-right text-ink-300 ${wide}`}>{fmtSector(d.s3_ms)}</td>
                   </>
                 )}
-                <td className={`${pad} text-right`}>{fmtLap(d.last_lap_ms)}</td>
-                <td
-                  className={`${pad} text-right ${
-                    hasSessionBest ? 'text-race-purple font-bold' : 'text-ink-300'
-                  }`}
-                >
-                  {fmtLap(d.best_lap_ms)}
+                {/* Phone: last over best, gap over interval */}
+                <td className={`${pad} whitespace-nowrap text-right ${phone}`}>
+                  <div>{fmtLap(d.last_lap_ms)}</div>
+                  <div className={`text-[11px] ${bestClass}`}>{fmtLap(d.best_lap_ms)}</div>
                 </td>
-                <td className={`${pad} text-right text-ink-300`}>
-                  {rank === 1 ? '—' : fmtGap(d.gap_leader)}
+                <td className={`${pad} whitespace-nowrap text-right ${phone}`}>
+                  <div className="text-ink-100">{gap}</div>
+                  <div className="text-[11px] text-ink-500">{interval}</div>
                 </td>
-                <td className={`${pad} text-right text-ink-300 ${side}`}>
-                  {rank === 1 ? '—' : fmtGap(d.gap_ahead)}
-                </td>
-                <td className={`${pad} text-right`}>{d.laps}</td>
+                {/* Wide layout: one figure per column */}
+                <td className={`${pad} text-right ${desk}`}>{fmtLap(d.last_lap_ms)}</td>
+                <td className={`${pad} text-right ${desk} ${bestClass}`}>{fmtLap(d.best_lap_ms)}</td>
+                <td className={`${pad} text-right text-ink-300 ${desk}`}>{gap}</td>
+                <td className={`${pad} text-right text-ink-300 ${desk}`}>{interval || '—'}</td>
+                <td className={`${pad} text-right ${desk}`}>{d.laps}</td>
                 {hasSpeed && (
                   <td className={`${pad} text-right text-ink-300 ${wide}`}>{d.speed || '—'}</td>
                 )}
-                <td className={`${pad} text-right ${side}`}>{d.pits}</td>
+                <td className={`${pad} text-right ${desk}`}>{d.pits}</td>
               </tr>
             )
           })}
@@ -293,6 +300,35 @@ export function TimingTable({
         />
       )}
     </div>
+  )
+}
+
+/** PIT / OUT / FIN / PEN / ADJ markers. Never truncated: they sit beside the
+ *  name (wide) or on the second line (phones), not inside the clipped text. */
+function StatusBadges({ inPit, out, finished, penalized, adjusted }: {
+  inPit: boolean
+  out: boolean
+  finished: boolean
+  penalized: boolean
+  adjusted: boolean
+}) {
+  const t = useT()
+  const pill = 'rounded px-1 py-px text-[0.6rem] font-bold leading-tight'
+  return (
+    <>
+      {inPit ? (
+        <span className={`${pill} bg-race-yellow text-pit-950`}>{t('PIT')}</span>
+      ) : out ? (
+        <span className={`${pill} bg-race-green text-pit-950`}>{t('OUT')}</span>
+      ) : null}
+      {finished && <span className={`${pill} bg-pit-700 text-ink-300`}>{t('FIN')}</span>}
+      {penalized && (
+        <span className={`${pill} bg-race-red text-white`} title={t('Outstanding penalty')}>{t('PEN')}</span>
+      )}
+      {adjusted && (
+        <span className={`${pill} bg-race-blue text-white`} title={t('Time adjustment applied')}>{t('ADJ')}</span>
+      )}
+    </>
   )
 }
 

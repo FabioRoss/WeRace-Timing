@@ -125,7 +125,7 @@ export function PenaltyEditor({ apiBase, drivers, penalties, onChanged, canRever
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       {/* Assign */}
       <form onSubmit={assign} className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">

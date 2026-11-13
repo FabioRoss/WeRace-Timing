@@ -28,13 +28,18 @@ export function useToasts() {
   return { toasts, push, dismiss }
 }
 
-/** Stacked pop-up notifications, centred at the top over the dashboard. */
+/** Stacked pop-up notifications. Phones: above the bottom edge (thumb reach,
+ *  and the title bar stays readable). Desktop: top-right corner. */
 export function ToastStack({ toasts, onDismiss }: {
   toasts: ToastItem[]
   onDismiss: (id: string) => void
 }) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex flex-col items-center gap-2 px-3">
+    <div
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col-reverse items-center gap-2 px-3 lg:bottom-auto lg:left-auto lg:top-3 lg:w-[26rem] lg:flex-col lg:items-end"
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+      aria-live="polite"
+    >
       {toasts.map((t) => (
         <Toast key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
       ))}
@@ -52,7 +57,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
 
   return (
     <div
-      className={`pointer-events-auto w-full max-w-md rounded-lg px-4 py-3 shadow-2xl ring-1 ring-black/25 ${
+      className={`rise-in pointer-events-auto w-full max-w-md rounded-xl px-4 py-3 shadow-2xl ring-1 ring-black/25 ${
         KIND_STYLES[toast.kind]
       } ${toast.urgent ? 'msg-flash' : ''}`}
     >
@@ -66,7 +71,7 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 text-xl leading-none opacity-70 hover:opacity-100"
+          className="-my-1 -mr-1 shrink-0 rounded-lg px-2 text-xl leading-none opacity-70 hover:opacity-100"
           aria-label={t('Dismiss')}
         >
           ×

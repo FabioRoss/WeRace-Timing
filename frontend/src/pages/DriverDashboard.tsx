@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { DriverEvent, DriverView, RaceMessage } from '../lib/types'
+import type { DriverEvent, DriverView } from '../lib/types'
 import { useJsonSocket } from '../lib/ws'
 import { fmtClock, fmtGap, fmtLap } from '../lib/format'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
-import { MessageOverlay } from '../components/MessageOverlay'
-import { PenaltyLog } from '../components/PenaltyLog'
+import { DriverAlert, useDriverAlerts } from '../components/MessageOverlay'
 import { flagAccent } from '../components/FlagBanner'
 import { useT } from '../lib/i18n'
 
@@ -18,13 +17,23 @@ export function DriverDashboard() {
   const t = useT()
   const { slot = '1', token = '' } = useParams()
   const [view, setView] = useState<DriverView | null>(null)
-  const [message, setMessage] = useState<RaceMessage | null>(null)
   const [now, setNow] = useState(Date.now())
 
+  // Offset between this phone's clock and the server's, from the server time
+  // stamped on each payload — used to tell a fresh message from a replayed one.
+  const skew = useRef<number | null>(null)
+  const serverSkew = useCallback(() => skew.current ?? 0, [])
+  const alerts = useDriverAlerts(`wrb_seen_${slot}_${token}`, serverSkew)
+  const { offer } = alerts
+
   const onEvent = useCallback((msg: DriverEvent) => {
-    if (msg.type === 'driver') setView(msg)
-    else if (msg.type === 'message') setMessage(msg)
-  }, [])
+    if (msg.type === 'driver') {
+      if (msg.server_ts) skew.current = Date.now() / 1000 - msg.server_ts
+      setView(msg)
+    } else if (msg.type === 'message') {
+      offer(msg)
+    }
+  }, [offer])
   const { status, lastSeen } = useJsonSocket<DriverEvent>(
     `/e/${slot}/ws/driver/${token}`,
     onEvent,
@@ -57,6 +66,15 @@ export function DriverDashboard() {
   const serverNow = useServerNow(view?.updated_at ?? 0, 1000)
   const remaining = view ? fmtRemaining(view, serverNow) : '--:--'
 
+  // Unserved time penalties the driver has been told about (notified once the
+  // grace window passed): what is left to serve in the pit lane.
+  const toServe = useMemo(
+    () => (view?.penalties ?? [])
+      .filter((p) => p.kind === 'time' && !p.served && p.notified)
+      .reduce((sum, p) => sum + p.seconds, 0),
+    [view?.penalties],
+  )
+
   const requestFullscreen = () => {
     const el = document.documentElement
     if (!document.fullscreenElement) el.requestFullscreen?.().catch(() => {})
@@ -84,7 +102,7 @@ export function DriverDashboard() {
 
   return (
     <Shell accent={accent} onTap={requestFullscreen} glow={glow}>
-      <MessageOverlay message={message} onDismiss={() => setMessage(null)} />
+      <DriverAlert message={alerts.current} pending={alerts.pending} onDone={alerts.next} />
 
       {/* Top strip: session + flag + position */}
       <div className="flex items-stretch justify-between gap-3 px-4 pt-2">
@@ -101,6 +119,15 @@ export function DriverDashboard() {
               style={{ background: accent, color: '#07080c' }}
             >
               {t(FLAG_LABEL[view.flag])}
+            </span>
+          )}
+          {toServe > 0 && (
+            <span
+              className="ml-2 inline-flex items-baseline gap-1 rounded border border-race-red/70 px-2 py-0.5 text-race-red"
+              title={t('Time penalty to serve')}
+            >
+              <span className="text-[0.6rem] font-bold tracking-wider">{t('PEN')}</span>
+              <span className="timing text-sm font-extrabold">+{toServe}s</span>
             </span>
           )}
           {stale && (
@@ -156,13 +183,6 @@ export function DriverDashboard() {
         />
       </div>
 
-      {/* Penalties & warnings — only shown when the driver has any */}
-      {view?.penalties && view.penalties.length > 0 && (
-        <div className="px-4 pb-3">
-          <div className="label-race mb-1 text-race-red">{t('Penalties & warnings')}</div>
-          <PenaltyLog penalties={view.penalties} filterKart={view.kart_no} compact />
-        </div>
-      )}
     </Shell>
   )
 }

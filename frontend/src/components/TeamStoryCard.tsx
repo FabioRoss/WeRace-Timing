@@ -6,6 +6,7 @@ import {
   teamBgUrl, teamLogos, loadBackground, paintTeamStory, type TeamStoryConfig,
 } from '../lib/teamStoryRender'
 import { useT } from '../lib/i18n'
+import { Panel } from './ui'
 
 /**
  * Read-only team-story preview + download for the pit-wall dashboard. Teams
@@ -18,11 +19,12 @@ import { useT } from '../lib/i18n'
  * When set it replaces the staff default; "Use default" clears it.
  */
 export function TeamStoryCard({
-  snapshot, kart, config,
+  snapshot, kart, config, className = '',
 }: {
   snapshot: Snapshot | null
   kart: string
   config: TeamStoryConfig
+  className?: string
 }) {
   const t = useT()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -70,25 +72,24 @@ export function TeamStoryCard({
   }
 
   return (
-    <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-      <h3 className="label-race mb-3">{t('Shareable story graphic')}</h3>
-      <div className="flex flex-col items-start gap-4 sm:flex-row">
+    <Panel title={t('Shareable story graphic')} className={className}>
+      <div className="flex items-start gap-4">
         <canvas
           ref={canvasRef}
           width={STORY_W}
           height={STORY_H}
-          className="w-full max-w-[180px] rounded-lg ring-1 ring-pit-700"
+          className="w-28 shrink-0 rounded-lg ring-1 ring-pit-700 sm:w-36"
           style={{ aspectRatio: `${STORY_W} / ${STORY_H}` }}
         />
         <div className="min-w-0 flex-1 space-y-3">
-          <p className="text-sm text-ink-400">
+          <p className="text-sm text-ink-300">
             {t('An auto-generated 1080×1920 card for your Instagram story — tag us and share your result!')}
           </p>
           <button
             type="button"
             onClick={download}
             disabled={!logos}
-            className="rounded bg-race-blue px-4 py-2 text-sm font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-40"
+            className="btn btn-primary"
           >
             {t('Download story')}
           </button>
@@ -98,7 +99,7 @@ export function TeamStoryCard({
               type="file"
               accept="image/*"
               onChange={(e) => { void pickOwn(e.target.files?.[0]); e.target.value = '' }}
-              className="block w-full text-sm text-ink-300 file:mr-3 file:rounded file:border-0 file:bg-pit-700 file:px-3 file:py-1.5 file:text-xs file:font-bold file:uppercase file:tracking-wider file:text-ink-100"
+              className="block w-full text-sm text-ink-300 file:mr-3 file:rounded file:border-0 file:bg-pit-700 file:px-3 file:py-2 file:text-xs file:font-bold file:uppercase file:tracking-wider file:text-ink-100"
             />
             {ownName && (
               <div className="flex items-center gap-2 text-xs text-ink-500">
@@ -109,13 +110,13 @@ export function TeamStoryCard({
               </div>
             )}
             {bgError && <p className="text-xs text-race-red">{bgError}</p>}
-            <p className="text-[0.65rem] text-ink-500">
+            <p className="text-[0.7rem] text-ink-500">
               {t('Stays in your browser — it\'s never uploaded, and only changes your own download.')}
             </p>
           </div>
         </div>
       </div>
-    </div>
+    </Panel>
   )
 }
 

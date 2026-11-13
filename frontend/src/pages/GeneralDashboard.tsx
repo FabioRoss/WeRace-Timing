@@ -1,14 +1,20 @@
 import { useParams } from 'react-router-dom'
 import { useLive } from '../lib/useLive'
-import { FlagBanner } from '../components/FlagBanner'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { TimingTable } from '../components/TimingTable'
-import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { TrackRing } from '../components/TrackRing'
+import { PageHeader, RaceStrip } from '../components/StatusBar'
 import { PenaltyLog } from '../components/PenaltyLog'
+import { Collapse, Page, Panel } from '../components/ui'
 import { fmtLap } from '../lib/format'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { useT } from '../lib/i18n'
 
+/**
+ * Public live timing. Phones: standings first (that's what spectators came
+ * for), the track map after. Desktop: standings beside the map. The penalties
+ * panel eases in at the end of its column, so it never pushes anything around.
+ */
 export function GeneralDashboard() {
   const t = useT()
   const { slot = '1' } = useParams()
@@ -17,62 +23,56 @@ export function GeneralDashboard() {
   const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
 
   const race = snapshot?.race
+  const isRace = race?.session_kind === 'race'
+  const penalties = snapshot?.penalties ?? []
+
   return (
-    <div className="mx-auto flex min-h-full max-w-5xl flex-col">
+    <Page className="pb-8">
       <PageHeader
         title={race?.event_name || t('Event {slot} — Live Timing', { slot })}
         subtitle={[race?.track_name, race?.run_type].filter(Boolean).join(' · ')}
-        right={<ConnectionDot status={status} />}
       />
-      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
-        <div className="rounded-lg bg-pit-850 p-3">
-          <div className="label-race">{t('Time remaining')}</div>
-          <div className="timing text-2xl font-bold">
-            {race ? fmtRemaining(race, serverNow) : '--:--'}
+      <RaceStrip
+        flag={race?.flag ?? 'none'}
+        remaining={race ? fmtRemaining(race, serverNow) : '--:--'}
+        best={snapshot?.session_best_ms ? fmtLap(snapshot.session_best_ms) : undefined}
+        bestKart={snapshot?.session_best_kart}
+        status={status}
+        extra={race?.race_time ? (
+          <div className="hidden text-right sm:block">
+            <div className="label-race leading-none">{t('Race time')}</div>
+            <div className="timing font-bold leading-tight">{race.race_time}</div>
           </div>
-        </div>
-        <div className="rounded-lg bg-pit-850 p-3">
-          <div className="label-race">{t('Race time')}</div>
-          <div className="timing text-2xl font-bold">{race?.race_time || '--:--'}</div>
-        </div>
-        <div className="rounded-lg bg-pit-850 p-3">
-          <div className="label-race">{t('Session best')}</div>
-          <div className="timing text-2xl font-bold text-race-purple">
-            {fmtLap(snapshot?.session_best_ms)}
-            {snapshot?.session_best_kart && (
-              <span className="ml-2 text-sm text-ink-500">#{snapshot.session_best_kart}</span>
+        ) : undefined}
+      />
+
+      <div className="grid grid-cols-1 gap-3 px-3 pt-3 sm:gap-4 sm:px-4 sm:pt-4 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-8">
+          <Panel
+            title={t('Standings')}
+            actions={isRace ? <OrderToggle mode={orderMode} onChange={setOrderMode} /> : undefined}
+            bodyClass=""
+          >
+            {snapshot ? (
+              <TimingTable snapshot={snapshot} ring={false} orderMode={isRace ? orderMode : 'race'} />
+            ) : (
+              <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
             )}
-          </div>
+          </Panel>
         </div>
-        <div className="flex items-center">
-          <div className="w-full h-full">
-            <FlagBanner flag={race?.flag ?? 'none'} className="h-full flex items-center justify-center" />
-          </div>
+        <div className="flex min-w-0 flex-col gap-3 sm:gap-4 lg:col-span-4">
+          {snapshot && snapshot.drivers.length > 0 && (
+            <Panel title={t('Track position')}>
+              <TrackRing snapshot={snapshot} />
+            </Panel>
+          )}
+          <Collapse open={penalties.length > 0}>
+            <Panel title={t('Penalties & warnings')}>
+              <PenaltyLog penalties={penalties} />
+            </Panel>
+          </Collapse>
         </div>
       </div>
-      <main className="flex-1 px-4 pb-8">
-        {race?.session_kind === 'race' && (
-          <div className="mb-2 flex justify-end">
-            <OrderToggle mode={orderMode} onChange={setOrderMode} />
-          </div>
-        )}
-        <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
-          {snapshot ? (
-            <TimingTable
-              snapshot={snapshot}
-              orderMode={race?.session_kind === 'race' ? orderMode : 'race'}
-            />
-          ) : (
-            <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
-          )}
-        </div>
-        {snapshot && snapshot.penalties.length > 0 && (
-          <div className="mt-4 rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-            <h3 className="label-race mb-3">{t('Penalties & warnings')}</h3>
-            <PenaltyLog penalties={snapshot.penalties} />
-          </div>
-        )}
-      </main>
-    </div>
+    </Page>
   )
 }

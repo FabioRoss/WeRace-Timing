@@ -98,7 +98,7 @@ function StaffInner() {
         {sortedKarts.map((k) => (
           <div
             key={k.kart_no}
-            className="break-inside-avoid rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800 print:bg-white print:ring-black"
+            className="break-inside-avoid min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800 print:bg-white print:ring-black"
           >
             <div className="mb-3 flex items-baseline justify-between">
               <span className="timing text-2xl font-extrabold">{t('KART #{kart}', { kart: k.kart_no })}</span>

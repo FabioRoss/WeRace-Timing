@@ -23,7 +23,8 @@ export function PageNav({ slot }: { slot: string }) {
     <Link
       key={to}
       to={to}
-      className={`rounded px-2.5 py-1 text-xs font-semibold uppercase tracking-wider ${
+      aria-current={active ? 'page' : undefined}
+      className={`inline-flex min-h-10 shrink-0 items-center rounded-lg px-3.5 text-xs font-bold uppercase tracking-wider transition-colors ${
         active ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
       }`}
     >
@@ -31,7 +32,7 @@ export function PageNav({ slot }: { slot: string }) {
     </Link>
   )
   return (
-    <nav className="flex flex-wrap gap-1">
+    <nav className="flex gap-1.5">
       {LINKS.map((l) => chip(`/e/${slot}/${l.path}`, t(l.label), pathname === `/e/${slot}/${l.path}`))}
       {chip('/admin/snapshots', t('Snapshots'), pathname.startsWith('/admin/snapshots'))}
     </nav>

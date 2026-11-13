@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/StatusBar'
 import { CheckerFlag } from '../components/CheckerFlag'
 import { SessionResult } from '../components/SessionResult'
+import { Page } from '../components/ui'
 import { useSnapshotRecord } from '../lib/useSnapshot'
 import { useT } from '../lib/i18n'
 
@@ -30,16 +31,16 @@ export function ResultsDetail() {
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col">
+    <Page width="max-w-4xl" className="pb-8">
       <PageHeader
         title={record.name || record.id}
         subtitle={record.track}
         left={<CheckerFlag />}
       />
-      <main className="flex-1 space-y-4 p-4">
-        <Link to="/results" className="text-xs text-race-blue">{t('← All results')}</Link>
+      <main className="flex-1 space-y-3 px-3 pt-3 sm:space-y-4 sm:px-4 sm:pt-4">
+        <Link to="/results" className="inline-flex min-h-10 items-center text-sm text-race-blue">{t('← All results')}</Link>
         <SessionResult record={record} baseUrl={`/api/results/${id}`} />
       </main>
-    </div>
+    </Page>
   )
 }

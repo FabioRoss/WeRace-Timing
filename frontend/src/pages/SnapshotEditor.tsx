@@ -96,7 +96,7 @@ function EditorInner() {
 
         {tab === 'result' && (
           <>
-            <div className="rounded-xl bg-pit-900 ring-1 ring-pit-800">
+            <div className="min-w-0 rounded-2xl bg-pit-900 ring-1 ring-pit-800">
               {applicable && (
                 <div className="flex flex-wrap items-center gap-2 px-3 pt-3">
                   <span className="label-race text-ink-500">{t('Standings')}</span>
@@ -113,7 +113,7 @@ function EditorInner() {
               <TimingTable snapshot={shownSnapshot ?? snapshot} ring={false} progress={false} lapsBase={url} safeword
                 teamStoryConfig={record.team_story_config} />
             </div>
-            <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+            <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
               <h3 className="label-race mb-3">{t('Penalties & adjustments')}</h3>
               <PenaltyEditor
                 apiBase={url}
@@ -191,7 +191,7 @@ function EventPicker({ record, onSaved }: {
   const options = groups.filter((g) => !record.track || g.track === record.track || g.id === record.group_id)
 
   return (
-    <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
+    <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
       <h3 className="label-race mb-2">{t('Event')}</h3>
       <p className="mb-3 text-sm text-ink-300">
         {record.group_name
@@ -260,8 +260,8 @@ function DetailsCard({ record, url, onSaved }: {
   }
 
   return (
-    <div className="rounded-xl bg-pit-900 p-4 ring-1 ring-pit-800">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="label-race">{t('Name')}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120}

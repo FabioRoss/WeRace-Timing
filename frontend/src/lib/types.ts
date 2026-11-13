@@ -94,6 +94,7 @@ export interface Snapshot {
   session_best_kart: string
   penalties: Penalty[]
   updated_at: number
+  server_ts?: number     // server clock when this snapshot was built
 }
 
 export interface DriverView {
@@ -127,6 +128,7 @@ export interface DriverView {
   session_best_ms?: number | null
   penalties?: Penalty[]
   updated_at: number
+  server_ts?: number     // server clock when this payload was sent
 }
 
 export interface RaceMessage {

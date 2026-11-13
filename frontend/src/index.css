@@ -25,8 +25,35 @@ html, body, #root {
   height: 100%;
 }
 
+html {
+  /* Phones: no tap flash, no font inflation when rotating, and smooth anchors. */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
   @apply bg-pit-950 text-ink-100 font-display antialiased;
+  /* A faint red glow at the top gives the dark ground some depth. */
+  background-image: radial-gradient(120% 60% at 50% -10%, rgba(225, 6, 0, 0.07), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Touch screens: every control is at least 40px tall (Apple/Google guidance is
+   44/48), so chips, segmented controls and row actions are hittable with a thumb. */
+@media (pointer: coarse) {
+  button,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  .btn,
+  [role="button"] {
+    min-height: 40px;
+  }
+  input[type="checkbox"] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
 }
 
 /* Tailwind v4's preflight resets buttons to cursor:default; restore a pointer
@@ -49,7 +76,43 @@ button:disabled {
 }
 
 .label-race {
-  @apply uppercase tracking-[0.18em] text-[0.65rem] font-semibold text-ink-500;
+  @apply uppercase tracking-[0.16em] text-[0.7rem] font-semibold text-ink-500;
+}
+
+/* A box that scrolls its own content sideways. `contain: inline-size` stops its
+   content's width from leaking into the parent's intrinsic size — without it a
+   wide chart (laps x px) inside a grid/flex track widens the whole page. */
+.scroll-x {
+  overflow-x: auto;
+  min-width: 0;
+  contain: inline-size;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-pit-600) transparent;
+}
+
+/* Hide a scrollbar but keep the box scrollable (chip rails, tab bars). */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-bold
+      uppercase tracking-wider transition-[filter,background-color] select-none
+      disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary { @apply bg-race-blue text-white hover:brightness-110; }
+  .btn-danger { @apply bg-race-red text-white hover:brightness-110; }
+  .btn-quiet { @apply bg-pit-700 text-ink-100 hover:bg-pit-600; }
+  .chip {
+    @apply inline-flex items-center rounded-full bg-pit-700 px-3 py-1.5 text-xs font-medium
+      text-ink-100 transition-colors hover:bg-pit-600 select-none whitespace-nowrap;
+  }
+  .field {
+    @apply w-full min-w-0 rounded-lg bg-pit-950 px-3 py-2 text-ink-100 outline-none ring-1 ring-pit-600
+      placeholder:text-ink-500 focus:ring-2 focus:ring-race-blue;
+  }
 }
 
 /* Checkered strip used on headers */
@@ -72,3 +135,18 @@ button:disabled {
   100% { background-color: transparent; }
 }
 .lap-glow { animation: lap-glow 1.5s ease-out; }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.rise-in { animation: rise-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Countdown bar for self-closing overlays: shrinks over --dur. */
+@keyframes drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.drain { transform-origin: left; animation: drain var(--dur, 6s) linear forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .rise-in, .lap-glow, .msg-flash { animation: none; }
+}

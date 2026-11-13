@@ -18,11 +18,12 @@ interface KartLite {
  * every snapshot already stores. Used by the public results page, event tabs,
  * and the admin editor (pass `safeword` for the admin endpoint).
  */
-export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts = 5 }: {
+export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts = 5, startAt = 'start' }: {
   baseUrl: string
   drivers: KartLite[]
   safeword?: boolean
   maxKarts?: number
+  startAt?: 'start' | 'end'     // a finished session reads from lap 1
 }) {
   const t = useT()
   const karts = useMemo(() => drivers.map((d) => d.kart_no).filter(Boolean), [drivers])
@@ -60,30 +61,32 @@ export function SnapshotLapCharts({ baseUrl, drivers, safeword = false, maxKarts
   )
 
   if (!karts.length) return null
-  return (
-    <div className="space-y-3">
-      <div>
-        <div className="label-race mb-2">{t('Lap times — pick up to {n} karts', { n: maxKarts })}</div>
-        <div className="flex flex-wrap gap-1.5">
-          {drivers.map((d) => {
-            const on = selected.includes(d.kart_no)
-            return (
-              <button
-                key={d.kart_no}
-                type="button"
-                onClick={() => toggle(d.kart_no)}
-                className={`rounded px-2 py-1 text-xs font-semibold ring-1 ${
-                  on ? 'text-pit-950 ring-transparent' : 'bg-pit-800 text-ink-300 ring-pit-700 hover:bg-pit-700'
-                }`}
-                style={on ? { backgroundColor: colorFor(d.kart_no) } : undefined}
-              >
-                #{d.kart_no}
-              </button>
-            )
-          })}
-        </div>
+  // One swipeable row of kart chips on phones (52 karts would otherwise wrap
+  // into a wall of buttons); they wrap normally on wider screens.
+  const picker = (
+    <div className="px-4 pb-2">
+      <p className="mb-2 text-xs text-ink-500">{t('Pick up to {n} karts', { n: maxKarts })}</p>
+      <div className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 sm:flex-wrap sm:overflow-visible">
+        {drivers.map((d) => {
+          const on = selected.includes(d.kart_no)
+          return (
+            <button
+              key={d.kart_no}
+              type="button"
+              onClick={() => toggle(d.kart_no)}
+              aria-pressed={on}
+              title={d.name}
+              className={`shrink-0 rounded-lg px-2.5 py-1.5 timing text-xs font-bold ring-1 transition-colors ${
+                on ? 'text-pit-950 ring-transparent' : 'bg-pit-800 text-ink-300 ring-pit-700 hover:bg-pit-700'
+              }`}
+              style={on ? { backgroundColor: colorFor(d.kart_no) } : undefined}
+            >
+              #{d.kart_no}
+            </button>
+          )
+        })}
       </div>
-      <LapTimeChart series={series} fullSession />
     </div>
   )
+  return <LapTimeChart series={series} fullSession startAt={startAt} toolbar={picker} />
 }
