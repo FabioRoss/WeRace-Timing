@@ -695,7 +695,8 @@ def _pit_and_stint_sections(
     return out
 
 
-def _best_lap_bar(state: EventState, accent=RACE_RED) -> Drawing:
+def _best_lap_bar(state: EventState, accent=None) -> Drawing:
+    accent = accent or RACE_RED
     rows = [(d.kart_no, d.best_lap_ms) for d in state.drivers if d.best_lap_ms]
     d = Drawing(CONTENT_W, 180)
     d.add(String(0, 165, "Best lap by kart (s)", fontSize=11, fontName="Helvetica-Bold",
@@ -720,8 +721,9 @@ def _best_lap_bar(state: EventState, accent=RACE_RED) -> Drawing:
     return d
 
 
-def _pace_trend(state: EventState, accent=RACE_RED) -> Drawing:
+def _pace_trend(state: EventState, accent=None) -> Drawing:
     """Lap-time trend for the top few karts (leaders)."""
+    accent = accent or RACE_RED
     chart_data = state.lap_chart(last_n=100000)
     leaders = [d.kart_no for d in state.drivers[:4] if chart_data.get(d.kart_no)]
     d = Drawing(CONTENT_W, 200)

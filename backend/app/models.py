@@ -165,6 +165,9 @@ class EventSnapshot(BaseModel):
     # Race-control penalties & warnings (full current list every broadcast).
     penalties: list[Penalty] = []
     updated_at: float = 0.0
+    # Server clock when this snapshot was built. `updated_at` stalls while the
+    # feed is idle, so clients use this to age messages (fresh vs replayed).
+    server_ts: float = 0.0
 
 
 class SourceConfig(BaseModel):

@@ -130,3 +130,18 @@ def test_penalties_cleared_on_session_rollover():
     assert state.penalties
     state._reset_session_state("test")
     assert state.penalties == []
+
+
+def test_driver_view_withholds_penalties_while_hidden_from_teams():
+    """Hiding penalties from teams must cover the driver's own channel too: the
+    driver screen is part of the team, and its payload goes to the kart."""
+    state = EventState(1)
+    state.update(RaceInfo(flag=Flag.GREEN), rows(("7", 1, 5, 52000, 51500, "", 0)))
+    state.add_penalty("7", "time", seconds=10, reason="Contact")
+    assert len(state.driver_view("7")["penalties"]) == 1
+
+    state.hide_team_penalties = True
+    assert state.driver_view("7")["penalties"] == []
+
+    state.hide_team_penalties = False          # published again -> back on screen
+    assert len(state.driver_view("7")["penalties"]) == 1

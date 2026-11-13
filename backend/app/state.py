@@ -371,6 +371,7 @@ class EventState:
             session_best_kart=self.session_best_kart,
             penalties=list(self.penalties),
             updated_at=self.updated_at,
+            server_ts=time.time(),
         )
 
     # ----------------------------------------------- snapshot persistence seam
@@ -464,9 +465,15 @@ class EventState:
             "run_type": self.race.run_type,
             "ended": self.race.ended,
             "session_best_ms": self.session_best_ms,
-            # The driver's own penalties/warnings (compact driver payload).
-            "penalties": [p.model_dump() for p in self.penalties if p.kart_no == kart_no],
+            # The driver's own penalties/warnings (compact driver payload) —
+            # withheld while race control is holding penalties from teams.
+            "penalties": [] if self.hide_team_penalties else [
+                p.model_dump() for p in self.penalties if p.kart_no == kart_no
+            ],
             "updated_at": self.updated_at,
+            # The server's clock now. `updated_at` stalls while the feed is idle,
+            # so it can't anchor "how old is this message" on the driver screen.
+            "server_ts": time.time(),
         }
 
     def lap_chart(self, karts: list[str] | None = None, last_n: int = 300) -> dict:
