@@ -173,7 +173,10 @@ export function goFullscreenLandscape() {
   const el = document.documentElement
   const lock = () => {
     const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }
-    o?.lock?.('landscape').catch(() => { /* not allowed here */ })
+    // Lock the landscape the phone is in now, not "any landscape": the sensor
+    // would otherwise flip between the two on bumps.
+    const now = o?.type?.startsWith('landscape') ? o.type : 'landscape'
+    o?.lock?.(now).catch(() => { /* not allowed here */ })
   }
   if (!document.fullscreenElement && el.requestFullscreen) {
     el.requestFullscreen().then(lock, () => {})

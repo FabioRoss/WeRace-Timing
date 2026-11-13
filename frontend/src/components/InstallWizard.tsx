@@ -52,6 +52,9 @@ export function InstallWizard({ onSkip }: { onSkip: () => void }) {
         <Step n={2} icon={<AddIcon />}>{t('Scroll down and tap “Add to Home Screen”.')}</Step>
         <Step n={3} icon={<CheckIcon />}>{t('Keep “Open as Web App” on, then tap Add.')}</Step>
         <Step n={4} icon={<HomeIcon />}>{t('Open {app} from your home screen.', { app: APP_NAME })}</Step>
+        <Step n={5} icon={<LockIcon />}>
+          {t('Turn on Portrait Orientation Lock in Control Center: the app stays in landscape and won’t flip on bumps.')}
+        </Step>
       </Steps>
     )
   } else if (canPrompt) {
@@ -135,5 +138,7 @@ const HomeIcon = () => <img src="/icons/wr-192.png" alt="" className="h-7 w-7 ro
 const CheckIcon = () => svg(<path d="m5 12 5 5 9-10" />)
 const DotsIcon = () => svg(<><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></>)
 const GlobeIcon = () => svg(<><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>)
+// Control Center's orientation lock: padlock inside a circular arrow.
+const LockIcon = () => svg(<><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6" /><path d="M18.5 2.5V6h-3.5" /><rect x="9" y="11" width="6" height="5" rx="1" /><path d="M10 11V9.5a2 2 0 0 1 4 0V11" /></>)
 const CloseIcon = () => svg(<path d="M6 6l12 12M18 6 6 18" />)
 const DownloadIcon = () => svg(<><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>)

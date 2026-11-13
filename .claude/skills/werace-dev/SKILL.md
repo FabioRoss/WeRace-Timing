@@ -605,6 +605,20 @@ Phones are the primary surface. These rules exist because each was a real bug:
   full screen also matches display-mode: fullscreen) a QR button opens
   `components/QrScanner.tsx` (BarcodeDetector, else lazy jsQR). Needed because
   on iOS the camera app always opens links in Safari, never in the home-screen app.
+- Landscape lock is done in software (`components/LandscapeLock.tsx`): iOS ignores
+  manifest `orientation` and has no `screen.orientation.lock`, so G forces on a kart
+  rotate the screen. The dashboard sits on a stage pinned to the physical phone:
+  the first landscape OS angle seen (window.orientation, else screen.orientation
+  .angle; 90 = camera on the left) is locked (also stored, `wrb_lock_angle`, and
+  re-captured when the app becomes visible in landscape) and the stage is rotated
+  clockwise by (locked − current). Safe-area insets are remapped to `--sa-*`.
+  Phones with the OS rotation lock on stay portrait: the rotate hint offers
+  "Camera on the left/right" to lock manually; a small flip button turns 180°.
+  Alert overlays are `fixed` inside the transformed stage, so they turn with it;
+  the install wizard and QR scanner render outside it. Android additionally
+  locks the exact current landscape type on full screen. Test by overriding
+  `window.orientation` in an init script + `setViewportSize` + dispatching
+  `orientationchange` (exit full screen first).
 - Big readouts use `components/FitText.tsx`: sized to the column (canvas
   measureText), never `truncate`/"…"; last lap falls back to hundredths
   (`toHundredths`, cut not rounded) below `minPx`.

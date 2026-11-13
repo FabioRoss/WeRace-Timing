@@ -511,4 +511,10 @@ export const IT: Record<string, string> = {
   "Install it once. At the next race, open the app and scan the new QR code.": "Installala una volta sola. Alla prossima gara apri l'app e scansiona il nuovo QR code.",
   "Close": "Chiudi",
   "Not now — continue in the browser": "Non ora, continua nel browser",
+  "Screen not turning (rotation lock on)? Hold the phone sideways and pick where the camera is:": "Lo schermo non ruota (blocco rotazione attivo)? Tieni il telefono di lato e scegli dov'è la fotocamera:",
+  "Camera on the left": "Fotocamera a sinistra",
+  "Camera on the right": "Fotocamera a destra",
+  "Tip for iPhone: turn on Portrait Orientation Lock in Control Center. WR Timing still shows in landscape and never flips on bumps.": "Consiglio per iPhone: attiva il Blocco orientamento verticale nel Centro di Controllo. WR Timing resta comunque in orizzontale e non si gira più sulle buche.",
+  "Turn screen upside down": "Capovolgi lo schermo",
+  "Turn on Portrait Orientation Lock in Control Center: the app stays in landscape and won’t flip on bumps.": "Attiva il Blocco orientamento verticale nel Centro di Controllo: l'app resta in orizzontale e non si gira sulle buche.",
 }
