@@ -36,7 +36,7 @@ def slots() -> dict:
 @router.get("/e/{slot}/api/state")
 def state(slot: int) -> dict:
     event = get_event(slot)
-    return event.state.snapshot(event.source_status()).model_dump()
+    return event.state.snapshot(event.source_status(), public=True).model_dump()
 
 
 @router.get("/e/{slot}/api/laps")

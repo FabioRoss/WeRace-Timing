@@ -14,16 +14,22 @@ class Hub:
 
     def __init__(self) -> None:
         self.live_clients: set[WebSocket] = set()
+        # Live sockets opened by staff (safeword): they get the full snapshot,
+        # including penalties race control is holding back from everyone else.
+        self.staff_clients: set[WebSocket] = set()
         self.driver_clients: dict[str, set[WebSocket]] = {}
         self._lock = asyncio.Lock()
 
-    async def join_live(self, ws: WebSocket) -> None:
+    async def join_live(self, ws: WebSocket, *, staff: bool = False) -> None:
         async with self._lock:
             self.live_clients.add(ws)
+            if staff:
+                self.staff_clients.add(ws)
 
     async def leave_live(self, ws: WebSocket) -> None:
         async with self._lock:
             self.live_clients.discard(ws)
+            self.staff_clients.discard(ws)
 
     async def join_driver(self, kart_no: str, ws: WebSocket) -> None:
         async with self._lock:
@@ -45,8 +51,12 @@ class Hub:
         except Exception:
             return False
 
-    async def broadcast_live(self, payload: dict[str, Any]) -> None:
-        dead = [ws for ws in list(self.live_clients) if not await self._send(ws, payload)]
+    async def broadcast_live(self, payload: dict[str, Any], staff_payload: dict[str, Any] | None = None) -> None:
+        """Send to every live socket; staff sockets get `staff_payload` when given."""
+        dead = [
+            ws for ws in list(self.live_clients)
+            if not await self._send(ws, staff_payload if staff_payload is not None and ws in self.staff_clients else payload)
+        ]
         for ws in dead:
             await self.leave_live(ws)
 

@@ -450,3 +450,62 @@ def test_penalty_delete_cancels_pending_notification(client, monkeypatch):
     client.delete(f"/e/1/api/admin/penalty/{pid}", headers=SAFEWORD)
     # The pending notification is cancelled and forgotten (team never notified).
     assert pid not in event._pending_notify
+
+
+# ---------------------------------------------- penalties held by race control
+#
+# "Hide penalties" used to be a team-dashboard UI choice only: the public live
+# page, the public /api/state and the live feed every browser receives still
+# carried them, so anyone could read them before they were official.
+
+def _seed_penalty():
+    from app.models import DriverRow, RaceInfo
+    ev = get_manager().get(1)
+    ev.state.update(RaceInfo(), [DriverRow(kart_no="7", position=1, laps=5)])
+    ev.state.add_penalty("7", "time", seconds=10, reason="Contact")
+    return ev
+
+
+def test_held_penalties_left_out_of_public_state(client):
+    ev = _seed_penalty()
+    assert len(client.get("/e/1/api/state").json()["penalties"]) == 1
+    ev.state.hide_team_penalties = True
+    body = client.get("/e/1/api/state").json()
+    assert body["penalties"] == [] and body["hide_team_penalties"] is True
+    ev.state.hide_team_penalties = False                  # published again
+    assert len(client.get("/e/1/api/state").json()["penalties"]) == 1
+
+
+def test_held_penalties_only_reach_staff_sockets(client):
+    ev = _seed_penalty()
+    ev.state.hide_team_penalties = True
+    with client.websocket_connect("/e/1/ws/live") as pub:
+        assert pub.receive_json()["penalties"] == []
+    with client.websocket_connect("/e/1/ws/live?safeword=wrong") as bad:
+        assert bad.receive_json()["penalties"] == []
+    with client.websocket_connect("/e/1/ws/live?safeword=boxbox") as staff:
+        assert len(staff.receive_json()["penalties"]) == 1
+
+
+def test_held_penalties_split_per_socket_on_broadcast(client):
+    import asyncio
+    ev = _seed_penalty()
+    ev.state.hide_team_penalties = True
+    with client.websocket_connect("/e/1/ws/live") as pub, \
+         client.websocket_connect("/e/1/ws/live?safeword=boxbox") as staff:
+        pub.receive_json(); staff.receive_json()          # initial snapshots
+        client.portal.call(ev.broadcast_now)              # a regular broadcast
+        assert pub.receive_json()["penalties"] == []
+        assert len(staff.receive_json()["penalties"]) == 1
+
+
+def test_saved_records_keep_held_penalties():
+    """Holding penalties hides them from viewers; the archive keeps the truth."""
+    from app.models import DriverRow, RaceInfo
+    from app.state import EventState
+    st = EventState(1)
+    st.update(RaceInfo(), [DriverRow(kart_no="7", position=1, laps=5)])
+    st.add_penalty("7", "time", seconds=10)
+    st.hide_team_penalties = True
+    from app.models import SourceStatus
+    assert len(st.export_state(SourceStatus())["snapshot"]["penalties"]) == 1

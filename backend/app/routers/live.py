@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..config import get_settings
 from ..events import get_manager
 
 log = logging.getLogger(__name__)
@@ -15,18 +17,23 @@ TOKEN_SHAPE = re.compile(r"^[0-9a-f]{16}$")
 
 
 @router.websocket("/e/{slot}/ws/live")
-async def ws_live(ws: WebSocket, slot: int) -> None:
-    """Feed for General / Team Manager / Race Control / Staff dashboards."""
+async def ws_live(ws: WebSocket, slot: int, safeword: str = "") -> None:
+    """Feed for General / Team Manager / Race Control / Export dashboards.
+
+    Opened with the staff safeword (Race Control, Export) it carries the full
+    state; otherwise penalties race control is holding back are left out.
+    """
     try:
         event = get_manager().get(slot)
     except KeyError:
         await ws.close(code=4404)
         return
 
+    staff = bool(safeword) and secrets.compare_digest(safeword, get_settings().safeword)
     await ws.accept()
-    await event.hub.join_live(ws)
+    await event.hub.join_live(ws, staff=staff)
     try:
-        await ws.send_json(event.state.snapshot(event.source_status()).model_dump())
+        await ws.send_json(event.state.snapshot(event.source_status(), public=not staff).model_dump())
         for msg in event.messages[-20:]:
             await ws.send_json({"type": "message", **msg.model_dump()})
         while True:

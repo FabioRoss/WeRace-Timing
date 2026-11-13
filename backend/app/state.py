@@ -356,7 +356,12 @@ class EventState:
             return self.race
         return self.race.model_copy(update={"flag": self.flag_override})
 
-    def snapshot(self, source: SourceStatus) -> EventSnapshot:
+    def snapshot(self, source: SourceStatus, *, public: bool = False) -> EventSnapshot:
+        """The dashboards' state. `public` = for anyone but staff: while race
+        control holds penalties back, they are left out entirely (not merely
+        hidden by the UI) — the public page and its feed are open to everyone.
+        Saved records and staff sockets use the full version."""
+        held = public and self.hide_team_penalties
         return EventSnapshot(
             slot=self.slot,
             race=self.effective_race(),
@@ -369,7 +374,7 @@ class EventState:
             team_story_config=dict(self.team_story_config),
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
-            penalties=list(self.penalties),
+            penalties=[] if held else list(self.penalties),
             updated_at=self.updated_at,
             server_ts=time.time(),
         )
