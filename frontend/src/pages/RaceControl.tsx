@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
 import { TimingTable } from '../components/TimingTable'
+import { TrackRing } from '../components/TrackRing'
 import { ConnectionDot, PageHeader, RaceStrip } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
 import { CountBadge, Page, Panel, Segmented } from '../components/ui'
@@ -357,6 +358,12 @@ function RaceControlInner() {
                 </div>
                 <p className="mt-2 text-xs text-ink-500">{t('“Track” follows the timing system. The others override it on every dashboard.')}</p>
               </Panel>
+
+              {snapshot && snapshot.drivers.length > 0 && (
+                <Panel title={t('Track position')}>
+                  <TrackRing snapshot={snapshot} />
+                </Panel>
+              )}
 
               <Panel
                 title={t('Standings')}
