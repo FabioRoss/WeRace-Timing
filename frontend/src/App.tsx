@@ -1,10 +1,10 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Landing } from './pages/Landing'
 import { GeneralDashboard } from './pages/GeneralDashboard'
 import { DriverDashboard } from './pages/DriverDashboard'
 import { TeamDashboard } from './pages/TeamDashboard'
 import { RaceControl } from './pages/RaceControl'
-import { StaffDashboard } from './pages/StaffDashboard'
+import { QrCodes } from './pages/QrCodes'
 import { ExportPage } from './pages/ExportPage'
 import { SnapshotManager } from './pages/SnapshotManager'
 import { SnapshotEditor } from './pages/SnapshotEditor'
@@ -21,7 +21,9 @@ export default function App() {
         <Route path="/e/:slot/driver/:token" element={<DriverDashboard />} />
         <Route path="/e/:slot/team/:token" element={<TeamDashboard />} />
         <Route path="/e/:slot/control" element={<RaceControl />} />
-        <Route path="/e/:slot/staff" element={<StaffDashboard />} />
+        <Route path="/e/:slot/qr-codes" element={<QrCodes />} />
+        {/* Old address of the QR sheet: keep printed links and bookmarks working. */}
+        <Route path="/e/:slot/staff" element={<Navigate to="../qr-codes" relative="path" replace />} />
         <Route path="/e/:slot/export" element={<ExportPage />} />
         <Route path="/admin/snapshots" element={<SnapshotManager />} />
         <Route path="/admin/snapshots/:id" element={<SnapshotEditor />} />

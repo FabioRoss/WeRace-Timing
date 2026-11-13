@@ -2,11 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useLive } from '../lib/useLive'
-import { FlagBanner } from '../components/FlagBanner'
 import { TimingTable } from '../components/TimingTable'
-import { ConnectionDot, PageHeader } from '../components/StatusBar'
+import { ConnectionDot, PageHeader, RaceStrip } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
-import { Segmented } from '../components/ui'
+import { CountBadge, Page, Panel, Segmented } from '../components/ui'
 import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { fmtClock } from '../lib/format'
 import { OrderToggle, useOrderMode } from '../components/OrderToggle'
@@ -48,7 +47,7 @@ export function RaceControl() {
 function RaceControlInner() {
   const t = useT()
   const { slot = '1' } = useParams()
-  const { snapshot, messages, status } = useLive(slot)
+  const { snapshot, messages, status } = useLive(slot, { staff: true })
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
   const [recordings, setRecordings] = useState<RecordingInfo[]>([])
   const [selected, setSelected] = useState('')
@@ -57,7 +56,11 @@ function RaceControlInner() {
   const [replayFile, setReplayFile] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [cfgTab, setCfgTab] = useState<'source' | 'config'>('source')
+  const [section, setSectionState] = useState<Section>(() => {
+    const v = localStorage.getItem(SECTION_KEY)
+    return v === 'penalties' || v === 'messages' || v === 'setup' ? v : 'live'
+  })
+  const setSection = (v: Section) => { setSectionState(v); localStorage.setItem(SECTION_KEY, v) }
   const { toasts, push, dismiss } = useToasts()
   const [orderMode, setOrderMode] = useOrderMode()
   const serverNow = useServerNow(snapshot?.updated_at ?? 0, 1000)
@@ -239,331 +242,424 @@ function RaceControlInner() {
     [messages],
   )
 
+  const toServe = (snapshot?.penalties ?? []).filter((p) => p.kind === 'time' && !p.served).length
+  const held = !!snapshot?.hide_team_penalties
+  const sourceDown = !source?.connected
+  const setHeld = (v: boolean) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { hide_team_penalties: v }, safeword: true }))
+
+  const NAV: { id: Section; label: string; icon: React.ReactNode; accent: string; badge?: React.ReactNode }[] = [
+    { id: 'live', label: t('Live'), icon: <IconFlag />, accent: 'var(--color-race-green)' },
+    {
+      id: 'penalties', label: t('Penalties'), icon: <IconGavel />, accent: 'var(--color-race-red)',
+      badge: <CountBadge n={toServe} tone="bg-race-red text-white" />,
+    },
+    { id: 'messages', label: t('Messages'), icon: <IconChat />, accent: 'var(--color-race-blue)' },
+    {
+      id: 'setup', label: t('Setup'), icon: <IconGear />, accent: 'var(--color-ink-300)',
+      badge: sourceDown ? <span className="block h-2.5 w-2.5 rounded-full bg-race-red ring-2 ring-pit-950" title={t('Not connected')} /> : undefined,
+    },
+  ]
+  const current = NAV.find((n) => n.id === section) ?? NAV[0]
+
   return (
-    <div className="mx-auto flex min-h-full max-w-7xl flex-col">
+    <Page className="pb-24 lg:pb-8">
       <ToastStack toasts={toasts} dismiss={dismiss} />
       <PageHeader
         title={t('Race Control — Event {slot}', { slot })}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
         nav={<PageNav slot={slot} />}
-        right={
+        right={<ConnectionDot status={status} />}
+      />
+      <RaceStrip
+        flag={race?.flag ?? 'none'}
+        remaining={race ? fmtRemaining(race, serverNow) : '--:--'}
+        status={status}
+        extra={
           <>
-            <div className="hidden text-right sm:block">
-              <div className="label-race">{t('Remaining')}</div>
-              <div className="timing font-bold">
-                {race ? fmtRemaining(race, serverNow) : '--:--'}
-              </div>
-            </div>
-            <FlagBanner flag={race?.flag ?? 'none'} compact />
-            <ConnectionDot status={status} />
+            {held && (
+              <button type="button" onClick={() => setSection('penalties')}
+                title={t('Penalties held')}
+                className="shrink-0 rounded-md bg-race-yellow px-2 py-1 text-[0.65rem] font-extrabold uppercase tracking-wider text-pit-950">
+                <span className="sm:hidden">{t('Held')}</span>
+                <span className="hidden sm:inline">{t('Penalties held')}</span>
+              </button>
+            )}
+            <span className={`hidden max-w-48 truncate text-xs sm:inline ${sourceDown ? 'text-race-red' : 'text-ink-500'}`}>
+              {sourceDown ? t('Not connected') : source?.label || source?.url}
+            </span>
           </>
         }
       />
 
-      <div className="grid grid-cols-1 gap-3 px-3 pt-3 pb-6 sm:gap-4 sm:px-4 sm:pt-4 lg:grid-cols-3">
-        {/* Source control */}
-        <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <div className="mb-3">
-            <Segmented
-              size="sm"
-              value={cfgTab}
-              onChange={setCfgTab}
-              options={[
-                { value: 'source', label: t('Timing source') },
-                { value: 'config', label: t('Configuration') },
-              ]}
-            />
-          </div>
-          {cfgTab === 'source' && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm">
-              <span className={`h-2.5 w-2.5 rounded-full ${source?.connected ? 'bg-race-green' : 'bg-race-red'}`} />
-              <span className="truncate">
-                {source?.connected
-                  ? t('{name} · {n} frames', { name: source.label || source.url || '', n: source.frames_received })
-                  : source?.error
-                    ? t('Disconnected: {error}', { error: source.error })
-                    : t('Not connected')}
-              </span>
-            </div>
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
+      <div className="flex min-w-0 gap-6 px-3 pt-3 sm:px-4 sm:pt-4">
+        {/* Desktop: section rail */}
+        <nav aria-label={t('Race control sections')} className="sticky top-20 hidden h-fit w-52 shrink-0 flex-col gap-1 lg:flex">
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => setSection(n.id)}
+              aria-current={section === n.id ? 'page' : undefined}
+              className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+                section === n.id ? 'bg-pit-800 text-ink-100' : 'text-ink-500 hover:bg-pit-900 hover:text-ink-300'
+              }`}
             >
-              <option value="">{t('— pick a track —')}</option>
-              {catalog.map((c) => (
-                <option key={c.label} value={c.label}>{c.label}</option>
-              ))}
-              <option value="__custom__">{t('Custom websocket URL…')}</option>
-              <option value="__replay__">{t('Replay a recording…')}</option>
-            </select>
-            {selected === '__custom__' && (
-              <div className="flex flex-wrap gap-2">
-                <select
-                  value={customKind}
-                  onChange={(e) => setCustomKind(e.target.value as 'apex' | 'mywer')}
-                  className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600"
-                >
-                  <option value="apex">{t('Apex')}</option>
-                  <option value="mywer">{t('MyWeR')}</option>
-                </select>
-                <input
-                  value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
-                  placeholder="wss://…"
-                  className="min-w-0 flex-1 basis-40 rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
-                />
-              </div>
-            )}
-            {selected === '__replay__' && (
-              <select
-                value={replayFile}
-                onChange={(e) => setReplayFile(e.target.value)}
-                className="w-full rounded bg-pit-950 px-3 py-2 ring-1 ring-pit-600"
-              >
-                <option value="">{t('— pick a recording —')}</option>
-                {recordings.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
-              </select>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={connect} disabled={busy || !selected}
-                className="rounded bg-race-green px-3 py-1.5 text-sm font-bold uppercase text-pit-950 disabled:opacity-40">
-                {t('Connect')}
-              </button>
-              <button type="button" onClick={disconnect} disabled={busy}
-                className="rounded bg-pit-700 px-3 py-1.5 text-sm font-bold uppercase disabled:opacity-40">
-                {t('Disconnect')}
-              </button>
-              <button type="button" onClick={toggleRecording} disabled={busy || !source?.connected}
-                className={`rounded px-3 py-1.5 text-sm font-bold uppercase disabled:opacity-40 ${
-                  source?.recording ? 'bg-race-red msg-flash' : 'bg-pit-700'
-                }`}>
-                {source?.recording ? t('● Recording') : t('○ Record')}
-              </button>
-              <button type="button" onClick={resetEvent} disabled={busy}
-                className="rounded bg-pit-700 px-3 py-1.5 text-sm font-bold uppercase text-race-red disabled:opacity-40">
-                {t('Reset')}
-              </button>
-            </div>
-            {source?.recording && (
-              <p className="text-xs text-ink-500">{t('Writing {file}', { file: source.recording_file ?? '' })}</p>
-            )}
-            {source?.kind === 'replay' && (source?.replay_count ?? 0) > 0 && (
-              <ReplayTimeline source={source} onSeek={seekReplay} disabled={busy} />
-            )}
-            {error && <p className="text-sm text-race-red">{error}</p>}
+              <span className="absolute inset-y-2 left-0 w-1 rounded-full transition-opacity"
+                style={{ background: n.accent, opacity: section === n.id ? 1 : 0 }} />
+              <span style={{ color: section === n.id ? n.accent : undefined }}>{n.icon}</span>
+              <span className="flex-1">{n.label}</span>
+              {n.badge}
+            </button>
+          ))}
+        </nav>
 
-            {/* Session flag override: for organizers without access to the
-                track system; "Track" mirrors the timing feed. */}
-            <h3 className="label-race pt-2">{t('Session flag')}</h3>
-            <div className="flex flex-wrap gap-2">
-              {([
-                ['', 'Track', 'bg-pit-600'],
-                ['green', 'Green', 'bg-race-green text-pit-950'],
-                ['yellow', 'Yellow', 'bg-race-yellow text-pit-950'],
-                ['red', 'Red', 'bg-race-red'],
-                ['finish', 'Finish', 'bg-ink-100 text-pit-950'],
-              ] as const).map(([value, label, activeCls]) => {
-                const active = (snapshot?.flag_override ?? '') === value
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => act(() =>
-                      api(`/e/${slot}/api/admin/flag`, {
-                        body: { flag: value || null }, safeword: true,
-                      }))}
-                    className={`rounded px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-40 ${
-                      active ? activeCls : 'bg-pit-700 hover:bg-pit-600'
-                    }`}
-                  >
-                    {t(label)}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+        <main className="min-w-0 flex-1">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-extrabold uppercase tracking-wider">
+            <span style={{ color: current.accent }}>{current.icon}</span>
+            {current.label}
+          </h2>
+          {error && (
+            <p className="mb-3 rounded-xl bg-race-red/10 px-4 py-2.5 text-sm text-race-red ring-1 ring-race-red/30">{error}</p>
           )}
 
-          {cfgTab === 'config' && (
-            <div className="space-y-3 text-sm">
-              <Toggle
-                label={t('Recalculate positions')}
-                hint={t('Reorder karts by laps + time when the timing system keeps the start grid and never reorders.')}
-                checked={!!snapshot?.recompute_positions}
-                disabled={busy}
-                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { recompute_positions: v }, safeword: true }))}
-              />
-              <Toggle
-                label={t('Automatic pit lane')}
-                hint={t('Off = the track has no pit gates; the app infers pit stops, pit laps and stint time from lap times.')}
-                checked={snapshot?.auto_pitlane ?? true}
-                disabled={busy}
-                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
-              />
-              <Toggle
-                label={t('Hide penalties from teams')}
-                hint={t('On = the team dashboard hides its penalty panels (e.g. until penalties are official). Race control still sees everything.')}
-                checked={!!snapshot?.hide_team_penalties}
-                disabled={busy}
-                onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { hide_team_penalties: v }, safeword: true }))}
-              />
+          {section === 'live' && (
+            <div className="grid grid-cols-1 gap-3 sm:gap-4">
+              <Panel title={t('Session flag')}>
+                {/* For organizers without access to the track system; "Track"
+                    mirrors the timing feed. */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {([
+                    ['', 'Track', 'bg-pit-600 text-ink-100'],
+                    ['green', 'Green', 'bg-race-green text-pit-950'],
+                    ['yellow', 'Yellow', 'bg-race-yellow text-pit-950'],
+                    ['red', 'Red', 'bg-race-red text-white'],
+                    ['finish', 'Finish', 'checker text-pit-950'],
+                  ] as const).map(([value, label, activeCls]) => {
+                    const active = (snapshot?.flag_override ?? '') === value
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        disabled={busy}
+                        aria-pressed={active}
+                        onClick={() => act(() =>
+                          api(`/e/${slot}/api/admin/flag`, {
+                            body: { flag: value || null }, safeword: true,
+                          }))}
+                        className={`min-h-12 rounded-xl text-sm font-extrabold uppercase tracking-wider ring-2 transition disabled:opacity-40 ${
+                          active ? `${activeCls} ring-ink-100` : 'bg-pit-800 text-ink-300 ring-transparent hover:bg-pit-700'
+                        } ${value === '' ? 'col-span-2 sm:col-span-1' : ''}`}
+                      >
+                        <span className={value === 'finish' && active ? 'rounded bg-ink-100 px-1.5' : ''}>{t(label)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-2 text-xs text-ink-500">{t('“Track” follows the timing system. The others override it on every dashboard.')}</p>
+              </Panel>
 
-              <div className="pt-2">
-                <h3 className="label-race mb-2">{t('Recordings ({n})', { n: recordings.length })}</h3>
-                {recordings.length === 0 ? (
-                  <p className="text-xs text-ink-500">{t('No recordings on the server yet.')}</p>
+              <Panel
+                title={t('Standings')}
+                actions={
+                  <>
+                    {snapshot?.race.session_kind === 'race' && <OrderToggle mode={orderMode} onChange={setOrderMode} />}
+                    <button type="button" onClick={saveSnapshot} disabled={busy || !snapshot?.drivers.length} className="btn btn-quiet">
+                      {snapSaved || t('Save snapshot')}
+                    </button>
+                  </>
+                }
+                bodyClass=""
+              >
+                {snapshot ? (
+                  <TimingTable
+                    snapshot={snapshot}
+                    compact
+                    ring={false}
+                    orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
+                  />
                 ) : (
-                  <ul className="max-h-56 space-y-1 overflow-y-auto">
+                  <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
+                )}
+              </Panel>
+            </div>
+          )}
+
+          {section === 'penalties' && (
+            <div className="grid grid-cols-1 gap-3 sm:gap-4">
+              <div className={`flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 ring-1 ${
+                held ? 'bg-race-yellow/10 ring-race-yellow/40' : 'bg-race-green/10 ring-race-green/30'
+              }`}>
+                <div className="min-w-0 flex-1 basis-56">
+                  <div className={`text-sm font-extrabold uppercase tracking-wider ${held ? 'text-race-yellow' : 'text-race-green'}`}>
+                    {held ? t('Penalties are held') : t('Penalties are published')}
+                  </div>
+                  <p className="text-xs text-ink-300">
+                    {held
+                      ? t('Only race control and Export see them. Teams, drivers and the public page don’t, and nobody is notified.')
+                      : t('Teams, drivers and the public page see penalties; the team is notified a few seconds after assigning.')}
+                  </p>
+                </div>
+                <button type="button" disabled={busy} onClick={() => setHeld(!held)}
+                  className={`btn ${held ? 'btn-primary' : 'btn-quiet'}`}>
+                  {held ? t('Publish penalties') : t('Hold penalties')}
+                </button>
+              </div>
+              <Panel bodyClass="p-4">
+                <PenaltyEditor
+                  apiBase={`/e/${slot}/api/admin`}
+                  drivers={snapshot?.drivers ?? []}
+                  penalties={snapshot?.penalties ?? []}
+                />
+              </Panel>
+            </div>
+          )}
+
+          {section === 'messages' && (
+            <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
+              <Panel title={t('Send to drivers')}>
+                <form onSubmit={sendMessage} className="space-y-3">
+                  <Segmented
+                    value={target}
+                    onChange={setTarget}
+                    options={[
+                      { value: 'all', label: t('All drivers') },
+                      { value: 'select', label: t('Selected karts') },
+                    ]}
+                  />
+                  {target === 'select' && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {messageKarts.map((d) => (
+                        <button
+                          key={d.kart_no}
+                          type="button"
+                          onClick={() => toggleKart(d.kart_no)}
+                          aria-pressed={selectedKarts.has(d.kart_no)}
+                          className={`min-w-11 rounded-lg px-2 py-1.5 timing text-sm font-bold ${
+                            selectedKarts.has(d.kart_no) ? 'bg-race-yellow text-pit-950' : 'bg-pit-700'
+                          }`}
+                        >
+                          {d.kart_no}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {(['Yellow flag — no overtaking', 'Green flag — race on', 'Last 5 minutes', 'Slow down — warning', 'Come to race direction after session'] as const).map((preset) => (
+                      <button key={preset} type="button" onClick={() => setText(t(preset))} className="chip">
+                        {t(preset)}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    maxLength={300}
+                    placeholder={t('Message to drivers…')}
+                    className="field"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Segmented
+                      size="sm"
+                      value={priority}
+                      onChange={setPriority}
+                      options={[
+                        { value: 'info', label: t('Info') },
+                        { value: 'warning', label: t('Warning') },
+                        { value: 'urgent', label: t('Urgent') },
+                      ]}
+                    />
+                    <button type="submit" disabled={busy || !text.trim()} className="btn btn-primary ml-auto">
+                      {t('Send')}
+                    </button>
+                  </div>
+                  <p className="min-h-4 text-xs text-race-green" aria-live="polite">{sent}</p>
+                </form>
+              </Panel>
+              <Panel title={t('Sent & received')}>
+                <ul className="max-h-[28rem] space-y-1.5 overflow-y-auto text-sm">
+                  {recentMessages.length === 0 && <li className="text-ink-500">{t('Nothing sent yet.')}</li>}
+                  {recentMessages.map((m) => (
+                    <li key={m.id} className="rounded-lg bg-pit-850 px-3 py-2">
+                      <div className="mb-0.5 text-[0.65rem] font-bold uppercase tracking-wider text-ink-500">
+                        <span className={m.sender === 'race_control' ? 'text-race-yellow' : 'text-race-blue'}>
+                          {m.sender === 'race_control' ? t('Race control') : t('Pit wall')}
+                        </span>
+                        {' → '}
+                        {m.target ? m.target.map((k) => `#${k}`).join(', ') : t('all')}
+                      </div>
+                      {m.text}
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            </div>
+          )}
+
+          {section === 'setup' && (
+            <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
+              <Panel title={t('Timing source')}>
+                <div className="space-y-3">
+                  <div className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${
+                    source?.connected ? 'bg-race-green/10 text-ink-100' : 'bg-race-red/10 text-ink-100'
+                  }`}>
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${source?.connected ? 'bg-race-green' : 'bg-race-red'}`} />
+                    <span className="min-w-0 truncate">
+                      {source?.connected
+                        ? t('{name} · {n} frames', { name: source.label || source.url || '', n: source.frames_received })
+                        : source?.error
+                          ? t('Disconnected: {error}', { error: source.error })
+                          : t('Not connected')}
+                    </span>
+                  </div>
+                  <select value={selected} onChange={(e) => setSelected(e.target.value)} className="field">
+                    <option value="">{t('— pick a track —')}</option>
+                    {catalog.map((c) => (
+                      <option key={c.label} value={c.label}>{c.label}</option>
+                    ))}
+                    <option value="__custom__">{t('Custom websocket URL…')}</option>
+                    <option value="__replay__">{t('Replay a recording…')}</option>
+                  </select>
+                  {selected === '__custom__' && (
+                    <div className="flex flex-wrap gap-2">
+                      <select value={customKind} onChange={(e) => setCustomKind(e.target.value as 'apex' | 'mywer')}
+                        className="field w-auto">
+                        <option value="apex">{t('Apex')}</option>
+                        <option value="mywer">{t('MyWeR')}</option>
+                      </select>
+                      <input value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} placeholder="wss://…"
+                        className="field flex-1 basis-40" />
+                    </div>
+                  )}
+                  {selected === '__replay__' && (
+                    <select value={replayFile} onChange={(e) => setReplayFile(e.target.value)} className="field">
+                      <option value="">{t('— pick a recording —')}</option>
+                      {recordings.map((r) => <option key={r.name} value={r.name}>{r.name}</option>)}
+                    </select>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={connect} disabled={busy || !selected}
+                      className="btn bg-race-green text-pit-950 hover:brightness-110">
+                      {t('Connect')}
+                    </button>
+                    <button type="button" onClick={disconnect} disabled={busy || !source?.connected} className="btn btn-quiet">
+                      {t('Disconnect')}
+                    </button>
+                    <button type="button" onClick={toggleRecording} disabled={busy || !source?.connected}
+                      className={`btn ${source?.recording ? 'btn-danger msg-flash' : 'btn-quiet'}`}>
+                      {source?.recording ? t('● Recording') : t('○ Record')}
+                    </button>
+                  </div>
+                  {source?.recording && (
+                    <p className="text-xs text-ink-500">{t('Writing {file}', { file: source.recording_file ?? '' })}</p>
+                  )}
+                  {source?.kind === 'replay' && (source?.replay_count ?? 0) > 0 && (
+                    <ReplayTimeline source={source} onSeek={seekReplay} disabled={busy} />
+                  )}
+                </div>
+              </Panel>
+
+              <Panel title={t('Track settings')}>
+                <div className="space-y-2 text-sm">
+                  <Toggle
+                    label={t('Recalculate positions')}
+                    hint={t('Reorder karts by laps + time when the timing system keeps the start grid and never reorders.')}
+                    checked={!!snapshot?.recompute_positions}
+                    disabled={busy}
+                    onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { recompute_positions: v }, safeword: true }))}
+                  />
+                  <Toggle
+                    label={t('Automatic pit lane')}
+                    hint={t('Off = the track has no pit gates; the app infers pit stops, pit laps and stint time from lap times.')}
+                    checked={snapshot?.auto_pitlane ?? true}
+                    disabled={busy}
+                    onChange={(v) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { auto_pitlane: v }, safeword: true }))}
+                  />
+                  <Toggle
+                    label={t('Hold penalties (not yet official)')}
+                    hint={t('On = penalties are hidden from the public page, team dashboards and drivers, and nobody is notified, until you publish them. Race control and Export still see everything.')}
+                    checked={held}
+                    disabled={busy}
+                    onChange={setHeld}
+                  />
+                </div>
+              </Panel>
+
+              <Panel title={t('Recordings ({n})', { n: recordings.length })}>
+                {recordings.length === 0 ? (
+                  <p className="text-sm text-ink-500">{t('No recordings on the server yet.')}</p>
+                ) : (
+                  <ul className="max-h-72 space-y-1.5 overflow-y-auto">
                     {recordings.map((r) => (
-                      <li key={r.name} className="flex items-center gap-2 rounded bg-pit-850 px-2 py-1.5">
+                      <li key={r.name} className="flex items-center gap-2 rounded-lg bg-pit-850 px-3 py-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-mono text-xs">{r.name}</div>
-                          <div className="text-[0.65rem] text-ink-500">
-                            {fmtSize(r.size_bytes)} · {fmtDate(r.modified)}
-                          </div>
+                          <div className="text-[0.7rem] text-ink-500">{fmtSize(r.size_bytes)} · {fmtDate(r.modified)}</div>
                         </div>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => deleteRecording(r.name)}
-                          className="rounded bg-pit-700 px-2 py-1 text-xs font-bold uppercase text-race-red hover:bg-pit-600 disabled:opacity-40"
-                        >
+                        <button type="button" disabled={busy} onClick={() => deleteRecording(r.name)}
+                          className="btn btn-quiet px-2.5 py-1 text-race-red">
                           {t('Delete')}
                         </button>
                       </li>
                     ))}
                   </ul>
                 )}
-              </div>
-            </div>
-          )}
-        </div>
+              </Panel>
 
-        {/* Driver messaging */}
-        <div className="min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800 lg:col-span-2">
-          <h3 className="label-race mb-3">{t('Message drivers')}</h3>
-          <form onSubmit={sendMessage} className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => setTarget('all')}
-                className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-                  target === 'all' ? 'bg-race-blue' : 'bg-pit-700'
-                }`}>
-                {t('All drivers')}
-              </button>
-              <button type="button" onClick={() => setTarget('select')}
-                className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-                  target === 'select' ? 'bg-race-blue' : 'bg-pit-700'
-                }`}>
-                {t('Selected karts')}
-              </button>
-              {target === 'select' && (
-                <div className="flex flex-wrap gap-1.5">
-                  {messageKarts.map((d) => (
-                    <button
-                      key={d.kart_no}
-                      type="button"
-                      onClick={() => toggleKart(d.kart_no)}
-                      className={`min-w-9 rounded px-2 py-1 text-xs font-bold ${
-                        selectedKarts.has(d.kart_no)
-                          ? 'bg-race-yellow text-pit-950'
-                          : 'bg-pit-700'
-                      }`}
-                    >
-                      {d.kart_no}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(['Yellow flag — no overtaking', 'Green flag — race on', 'Last 5 minutes', 'Slow down — warning', 'Come to race direction after session'] as const).map((preset) => (
-                <button key={preset} type="button" onClick={() => setText(t(preset))}
-                  className="rounded-full bg-pit-700 px-3 py-1 text-xs hover:bg-pit-600">
-                  {t(preset)}
+              <section className="min-w-0 rounded-2xl p-4 ring-1 ring-race-red/40">
+                <h3 className="label-race mb-1 text-race-red">{t('Danger zone')}</h3>
+                <p className="mb-3 text-sm text-ink-300">{t('Wipes standings, laps, penalties and messages for this event. Saved snapshots are kept.')}</p>
+                <button type="button" onClick={resetEvent} disabled={busy} className="btn btn-danger">
+                  {t('Reset event')}
                 </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                maxLength={300}
-                placeholder={t('Message to drivers…')}
-                className="min-w-0 flex-1 basis-48 rounded bg-pit-950 px-3 py-2 outline-none ring-1 ring-pit-600 focus:ring-race-blue"
-              />
-              <select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)}
-                className="rounded bg-pit-950 px-2 py-2 ring-1 ring-pit-600">
-                <option value="info">{t('Info')}</option>
-                <option value="warning">{t('Warning')}</option>
-                <option value="urgent">{t('Urgent')}</option>
-              </select>
-              <button type="submit" disabled={busy || !text.trim()}
-                className="rounded bg-race-blue px-4 py-2 font-bold uppercase tracking-wider disabled:opacity-40 hover:brightness-110">
-                {t('Send')}
-              </button>
-            </div>
-            {sent && <p className="text-xs text-race-green">{sent}</p>}
-          </form>
-
-          <h3 className="label-race mb-2 mt-4">{t('Recent messages')}</h3>
-          <ul className="max-h-40 space-y-1.5 overflow-y-auto text-sm">
-            {recentMessages.length === 0 && <li className="text-ink-500">{t('Nothing sent yet.')}</li>}
-            {recentMessages.map((m) => (
-              <li key={m.id} className="rounded bg-pit-850 px-3 py-1.5">
-                <span className="mr-2 text-[0.6rem] font-bold uppercase text-ink-500">
-                  {m.sender === 'race_control' ? 'RC' : 'PIT'}
-                  {' → '}
-                  {m.target ? m.target.map((k) => `#${k}`).join(',') : 'ALL'}
-                </span>
-                {m.text}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Penalties & warnings */}
-        <div className="lg:col-span-3 min-w-0 rounded-2xl bg-pit-900 p-4 ring-1 ring-pit-800">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="label-race">{t('Penalties & warnings')}</h3>
-            <button type="button" onClick={saveSnapshot} disabled={busy || !snapshot?.drivers.length}
-              className="rounded bg-pit-700 px-3 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-pit-600 disabled:opacity-40">
-              {snapSaved || t('Save snapshot')}
-            </button>
-          </div>
-          <PenaltyEditor
-            apiBase={`/e/${slot}/api/admin`}
-            drivers={snapshot?.drivers ?? []}
-            penalties={snapshot?.penalties ?? []}
-          />
-          <p className="mt-2 text-[0.7rem] text-ink-500">
-            {t('The team is notified a few seconds after assigning, so a mistake can be removed first. “Save snapshot” archives the current result to the Snapshots page.')}
-          </p>
-        </div>
-
-        {/* Standings */}
-        <div className="lg:col-span-3 min-w-0 rounded-2xl bg-pit-900 ring-1 ring-pit-800">
-          {snapshot?.race.session_kind === 'race' && (
-            <div className="flex justify-end px-3 pt-3">
-              <OrderToggle mode={orderMode} onChange={setOrderMode} />
+              </section>
             </div>
           )}
-          {snapshot ? (
-            <TimingTable
-              snapshot={snapshot}
-              compact
-              orderMode={snapshot.race.session_kind === 'race' ? orderMode : 'race'}
-            />
-          ) : (
-            <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
-          )}
-        </div>
+        </main>
       </div>
-    </div>
+
+      {/* Phones: section tabs in thumb reach */}
+      <nav
+        aria-label={t('Race control sections')}
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-pit-800 bg-pit-950/95 backdrop-blur-md lg:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {NAV.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            onClick={() => { setSection(n.id); window.scrollTo({ top: 0 }) }}
+            aria-current={section === n.id ? 'page' : undefined}
+            className={`relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[0.7rem] font-semibold ${
+              section === n.id ? 'text-ink-100' : 'text-ink-500'
+            }`}
+          >
+            <span className="absolute inset-x-6 top-0 h-0.5 rounded-full"
+              style={{ background: n.accent, opacity: section === n.id ? 1 : 0 }} />
+            <span className="relative" style={{ color: section === n.id ? n.accent : undefined }}>
+              {n.icon}
+              {n.badge && <span className="absolute -right-3 -top-1.5">{n.badge}</span>}
+            </span>
+            {n.label}
+          </button>
+        ))}
+      </nav>
+    </Page>
   )
 }
+
+type Section = 'live' | 'penalties' | 'messages' | 'setup'
+const SECTION_KEY = 'wrb_rc_section'
+
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden>{children}</svg>
+  )
+}
+const IconFlag = () => <Icon><path d="M4 22V4" /><path d="M4 4h12l-2 4 2 4H4" /></Icon>
+const IconGavel = () => <Icon><path d="M14 13l-8.5 8.5a2.1 2.1 0 01-3-3L11 10" /><path d="M16 16l6-6" /><path d="M8 8l6-6" /><path d="M9 7l8 8" /><path d="M21 11l-8-8" /></Icon>
+const IconChat = () => <Icon><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></Icon>
+const IconGear = () => <Icon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" /></Icon>
 
 /** Seek bar for replay playback: drag to skip anywhere in the recording. */
 function ReplayTimeline({ source, onSeek, disabled }: {
@@ -627,7 +723,9 @@ function Toggle({ label, hint, checked, disabled, onChange }: {
       type="button"
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-start gap-3 rounded-lg bg-pit-850 p-3 text-left disabled:opacity-40"
+      role="switch"
+      aria-checked={checked}
+      className="flex w-full items-start gap-3 rounded-xl bg-pit-850 p-3 text-left transition-colors hover:bg-pit-800 disabled:opacity-40"
     >
       <span
         className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors ${

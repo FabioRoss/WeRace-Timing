@@ -7,7 +7,7 @@ import { useT } from '../lib/i18n'
  * Race Control / Staff / Export (never the public dashboards). */
 const LINKS = [
   { label: 'Control', path: 'control' },
-  { label: 'Staff', path: 'staff' },
+  { label: 'QR Codes', path: 'qr-codes' },
   { label: 'Export', path: 'export' },
 ] as const
 

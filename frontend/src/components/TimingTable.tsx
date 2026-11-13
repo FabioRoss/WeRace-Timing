@@ -132,8 +132,14 @@ export function TimingTable({
     : drivers
   const hasSectors = drivers.some((d) => d.s1_ms || d.s2_ms || d.s3_ms)
   const hasSpeed = drivers.some((d) => d.speed)
-  // Phones get two-line rows (5 columns that fit 360px); from `sm` up each
-  // figure has its own column. `desk` cells exist only on the wide layout.
+  // Pit stops only matter where the session has them: a gated pit lane, or
+  // stops already counted. Sprint heats without stops don't get the column.
+  const hasPits = snapshot.auto_pitlane === true || drivers.some((d) => d.pits > 0)
+  // Practice/qualifying rank by best lap, so that's the lap time worth showing.
+  const timed = snapshot.race?.session_kind === 'timed'
+  // Phones get two-line rows that fit 360px, led by what matters most on a
+  // phone: the gap to the kart ahead, and pit stops when the session has them.
+  // From `sm` up each figure has its own column (`desk` cells).
   const pad = compact ? 'px-1 py-1.5 sm:px-2 sm:py-1' : 'px-1 py-1.5 sm:px-3 sm:py-2'
   const desk = 'hidden sm:table-cell'
   const wide = 'hidden lg:table-cell'   // sectors + speed: desktop only
@@ -167,8 +173,8 @@ export function TimingTable({
                 <th className={`${pad} text-right ${wide}`}>S3</th>
               </>
             )}
-            <th className={`${pad} text-right ${phone}`}>{t('Last')}<span className="text-ink-500"> / </span>{t('Best')}</th>
-            <th className={`${pad} text-right ${phone}`}>{t('Gap')}</th>
+            <th className={`${pad} text-right ${phone}`}>{t('Int')}<span className="text-ink-500"> / </span>{t('Gap')}</th>
+            {hasPits && <th className={`${pad} text-right ${phone}`}>{t('Pits')}</th>}
             <th className={`${pad} text-right ${desk}`}>{t('Last')}</th>
             <th className={`${pad} text-right ${desk}`}>{t('Best')}</th>
             <th className={`${pad} text-right ${desk}`}>{t('Gap')}</th>
@@ -253,7 +259,9 @@ export function TimingTable({
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-ink-500 sm:hidden">
                     <span className="timing shrink-0">{t('L{n}', { n: d.laps })}</span>
-                    {d.pits > 0 && <span className="timing shrink-0">· {t('{n} pit', { n: d.pits })}</span>}
+                    <span className={`timing shrink-0 ${timed ? bestClass : ''}`}>
+                      · {timed ? t('best {v}', { v: fmtLap(d.best_lap_ms) }) : t('last {v}', { v: fmtLap(d.last_lap_ms) })}
+                    </span>
                     {badges}
                   </div>
                 </td>
@@ -264,15 +272,16 @@ export function TimingTable({
                     <td className={`${pad} text-right text-ink-300 ${wide}`}>{fmtSector(d.s3_ms)}</td>
                   </>
                 )}
-                {/* Phone: last over best, gap over interval */}
+                {/* Phone: the gap to the kart ahead leads, gap to the leader under it */}
                 <td className={`${pad} whitespace-nowrap text-right ${phone}`}>
-                  <div>{fmtLap(d.last_lap_ms)}</div>
-                  <div className={`text-[11px] ${bestClass}`}>{fmtLap(d.best_lap_ms)}</div>
+                  <div className="text-[15px] font-bold text-ink-100">{rank === 1 ? '—' : interval || '—'}</div>
+                  <div className="text-[11px] text-ink-500">{rank === 1 ? '' : gap}</div>
                 </td>
-                <td className={`${pad} whitespace-nowrap text-right ${phone}`}>
-                  <div className="text-ink-100">{gap}</div>
-                  <div className="text-[11px] text-ink-500">{interval}</div>
-                </td>
+                {hasPits && (
+                  <td className={`${pad} text-right text-[15px] font-bold ${phone} ${d.pits ? 'text-ink-100' : 'text-ink-500'}`}>
+                    {d.pits}
+                  </td>
+                )}
                 {/* Wide layout: one figure per column */}
                 <td className={`${pad} text-right ${desk}`}>{fmtLap(d.last_lap_ms)}</td>
                 <td className={`${pad} text-right ${desk} ${bestClass}`}>{fmtLap(d.best_lap_ms)}</td>

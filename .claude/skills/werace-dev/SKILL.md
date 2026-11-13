@@ -496,6 +496,42 @@ penalty_seq, original_penalties}`.
   1200×630 card at `GET /api/results/{id}/card.png` (published only; `_load_font` uses DejaVu, added
   to the Docker image via `fonts-dejavu-core`). `ResultsDetail` also sets `document.title`.
 
+## End-of-session auto-save (what is NOT a finish)
+
+`Event._auto_save_if_ended` runs on every data frame and every broadcast tick. Each rule below
+fixes a false "final" result found by replaying the captures through the real Event on a
+simulated clock (harness approach: patch `time.time`, feed frames, tick idle checks each 1s):
+
+- **Terminal flag (checkered / MyWeR STOPPED / `ended`) opens a finish window**, it doesn't save.
+  The save waits until no kart has completed a lap for ~1.2 x the median last lap (clamped
+  30-150s, `FINISH_SETTLE_*`), or 2.5 x that at most. The leader takes the flag first; saving on
+  the flag archived the others a lap short (Rozzano: kart #28 saved at 12 laps, really 13). If the
+  flag goes back to racing inside the window (red-flag stop, restart) it was not the end: no save.
+- **The next session starting** (warm-up edge, run name change, lap reset) while the window is
+  open saves the finished session *before* `state.update` resets it (`_starts_new_session`).
+- **Silence is a finish only after the session clock ran out** (`_clock_remaining_s` <= 0 and
+  quiet > `autosave_idle_s`). With time left it's a network drop or stoppage — the christel
+  capture (2H endurance, green, lap 14) used to be saved after 150s of silence. A paused clock
+  (red flag) never counts down. No clock at all (lap-limited): `autosave_idle_unknown_s` (600s).
+- **Apex light words match whole words** (`LIGHT_WORDS`): substring matching read "weekend" as
+  "end" -> FINISH (fake finish, premature save), "registered" as red, "official" as off.
+
+## Held penalties ("Hold penalties" in Race Control)
+
+`hide_team_penalties` withholds penalties at the data level, not just in the UI:
+`state.snapshot(public=True)` leaves them out, used by the public `/api/state` and every live
+socket opened without the safeword. Staff sockets (`/ws/live?safeword=…`, `useLive(slot,
+{ staff: true })`: Race Control, Export) get the full list; `Hub.broadcast_live(public,
+staff_payload=…)` sends each socket its version. The driver payload omits them too, penalty
+notifications aren't sent, and saved records (`export_state`) keep the full truth.
+
+## Control pages
+
+Race Control is split into sections (Live / Penalties / Messages / Setup; `wrb_rc_section`):
+a left rail on desktop, a bottom tab bar on phones, each with an icon + accent colour and live
+badges (penalties to serve, source down). The staff nav is Control / QR Codes / Export /
+Snapshots; the QR sheet lives at `/e/:slot/qr-codes` (`/staff` redirects for printed links).
+
 ## Frontend UI conventions (mobile-first)
 
 Phones are the primary surface. These rules exist because each was a real bug:
@@ -522,8 +558,11 @@ Phones are the primary surface. These rules exist because each was a real bug:
   a note in place, the tab's count badge is suppressed, and `TimingTable showPenalties={false}`
   drops PEN/ADJ badges. Desktop dashboards use independent flex columns, never an auto-flowing
   grid of conditionally rendered cards.
-- **TimingTable on phones** is 5 columns with two-line rows (P | Kart | Team + `L14 · 2 pit` +
-  badges | Last/Best | Gap/Int) and fits 360px. Status badges sit outside the truncating name.
+- **TimingTable on phones** leads with gaps and pit stops: P | Kart | Team (+ `L14 · last 0:39.7`,
+  best lap in timed sessions, + badges) | **interval to the kart ahead** / gap to leader | Pits
+  (only when applicable: gated pit lane or any stops counted). Fits 360px; badges sit outside the
+  truncating name. The team own-kart card orders the same way: ahead/behind gaps, then gap to
+  leader + pit stops, then lap times.
 - **Charts** (`LapCharts.TimeChart`): y-axis in a fixed column beside the scrolling plot, shared
   precomputed domain/ticks (`niceScale`); HTML legend chips outside the scroll area; live charts
   open on the latest laps and follow new ones unless scrolled back (`startAt='end'`), results

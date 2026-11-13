@@ -4,6 +4,7 @@ import { api, getSafeword } from '../lib/api'
 import { SafewordGate } from '../components/SafewordGate'
 import { PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
+import { Tabs } from '../components/ui'
 import { rememberedSlot } from '../lib/nav'
 import { TimingTable } from '../components/TimingTable'
 import { PenaltyEditor } from '../components/PenaltyEditor'
@@ -76,22 +77,19 @@ function EditorInner() {
         subtitle={[record.track, t('{n} karts', { n: record.driver_count ?? snapshot.drivers.length })].filter(Boolean).join(' · ')}
         nav={<PageNav slot={String(record.slot ?? rememberedSlot())} />}
       />
-      <main className="flex-1 space-y-4 p-4">
+      <main className="flex-1 space-y-4 px-3 pt-3 pb-8 sm:px-4 sm:pt-4">
         <Link to="/admin/snapshots" className="text-xs text-race-blue">{t('← All snapshots')}</Link>
 
         <DetailsCard record={record} url={url} onSaved={refetch} />
 
         <EventPicker record={record} onSaved={refetch} />
 
-        <div className="flex gap-2">
-          {(['result', 'pdf', 'story', 'teamstory'] as const).map((tabId) => (
-            <button key={tabId} type="button" onClick={() => setTab(tabId)}
-              className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-                tab === tabId ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
-              }`}>
-              {t(TAB_LABELS[tabId])}
-            </button>
-          ))}
+        <div className="-mx-3 sm:-mx-4">
+          <Tabs<Tab>
+            value={tab}
+            onChange={setTab}
+            tabs={(['result', 'pdf', 'story', 'teamstory'] as const).map((id) => ({ id, label: t(TAB_LABELS[id]) }))}
+          />
         </div>
 
         {tab === 'result' && (

@@ -8,15 +8,15 @@ import { PageNav } from '../components/PageNav'
 import type { KartLinks } from '../lib/types'
 import { useT } from '../lib/i18n'
 
-export function StaffDashboard() {
+export function QrCodes() {
   return (
     <SafewordGate>
-      <StaffInner />
+      <QrCodesInner />
     </SafewordGate>
   )
 }
 
-function StaffInner() {
+function QrCodesInner() {
   const t = useT()
   const { slot = '1' } = useParams()
   const [karts, setKarts] = useState<KartLinks[]>([])
@@ -58,7 +58,7 @@ function StaffInner() {
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col">
       <PageHeader
-        title={t('Staff — Event {slot} QR sheet', { slot })}
+        title={t('QR Codes — Event {slot}', { slot })}
         subtitle={t("Let each team scan their own kart's QR codes")}
         nav={<PageNav slot={slot} />}
         right={
@@ -89,7 +89,7 @@ function StaffInner() {
         {error && <span className="text-sm text-race-red">{error}</span>}
       </div>
 
-      <main className="grid flex-1 grid-cols-1 gap-4 p-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:text-black">
+      <main className="grid flex-1 grid-cols-1 gap-3 px-3 pt-3 pb-8 sm:gap-4 sm:px-4 sm:pt-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2 print:text-black">
         {karts.length === 0 && (
           <p className="text-ink-500">
             {t('No karts yet — connect a timing source or pre-generate kart numbers above.')}

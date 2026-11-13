@@ -215,6 +215,8 @@ export function TeamDashboard() {
   }, [laps, kart, own])
   const race = snapshot?.race
   const isRace = race?.session_kind === 'race'
+  // Pit stops only matter where the session has them (same rule as the table).
+  const pitsApply = snapshot?.auto_pitlane === true || !!snapshot?.drivers.some((d) => d.pits > 0)
 
   // ---------------------------------------------------------------- sections
   const standings = snapshot && kart && (
@@ -327,7 +329,7 @@ export function TeamDashboard() {
           <div className="grid grid-cols-12 gap-4 px-4 pt-4">
             <div className="col-span-8 flex min-w-0 flex-col gap-4">
               <OwnKart own={own} ahead={rivals.ahead} behind={rivals.behind} slot={slot} kart={kart}
-                manualStint={snapshot?.auto_pitlane === false} serverNow={serverNow} />
+                manualStint={snapshot?.auto_pitlane === false} serverNow={serverNow} pits={pitsApply} />
               {standings}
               {charts}
             </div>
@@ -344,7 +346,7 @@ export function TeamDashboard() {
           <div style={{ ['--strip-h' as string]: '3.5rem' }}>
             <div className="px-3 pt-3">
               <OwnKart own={own} ahead={rivals.ahead} behind={rivals.behind} slot={slot} kart={kart}
-                manualStint={snapshot?.auto_pitlane === false} serverNow={serverNow} />
+                manualStint={snapshot?.auto_pitlane === false} serverNow={serverNow} pits={pitsApply} />
             </div>
             <div className="mt-3">
               <Tabs<TabId>
@@ -394,7 +396,7 @@ function Notice({ children }: { children: ReactNode }) {
 }
 
 /** The team's own kart: position, lap times, gaps, and who's around it. */
-function OwnKart({ own, ahead, behind, slot, kart, manualStint, serverNow }: {
+function OwnKart({ own, ahead, behind, slot, kart, manualStint, serverNow, pits }: {
   own: DriverRow | undefined
   ahead: DriverRow | undefined
   behind: DriverRow | undefined
@@ -402,6 +404,7 @@ function OwnKart({ own, ahead, behind, slot, kart, manualStint, serverNow }: {
   kart: string
   manualStint: boolean
   serverNow: number
+  pits: boolean
 }) {
   const t = useT()
   const leader = own?.position === 1
@@ -420,22 +423,24 @@ function OwnKart({ own, ahead, behind, slot, kart, manualStint, serverNow }: {
             {own?.in_pit && <span className="rounded bg-race-yellow px-1.5 text-[0.65rem] font-bold text-pit-950">{t('PIT')}</span>}
           </div>
           <div className="mt-1 truncate text-lg font-bold">{own?.name || '—'}</div>
-          <div className="text-xs text-ink-500 timing">
-            {t('{n} laps', { n: own?.laps ?? 0 })} · {t('{n} pit', { n: own?.pits ?? 0 })}
-          </div>
+          <div className="text-xs text-ink-500 timing">{t('{n} laps', { n: own?.laps ?? 0 })}</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-px bg-pit-800 mt-4">
-        <Cell label={t('Last lap')} value={fmtLap(own?.last_lap_ms)} />
-        <Cell label={t('Best')} value={fmtLap(own?.best_lap_ms)} tone="text-race-purple" />
-        <Cell label={t('To leader')} value={leader ? t('LEADER') : fmtGap(own?.gap_leader)} />
-      </div>
-
-      {/* Who's around: the two numbers a pit wall watches most. */}
-      <div className="grid grid-cols-2 gap-px bg-pit-800">
+      {/* Who's around: the gaps a pit wall watches most, first. */}
+      <div className="mt-4 grid grid-cols-2 gap-px bg-pit-800">
         <Neighbour dir="ahead" kart={ahead} gap={leader ? '' : fmtGap(own?.gap_ahead)} />
         <Neighbour dir="behind" kart={behind} gap={behind ? fmtGap(behind.gap_ahead) : ''} />
+      </div>
+
+      <div className={`grid gap-px bg-pit-800 ${pits ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <Cell label={t('To leader')} value={leader ? t('LEADER') : fmtGap(own?.gap_leader)} />
+        {pits && <Cell label={t('Pit stops')} value={String(own?.pits ?? 0)} />}
+        <Cell
+          label={t('Last lap')}
+          value={fmtLap(own?.last_lap_ms)}
+          sub={<span className="text-race-purple" title={t('Best lap')}>{fmtLap(own?.best_lap_ms)}</span>}
+        />
       </div>
 
       <div className="bg-pit-900 px-4 py-3">
@@ -454,11 +459,12 @@ function OwnKart({ own, ahead, behind, slot, kart, manualStint, serverNow }: {
   )
 }
 
-function Cell({ label, value, tone = '' }: { label: string; value: string; tone?: string }) {
+function Cell({ label, value, tone = '', sub }: { label: string; value: string; tone?: string; sub?: ReactNode }) {
   return (
     <div className="min-w-0 bg-pit-900 px-3 py-2.5">
       <div className="label-race truncate">{label}</div>
       <div className={`timing truncate text-lg font-bold leading-tight ${tone}`}>{value}</div>
+      {sub && <div className="timing truncate text-[11px]">{sub}</div>}
     </div>
   )
 }
@@ -471,7 +477,7 @@ function Neighbour({ dir, kart, gap }: { dir: 'ahead' | 'behind'; kart: DriverRo
       <div className="label-race">{up ? `▲ ${t('Ahead')}` : `${t('Behind')} ▼`}</div>
       {kart ? (
         <>
-          <div className={`timing text-lg font-bold leading-tight ${up ? 'text-race-green' : 'text-race-red'}`}>
+          <div className={`timing text-2xl font-extrabold leading-tight ${up ? 'text-race-green' : 'text-race-red'}`}>
             {gap || '—'}
           </div>
           <div className="truncate text-xs text-ink-300">

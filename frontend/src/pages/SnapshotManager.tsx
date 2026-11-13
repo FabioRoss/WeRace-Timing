@@ -83,7 +83,7 @@ function ManagerInner() {
   return (
     <div className="mx-auto flex min-h-full max-w-5xl flex-col">
       <PageHeader title={t('Saved snapshots')} subtitle={t('Results archive')} nav={<PageNav slot={rememberedSlot()} />} />
-      <main className="flex-1 space-y-3 p-4">
+      <main className="flex-1 space-y-3 px-3 pt-3 pb-8 sm:px-4 sm:pt-4">
         {error && <p className="text-sm text-race-red">{error}</p>}
         {tracks.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-sm">

@@ -12,7 +12,7 @@ own websockets to five kinds of dashboards served by a Vite + React frontend:
 | **Team Manager** ("pit wall") — full grid, own-kart analysis charts, message your driver, driver QR + link | `/e/{slot}/team/{token}` | obscurity token / QR |
 | **General** — public live timing for everyone | `/e/{slot}` | open |
 | **Race Control** — pick/connect the timing source, record frames, message all/some/one driver | `/e/{slot}/control` | safeword |
-| **Staff** — printable QR sheet with driver + team-manager codes for every kart | `/e/{slot}/staff` | safeword |
+| **QR Codes** — printable sheet with driver + team-manager codes for every kart (`/staff` still redirects) | `/e/{slot}/qr-codes` | safeword |
 
 There are **3 independent event slots** (`/e/1`, `/e/2`, `/e/3`, configurable via
 `WRB_NUM_EVENTS`), so simultaneous races at different tracks can each use their
@@ -38,7 +38,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Open `http://<host>:8000/e/1/control`, enter the safeword, pick a track from the
 catalog (or the **Simulator** for a demo race) and press **Connect**. Hand out
-dashboards from `http://<host>:8000/e/1/staff`.
+dashboards from `http://<host>:8000/e/1/qr-codes`.
 
 Set `WRB_PUBLIC_BASE_URL` to the URL teams will reach the server on — it's what
 goes inside the QR codes.
@@ -174,7 +174,7 @@ MyWeR / Apex / Simulator / Replay        (per event slot)
         ▼
    EventState (state.py) — normalized standings, lap history, stint fallback
         ▼
-   Hub (hub.py) ──► /e/{slot}/ws/live            → general / pit wall / RC / staff
+   Hub (hub.py) ──► /e/{slot}/ws/live            → general / pit wall / RC / export
                ──► /e/{slot}/ws/driver/{token}   → driver dashboard + messages
 ```
 

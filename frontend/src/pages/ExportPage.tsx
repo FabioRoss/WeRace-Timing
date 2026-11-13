@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { SafewordGate } from '../components/SafewordGate'
 import { ConnectionDot, PageHeader } from '../components/StatusBar'
 import { PageNav } from '../components/PageNav'
+import { Page, Tabs } from '../components/ui'
 import { StoryStudio } from '../components/StoryStudio'
 import { TeamStoryStudio } from '../components/TeamStoryStudio'
 import { TimesheetPanel } from '../components/TimesheetPanel'
@@ -30,7 +31,7 @@ const TAB_LABELS: Record<Tab, string> = {
 function ExportInner() {
   const t = useT()
   const { slot = '1' } = useParams()
-  const { snapshot, status } = useLive(slot)
+  const { snapshot, status } = useLive(slot, { staff: true })
   const [tab, setTab] = useState<Tab>('timesheet')
 
   const race = snapshot?.race
@@ -42,7 +43,7 @@ function ExportInner() {
   }, [snapshot])
 
   return (
-    <div className="mx-auto flex min-h-full max-w-5xl flex-col">
+    <Page width="max-w-5xl" className="pb-8">
       <PageHeader
         title={t('Export — Event {slot}', { slot })}
         subtitle={[race?.event_name, race?.track_name].filter(Boolean).join(' · ')}
@@ -50,28 +51,19 @@ function ExportInner() {
         right={<ConnectionDot status={status} />}
       />
 
+      <Tabs<typeof tab>
+        value={tab}
+        onChange={setTab}
+        tabs={(['timesheet', 'story', 'teamstory'] as const).map((id) => ({ id, label: t(TAB_LABELS[id]) }))}
+      />
+
       {race && !race.ended && (
-        <div className="mx-4 mt-4 rounded-lg bg-race-yellow/10 px-3 py-2 text-sm text-race-yellow ring-1 ring-race-yellow/30">
+        <div className="mx-3 mt-3 rounded-xl bg-race-yellow/10 px-3 py-2 text-sm text-race-yellow ring-1 ring-race-yellow/30 sm:mx-4">
           {t('Session still live — an export reflects the current standings, not a final result.')}
         </div>
       )}
 
-      <div className="flex gap-2 px-4 pt-4">
-        {(['timesheet', 'story', 'teamstory'] as const).map((tabId) => (
-          <button
-            key={tabId}
-            type="button"
-            onClick={() => setTab(tabId)}
-            className={`rounded px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-              tab === tabId ? 'bg-race-red text-white' : 'bg-pit-800 text-ink-300 hover:bg-pit-700'
-            }`}
-          >
-            {t(TAB_LABELS[tabId])}
-          </button>
-        ))}
-      </div>
-
-      <main className="flex-1 p-4">
+      <main className="flex-1 px-3 pt-3 sm:px-4 sm:pt-4">
         {tab === 'timesheet' && (
           <TimesheetPanel
             pdfBase={`/e/${slot}/api/export`}
@@ -99,6 +91,6 @@ function ExportInner() {
           />
         )}
       </main>
-    </div>
+    </Page>
   )
 }
