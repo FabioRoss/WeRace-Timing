@@ -581,6 +581,38 @@ Phones are the primary surface. These rules exist because each was a real bug:
   then for each page × width (360/390/1440) measure page overflow against the DEVICE width — with
   mobile emulation Chrome widens the layout viewport to fit overflow, so `innerWidth` lies.
 
+## Driver app (installable PWA "WR Timing")
+
+- One app identity for every race: manifest `id` and launcher are `/drive`
+  (`frontend/src/pages/DriveLauncher.tsx`). The launcher forwards to the last driver
+  link stored on the phone (`wrb_driver_link`, set on every driver page visit), else
+  to `?to=` (the link the app was installed from — iOS home-screen apps start with
+  EMPTY storage), else shows the in-app QR scanner.
+- Manifest: `GET /api/pwa/manifest.webmanifest?to=/e/<slot>/driver/<token>`
+  (`backend/app/pwa.py`), landscape, fullscreen, icons in `frontend/public/icons/`
+  (brand favicon from we-race.it; maskable + apple-touch variants on #232323).
+  `to` is only honoured if it matches the driver-path regex.
+- `_spa_html` injects the manifest link + apple meta and sets `<title>WR Timing`
+  on driver pages and `/drive`; `usePwaHead()` (lib/pwa.ts) adds the same tags on
+  client-side navigation / the Vite dev server and registers `/sw.js`.
+- `public/sw.js` caches nothing: it only replaces the browser error page with a
+  self-reloading "No connection" screen on failed navigations.
+- Install wizard (`components/InstallWizard.tsx`) shows on phones not running the
+  installed app: Android native prompt (beforeinstallprompt, captured at module
+  load) or menu steps; iOS Share → Add to Home Screen steps; in-app browsers
+  (WhatsApp, Instagram, QR apps) get "open in Safari/Chrome". "Not now" = 12 h.
+- Inside the installed app (`isStandalone()`, checked ONCE at mount — tapping for
+  full screen also matches display-mode: fullscreen) a QR button opens
+  `components/QrScanner.tsx` (BarcodeDetector, else lazy jsQR). Needed because
+  on iOS the camera app always opens links in Safari, never in the home-screen app.
+- Big readouts use `components/FitText.tsx`: sized to the column (canvas
+  measureText), never `truncate`/"…"; last lap falls back to hundredths
+  (`toHundredths`, cut not rounded) below `minPx`.
+- Verify scanning headlessly: render a QR (qrcode.react → SVG → PNG), `ffmpeg` it
+  to .y4m and launch Chromium with `--use-fake-device-for-media-stream
+  --use-file-for-fake-video-capture=<file>`. `Page.getInstallabilityErrors` (CDP)
+  checks installability.
+
 ## Development workflow
 
 - Backend tests: `cd backend && pip install -e ".[dev]" && python -m pytest`

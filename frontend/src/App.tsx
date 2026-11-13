@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Landing } from './pages/Landing'
 import { GeneralDashboard } from './pages/GeneralDashboard'
+import { DriveLauncher } from './pages/DriveLauncher'
 import { DriverDashboard } from './pages/DriverDashboard'
 import { TeamDashboard } from './pages/TeamDashboard'
 import { RaceControl } from './pages/RaceControl'
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/" element={<Landing />} />
         <Route path="/e/:slot" element={<GeneralDashboard />} />
         <Route path="/e/:slot/driver/:token" element={<DriverDashboard />} />
+        <Route path="/drive" element={<DriveLauncher />} />
         <Route path="/e/:slot/team/:token" element={<TeamDashboard />} />
         <Route path="/e/:slot/control" element={<RaceControl />} />
         <Route path="/e/:slot/qr-codes" element={<QrCodes />} />

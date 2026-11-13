@@ -509,3 +509,28 @@ def test_saved_records_keep_held_penalties():
     st.hide_team_penalties = True
     from app.models import SourceStatus
     assert len(st.export_state(SourceStatus())["snapshot"]["penalties"]) == 1
+
+
+def test_driver_app_manifest(client):
+    link = "/e/1/driver/0123456789abcdef"
+    body = client.get("/api/pwa/manifest.webmanifest", params={"to": link})
+    assert body.headers["content-type"].startswith("application/manifest+json")
+    m = body.json()
+    assert m["name"] == m["short_name"] == "WR Timing"
+    assert m["id"] == "/drive" and m["orientation"] == "landscape"
+    assert m["start_url"] == "/drive?to=%2Fe%2F1%2Fdriver%2F0123456789abcdef"
+    assert any(i["purpose"] == "maskable" for i in m["icons"])
+    # Anything but a driver link is ignored: the launcher can't be pointed elsewhere.
+    for bad in ("https://evil.example/e/1/driver/0123456789abcdef", "/e/1/control", "//evil.example"):
+        m = client.get("/api/pwa/manifest.webmanifest", params={"to": bad}).json()
+        assert m["start_url"] == "/drive"
+
+
+def test_driver_pages_get_install_tags():
+    from app import pwa
+    tags = pwa.head_tags("e/3/driver/0123456789abcdef")
+    assert tags and "manifest.webmanifest?to=%2Fe%2F3%2Fdriver%2F0123456789abcdef" in tags
+    assert 'apple-mobile-web-app-title" content="WR Timing"' in tags
+    assert pwa.head_tags("drive")
+    assert pwa.head_tags("e/3/team/0123456789abcdef") is None
+    assert pwa.head_tags("e/3") is None

@@ -7,6 +7,12 @@ import { fmtRemaining, useServerNow } from '../lib/lapProgress'
 import { DriverAlert, useDriverAlerts } from '../components/MessageOverlay'
 import { flagAccent } from '../components/FlagBanner'
 import { useT } from '../lib/i18n'
+import { FitText, toHundredths } from '../components/FitText'
+import { InstallWizard } from '../components/InstallWizard'
+import { QrScanner } from '../components/QrScanner'
+import {
+  goFullscreenLandscape, installSkipped, isStandalone, platform, rememberDriverLink, skipInstall, usePwaHead,
+} from '../lib/pwa'
 
 const FLAG_LABEL: Record<string, string> = {
   green: 'GREEN', yellow: 'YELLOW', red: 'RED', finish: 'FINISH',
@@ -18,6 +24,18 @@ export function DriverDashboard() {
   const { slot = '1', token = '' } = useParams()
   const [view, setView] = useState<DriverView | null>(null)
   const [now, setNow] = useState(Date.now())
+
+  // Installable app: the link is remembered so the installed app reopens it;
+  // phones not yet running the app get the install guide (once per 12h if skipped).
+  const path = `/e/${slot}/driver/${token}`
+  usePwaHead(path)
+  useEffect(() => { rememberDriverLink(path) }, [path])
+  // Checked once: tapping for full screen in a browser tab also matches display-mode: fullscreen.
+  const [standalone] = useState(isStandalone)
+  const [showInstall, setShowInstall] = useState(
+    () => !standalone && platform() !== 'other' && !installSkipped())
+  const [scanning, setScanning] = useState(false)
+  const onScan = useCallback((next: string) => { window.location.assign(next) }, [])
 
   // Offset between this phone's clock and the server's, from the server time
   // stamped on each payload — used to tell a fresh message from a replayed one.
@@ -75,10 +93,23 @@ export function DriverDashboard() {
     [view?.penalties],
   )
 
-  const requestFullscreen = () => {
-    const el = document.documentElement
-    if (!document.fullscreenElement) el.requestFullscreen?.().catch(() => {})
-  }
+  const requestFullscreen = goFullscreenLandscape
+
+  // Overlays shared by every state of the screen.
+  const overlays = (
+    <>
+      {showInstall && <InstallWizard onSkip={() => { skipInstall(); setShowInstall(false) }} />}
+      {scanning && <QrScanner onResult={onScan} onClose={() => setScanning(false)} />}
+    </>
+  )
+  // New race, same app: scan the next QR code (only inside the installed app —
+  // in a browser the phone camera opens the link directly).
+  const scanButton = standalone && (
+    <button type="button" className="btn btn-quiet"
+      onClick={(e) => { e.stopPropagation(); setScanning(true) }}>
+      <QrIcon /> {t('Scan new QR')}
+    </button>
+  )
 
   if (view && !view.found) {
     return (
@@ -94,8 +125,15 @@ export function DriverDashboard() {
             {view.time_to_go && (
               <p className="timing mt-6 text-5xl font-bold">{view.time_to_go}</p>
             )}
+            {scanButton && (
+              <div className="mt-6">
+                <p className="mb-2 text-sm text-ink-500">{t('Different race or kart?')}</p>
+                {scanButton}
+              </div>
+            )}
           </div>
         </div>
+        {overlays}
       </Shell>
     )
   }
@@ -103,6 +141,7 @@ export function DriverDashboard() {
   return (
     <Shell accent={accent} onTap={requestFullscreen} glow={glow}>
       <DriverAlert message={alerts.current} pending={alerts.pending} onDone={alerts.next} />
+      {overlays}
 
       {/* Top strip: session + flag + position */}
       <div className="flex items-stretch justify-between gap-3 px-4 pt-2">
@@ -148,7 +187,7 @@ export function DriverDashboard() {
       </div>
 
       {/* Middle: gaps + last lap */}
-      <div className="grid flex-1 grid-cols-3 items-center gap-2 px-4">
+      <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,1fr)] items-center gap-3 px-4">
         <GapCell
           label={`${t('Ahead')} ${view?.kart_ahead ? `· #${view.kart_ahead}` : ''}`}
           value={view?.position === 1 ? t('LEADER') : fmtGap(view?.gap_ahead)}
@@ -156,9 +195,7 @@ export function DriverDashboard() {
         />
         <div className="min-w-0 text-center">
           <div className="label-race">{t('Last lap')}</div>
-          <div className="timing truncate text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
-            {fmtLap(view?.last_lap_ms)}
-          </div>
+          <LastLap ms={view?.last_lap_ms} />
           <div className="mt-1 text-sm text-ink-500 timing">
             {t('best {v}', { v: fmtLap(view?.best_lap_ms) })}
           </div>
@@ -172,7 +209,7 @@ export function DriverDashboard() {
       </div>
 
       {/* Bottom strip */}
-      <div className="grid grid-cols-4 gap-2 px-4 pb-3">
+      <div className={`grid gap-2 px-4 pb-3 ${standalone ? 'grid-cols-[repeat(4,minmax(0,1fr))_auto]' : 'grid-cols-4'}`}>
         <Stat label={t('Stint')} value={view?.stint_seconds != null ? fmtClock(view.stint_seconds) : '--:--'} />
         <Stat label={t('Laps')} value={String(view?.laps ?? '–')} />
         <Stat label={t('Pits')} value={String(view?.pits ?? '–')} />
@@ -181,6 +218,13 @@ export function DriverDashboard() {
           value={view?.kart_no ? `#${view.kart_no}` : '–'}
           sub={view?.name}
         />
+        {standalone && (
+          <button type="button" aria-label={t('Scan new QR')} title={t('Scan new QR')}
+            className="grid w-11 place-items-center rounded-lg bg-pit-850 text-ink-500"
+            onClick={(e) => { e.stopPropagation(); setScanning(true) }}>
+            <QrIcon />
+          </button>
+        )}
       </div>
 
     </Shell>
@@ -214,6 +258,32 @@ function Shell({ children, accent, onTap, glow = false }: {
   )
 }
 
+/**
+ * Font cap for the big readouts: a share of the screen height (landscape
+ * phones are short), within a fixed maximum.
+ */
+function bigPx(share: number, max: number): number {
+  return Math.round(Math.min(max, Math.max(28, window.innerHeight * share)))
+}
+
+/** Last lap, as large as the column allows: full time, or cut to hundredths. Never "…". */
+function LastLap({ ms }: { ms: number | null | undefined }) {
+  const full = fmtLap(ms)
+  return (
+    <FitText full={full} short={toHundredths(full)} maxPx={bigPx(0.2, 96)} minPx={34}
+      className="timing font-extrabold leading-tight" />
+  )
+}
+
+function QrIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3" />
+    </svg>
+  )
+}
+
 function GapCell({ label, value, tone, right = false }: {
   label: string
   value: string
@@ -223,9 +293,8 @@ function GapCell({ label, value, tone, right = false }: {
   return (
     <div className={`min-w-0 ${right ? 'text-right' : ''}`}>
       <div className="label-race">{label}</div>
-      <div className={`timing truncate text-3xl font-extrabold leading-tight sm:text-4xl ${tone}`}>
-        {value}
-      </div>
+      <FitText full={value} maxPx={bigPx(0.115, 52)}
+        className={`timing font-extrabold leading-tight ${tone}`} />
     </div>
   )
 }
@@ -242,11 +311,12 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 /** Portrait hint — the dashboard is designed for landscape. */
 function RotateHint() {
+  const t = useT()
   return (
     <div className="pointer-events-none fixed inset-0 z-40 hidden place-items-center bg-pit-950/95 portrait:grid">
       <div className="text-center">
         <div className="mx-auto mb-4 h-10 w-16 rotate-90 rounded-md border-2 border-ink-500" />
-        <p className="text-ink-300">Rotate your phone to landscape</p>
+        <p className="text-ink-300">{t('Rotate your phone to landscape')}</p>
       </div>
     </div>
   )

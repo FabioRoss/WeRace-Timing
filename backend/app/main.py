@@ -9,10 +9,10 @@ from html import escape
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import snapshots
+from . import pwa, snapshots
 from .config import get_settings
 from .events import get_manager
 from .routers import admin, export, live, public, results, team
@@ -62,6 +62,13 @@ app.include_router(admin.router)
 app.include_router(team.router)
 app.include_router(export.router)
 app.include_router(results.router)
+
+
+@app.get("/api/pwa/manifest.webmanifest", include_in_schema=False)
+async def pwa_manifest(to: str | None = None):
+    """Web app manifest for the installable driver app (see app.pwa)."""
+    return JSONResponse(pwa.manifest(to), media_type="application/manifest+json",
+                        headers={"Cache-Control": "no-cache"})
 
 
 _RESULTS_PATH = re.compile(r"^results/([A-Za-z0-9_-]+)$")
@@ -145,7 +152,13 @@ def _spa_html(path: str, request) -> str | None:
     base = get_settings().public_base_url.rstrip("/") or str(request.base_url).rstrip("/")
     tags = _og_tags(meta["title"], meta["description"],
                     base + meta["url_path"], base + meta["image_path"])
-    html = re.sub(r"<title>.*?</title>", f"<title>{escape(meta['title'])}</title>", html, count=1)
+    title = meta["title"]
+    install = pwa.head_tags(path)
+    if install:
+        # Driver pages are the installable "WR Timing" app.
+        tags += install
+        title = pwa.APP_NAME
+    html = re.sub(r"<title>.*?</title>", f"<title>{escape(title)}</title>", html, count=1)
     return html.replace("</head>", tags + "</head>", 1)
 
 
