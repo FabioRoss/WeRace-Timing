@@ -25,6 +25,11 @@ SOURCE_CLASSES: dict[str, type[BaseSource]] = {
 }
 
 BROADCAST_INTERVAL = 1.0
+# Finish window bounds: settle = ~1.2 typical laps, clamped; give up waiting
+# for stragglers after this many settle periods.
+FINISH_SETTLE_MIN_S = 30.0
+FINISH_SETTLE_MAX_S = 150.0
+FINISH_MAX_WAIT_FACTOR = 2.5
 MAX_MESSAGES = 200
 
 
@@ -65,6 +70,12 @@ class Event:
         # Previous flag, to re-arm the auto-save when a new session warms up
         # (MyWeR reuses the same generation across back-to-back W→G→S sessions).
         self._prev_flag = Flag.NONE
+        # Finish window: when the end signal (checkered/stopped/ended) was first
+        # seen, and when any kart last completed a lap. The save waits for the
+        # field to settle — the karts behind the leader still have to cross.
+        self._finish_since: float | None = None
+        self._last_lap_change = 0.0
+        self._laps_total = 0
 
     # ---------------------------------------------------------------- source
 
@@ -125,7 +136,15 @@ class Event:
         override = cfg.track_name.strip() if cfg else ""
         if race is not None and override:
             race = race.model_copy(update={"track_name": override})
+        # A finished session still settling must not be lost to the next one:
+        # save it before this frame resets the standings.
+        if self._finish_since is not None and not self._auto_saved and self._starts_new_session(race, drivers):
+            self._save_auto("next session starting")
         self.state.update(race, drivers)
+        total = sum(d.laps for d in self.state.drivers)
+        if total != self._laps_total:
+            self._laps_total = total
+            self._last_lap_change = time.time()
         # A new session (rollover) re-arms the one-shot end-of-session auto-save.
         if self.state.session_generation != self._last_generation:
             self._last_generation = self.state.session_generation
@@ -147,26 +166,76 @@ class Event:
         return bool(self.state.drivers) and any(d.laps > 0 for d in self.state.drivers)
 
     def _auto_save_if_ended(self, now: float, *, idle: bool) -> None:
-        """Auto-save once when the session looks finished. Most feeds never set
-        `ended`, so we also infer it from the checkered flag and — when `idle`
-        (checked each broadcast tick) — from the feed going quiet while still
-        connected."""
+        """Auto-save once when the session is really over. Checked on every
+        data frame and (`idle`) on every broadcast tick.
+
+        - End signal (checkered / MyWeR stopped / `ended`): open a finish window
+          and save once the field has settled — the leader takes the flag first
+          and everyone else still crosses the line (in qualifying that lap still
+          counts). If racing resumes first (red-flag stop, restart), it wasn't
+          the end: the window closes without saving.
+        - No signal, feed quiet (`idle`): only once the session's own clock has
+          run out. Silence with time on the clock is a network drop or a
+          stoppage — saving then archived half a race as the result.
+        """
         if self._auto_saved or not self._worth_saving():
             return
+        race = self.state.race
         terminal = getattr(self.source, "terminal_flags", {Flag.FINISH})
-        ended = self.state.race.ended or self.state.race.flag in terminal
-        if not ended and idle:
-            # A session that actually ran (guarded by _worth_saving) whose feed
-            # has gone quiet is finished — whether the source is still connected,
-            # dropped at the finish, or a replay that reached its end.
-            ended = now - self.state.updated_at > get_settings().autosave_idle_s
-        if not ended:
+        if race.ended or race.flag in terminal:
+            if self._finish_since is None:
+                self._finish_since = now
+            settle = self._settle_s()
+            settled = now - self._last_lap_change >= settle
+            waited = now - self._finish_since >= settle * FINISH_MAX_WAIT_FACTOR
+            if settled or waited:
+                self._save_auto("finish settled" if settled else "finish window elapsed")
             return
+        self._finish_since = None
+        if not idle:
+            return
+        quiet = now - self.state.updated_at
+        remaining = self._clock_remaining_s(now)
+        if remaining is None:
+            over = quiet > get_settings().autosave_idle_unknown_s
+        else:
+            over = remaining <= 0 and quiet > get_settings().autosave_idle_s
+        if over:
+            self._save_auto("feed quiet after the session clock ran out" if remaining is not None
+                            else "feed quiet, session has no clock")
+
+    def _save_auto(self, why: str) -> None:
         try:
             self.save_snapshot("auto")
-            self._auto_saved = True
+            log.info("slot %d: auto-saved (%s)", self.slot, why)
         except Exception:
             log.exception("slot %d: auto-save snapshot failed", self.slot)
+
+    def _settle_s(self) -> float:
+        """How long the field must go without a lap completed before a finished
+        session is considered final: a bit more than a typical lap here."""
+        laps = sorted(d.last_lap_ms for d in self.state.drivers if d.last_lap_ms)
+        typical = laps[len(laps) // 2] / 1000 if laps else 60.0
+        return min(max(typical * 1.2, FINISH_SETTLE_MIN_S), FINISH_SETTLE_MAX_S)
+
+    def _clock_remaining_s(self, now: float) -> float | None:
+        """Seconds left on the session clock now (None when the feed has no clock)."""
+        race = self.state.race
+        if race.togo_ms is None:
+            return None
+        left = race.togo_ms / 1000
+        if race.counting and race.togo_ts:
+            left -= max(0.0, now - race.togo_ts)
+        return left
+
+    def _starts_new_session(self, race: RaceInfo | None, drivers: list[DriverRow] | None) -> bool:
+        """Would this frame begin the next session (and reset the standings)?"""
+        if race is not None:
+            if race.flag == Flag.WARMUP and self.state.race.flag != Flag.WARMUP:
+                return True
+            if self.state._session_changed(race):
+                return True
+        return drivers is not None and self.state._laps_regressed(drivers)
 
     # -------------------------------------------------------------- snapshots
 
@@ -213,6 +282,7 @@ class Event:
         # Any save (manual too) arms the once-guard so the inferred end-of-race
         # save can't duplicate this session; a rollover/reset re-arms it.
         self._auto_saved = True
+        self._finish_since = None
         log.info("slot %d: saved snapshot %s (%s)", self.slot, record["id"], trigger)
         return record["id"]
 
@@ -367,8 +437,10 @@ class Event:
         }
 
     async def broadcast_now(self) -> None:
-        snapshot = self.state.snapshot(self.source_status()).model_dump()
-        await self.hub.broadcast_live(snapshot)
+        status = self.source_status()
+        staff = self.state.snapshot(status).model_dump()
+        public = self.state.snapshot(status, public=True).model_dump() if self.state.hide_team_penalties else staff
+        await self.hub.broadcast_live(public, staff_payload=staff)
         token_map = self.driver_token_map()
         await self.hub.broadcast_drivers(lambda token: self.driver_payload(token, token_map))
 
@@ -378,6 +450,8 @@ class Event:
         self._auto_saved = False
         self._last_generation = self.state.session_generation
         self._prev_flag = Flag.NONE
+        self._finish_since = None
+        self._laps_total = 0
         for task in self._pending_notify.values():
             task.cancel()
         self._pending_notify.clear()

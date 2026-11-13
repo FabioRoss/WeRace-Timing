@@ -31,9 +31,13 @@ class Settings(BaseSettings):
     # How often the background GC sweeps for expired snapshots (seconds).
     snapshot_gc_interval_s: float = 21600.0  # 6h
     # Most feeds never flag a session as ended — they just stop streaming at the
-    # finish. If a session that had real racing goes quiet (no new data) for this
-    # long while still connected, infer it ended and auto-save once.
+    # finish. A session whose own clock has run out and whose feed has then been
+    # quiet this long is inferred finished and auto-saved once. Silence with time
+    # still on the clock is an outage or a stoppage, never a finish.
     autosave_idle_s: float = 150.0
+    # Sessions with no clock at all (e.g. lap-limited): only this much silence
+    # counts as the end — long enough to ride out a network drop at the track.
+    autosave_idle_unknown_s: float = 600.0
 
     # Development mode: surfaces dev-only conveniences (e.g. the Simulator entry
     # in the Race Control track catalog). Off in production; set WRB_DEV_MODE=1

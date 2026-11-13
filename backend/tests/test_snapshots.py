@@ -88,21 +88,28 @@ def test_gc_only_removes_expired_unkept(snap_dir):
     assert remaining == {"fresh-000001", "kept-0000003", "noexp-000004"}
 
 
+def _settled(ev, after=10_000):
+    """Let the finish window run its course (the field has long settled)."""
+    ev._auto_save_if_ended(time.time() + after, idle=False)
+
+
 def test_auto_save_on_ended_edge(snap_dir):
     import asyncio
     from app.events import Event
     ev = Event(1)
     running = RaceInfo(event_name="Cup", track_name="T", run_type="R", ended=False)
     asyncio.run(ev._on_data(running, [DriverRow(kart_no="7", position=1, laps=5)]))
-    assert snapshots.list_records() == []            # not ended yet
     asyncio.run(ev._on_data(running, None))          # still running: no save
     assert snapshots.list_records() == []
-    # The ended edge saves exactly one record
+    # The ended edge opens the finish window; the save waits for the field to settle.
     ended = running.model_copy(update={"ended": True})
     asyncio.run(ev._on_data(ended, None))
+    assert snapshots.list_records() == []
+    _settled(ev)
     recs = snapshots.list_records()
     assert len(recs) == 1 and recs[0]["trigger"] == "auto"
     asyncio.run(ev._on_data(ended, None))            # staying ended: no re-save
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
 
 
@@ -113,12 +120,13 @@ def test_auto_save_on_finish_flag(snap_dir):
     ev = Event(1)
     running = RaceInfo(run_type="R", flag=Flag.GREEN)
     asyncio.run(ev._on_data(running, [DriverRow(kart_no="7", position=1, laps=8)]))
-    assert snapshots.list_records() == []
-    # Checkered flag (no `ended`) is inferred as the end — saves once.
+    # Checkered flag (no `ended`) is the end signal — saved once, after settling.
     finish = running.model_copy(update={"flag": Flag.FINISH})
     asyncio.run(ev._on_data(finish, None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
     asyncio.run(ev._on_data(finish, None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
 
 
@@ -126,7 +134,7 @@ def test_auto_save_on_idle_but_not_empty(snap_dir, monkeypatch):
     from app.config import get_settings
     from app.events import Event
     from app.models import SourceStatus
-    monkeypatch.setattr(get_settings(), "autosave_idle_s", 5.0)
+    monkeypatch.setattr(get_settings(), "autosave_idle_unknown_s", 5.0)
     ev = Event(1)
 
     class _Src:  # stand-in for a connected source
@@ -139,7 +147,7 @@ def test_auto_save_on_idle_but_not_empty(snap_dir, monkeypatch):
     ev._auto_save_if_ended(time.time(), idle=True)
     assert snapshots.list_records() == []
 
-    # Real racing that has gone quiet past the window -> inferred end, one save.
+    # No session clock: real racing quiet past the (long) no-clock window -> one save.
     ev.state.update(RaceInfo(run_type="R"), [DriverRow(kart_no="7", position=1, laps=9)])
     ev.state.updated_at = time.time() - 10
     ev._auto_save_if_ended(time.time(), idle=True)
@@ -157,11 +165,13 @@ def test_rollover_rearms_auto_save(snap_dir):
     # Session 1 ends -> one save.
     asyncio.run(ev._on_data(RaceInfo(run_type="R", ended=True),
                             [DriverRow(kart_no="7", position=1, laps=6)]))
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
     # A new session (run_type changes) bumps session_generation and re-arms.
     asyncio.run(ev._on_data(RaceInfo(run_type="F"),
                             [DriverRow(kart_no="7", position=1, laps=3)]))
     asyncio.run(ev._on_data(RaceInfo(run_type="F", ended=True), None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 2
 
 
@@ -244,16 +254,18 @@ def test_mywer_stopped_saves_once_and_rearms_on_warmup(snap_dir):
     asyncio.run(ev._on_data(warmup, [DriverRow(kart_no="7", position=1, laps=0)]))
     asyncio.run(ev._on_data(green, [DriverRow(kart_no="7", position=1, laps=8)]))
     assert snapshots.list_records() == []
-    # STOPPED is a session end for MyWeR -> one save.
+    # STOPPED is a session end for MyWeR -> one save once settled.
     asyncio.run(ev._on_data(stopped, None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
-    # Staying stopped does not re-save.
-    asyncio.run(ev._on_data(stopped, None))
+    asyncio.run(ev._on_data(stopped, None))          # staying stopped: no re-save
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
     # The next session warms up (same generation) -> re-arm; its STOPPED saves.
     asyncio.run(ev._on_data(warmup, [DriverRow(kart_no="7", position=1, laps=0)]))
     asyncio.run(ev._on_data(green, [DriverRow(kart_no="7", position=1, laps=9)]))
     asyncio.run(ev._on_data(stopped, None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 2
 
 
@@ -267,9 +279,11 @@ def test_apex_stopped_is_not_a_session_end(snap_dir):
                             [DriverRow(kart_no="7", position=1, laps=8)]))
     # A mid-race stop must NOT auto-save for a FINISH-only source.
     asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.STOPPED), None))
+    _settled(ev)
     assert snapshots.list_records() == []
     # But the checkered flag still does.
     asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.FINISH), None))
+    _settled(ev)
     assert len(snapshots.list_records()) == 1
 
 
@@ -564,3 +578,104 @@ def test_public_results_only_published_and_no_private(api):
     assert "steward only" not in api.get(f"/api/results/{sid}").text
     assert detail["snapshot"]["drivers"][0]["kart_no"] == "7"
     assert api.get(f"/api/results/{sid}/timesheet.pdf?penalties=1").content[:5] == b"%PDF-"
+
+
+
+# ------------------------------------------------- false autosave triggers
+#
+# Each of these produced a "final" result while racing was still going on.
+
+def _row(kart, pos, laps, last=50_000):
+    return DriverRow(kart_no=kart, position=pos, laps=laps, last_lap_ms=last)
+
+
+def test_finish_waits_for_the_karts_behind_the_leader(snap_dir):
+    """The leader takes the flag first; the others still cross. Saving on the
+    flag itself archived them a lap short (seen at Rozzano: kart #28)."""
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    green = RaceInfo(run_type="R", flag=Flag.GREEN)
+    finish = RaceInfo(run_type="R", flag=Flag.FINISH)
+    asyncio.run(ev._on_data(green, [_row("7", 1, 20), _row("12", 2, 19)]))
+    asyncio.run(ev._on_data(finish, [_row("7", 1, 21), _row("12", 2, 19)]))
+    assert snapshots.list_records() == []            # still settling
+    asyncio.run(ev._on_data(finish, [_row("7", 1, 21), _row("12", 2, 20)]))   # straggler crosses
+    _settled(ev)
+    rec = snapshots.list_records()
+    assert len(rec) == 1
+    laps = {d["kart_no"]: d["laps"] for d in snapshots.load_record(rec[0]["id"])["snapshot"]["drivers"]}
+    assert laps == {"7": 21, "12": 20}
+
+
+def test_stop_then_restart_is_not_a_finish(snap_dir):
+    """MyWeR shows STOPPED for a red-flag stop too; racing resuming inside the
+    finish window means it was never the end."""
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    ev.source = _src_with_terminal({Flag.FINISH, Flag.STOPPED})
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.GREEN), [_row("7", 1, 10)]))
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.STOPPED), None))
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.GREEN), [_row("7", 1, 11)]))  # restart
+    _settled(ev)
+    assert snapshots.list_records() == []
+    # The real finish later still saves, with the full distance.
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.STOPPED), [_row("7", 1, 30)]))
+    _settled(ev)
+    recs = snapshots.list_records()
+    assert len(recs) == 1
+    assert snapshots.load_record(recs[0]["id"])["snapshot"]["drivers"][0]["laps"] == 30
+
+
+def test_quiet_feed_with_time_on_the_clock_is_not_a_finish(snap_dir, monkeypatch):
+    """A network drop / feed stall mid-race (christel capture: 2H endurance,
+    green, lap 14) used to be archived as the result after 150s of silence."""
+    from app.config import get_settings
+    from app.events import Event
+    from app.models import Flag
+    monkeypatch.setattr(get_settings(), "autosave_idle_s", 5.0)
+    ev = Event(1)
+    now = time.time()
+    race = RaceInfo(run_type="R", flag=Flag.GREEN, togo_ms=3_600_000, togo_ts=now, counting=True)
+    ev.state.update(race, [_row("7", 1, 14)])
+    ev.state.updated_at = now - 600                  # 10 minutes of silence
+    ev._auto_save_if_ended(now, idle=True)
+    assert snapshots.list_records() == []            # an hour still on the clock
+    # Once the clock has run out, the quiet feed is the finish: one backup save.
+    ev._auto_save_if_ended(now + 3_600 + 10, idle=True)
+    assert len(snapshots.list_records()) == 1
+
+
+def test_paused_clock_never_counts_down_to_a_save(snap_dir, monkeypatch):
+    """A red flag freezes the clock: silence then is a stoppage, however long."""
+    from app.config import get_settings
+    from app.events import Event
+    from app.models import Flag
+    monkeypatch.setattr(get_settings(), "autosave_idle_s", 5.0)
+    ev = Event(1)
+    now = time.time()
+    ev.state.update(RaceInfo(run_type="R", flag=Flag.RED, togo_ms=900_000, togo_ts=now, counting=False),
+                    [_row("7", 1, 14)])
+    ev.state.updated_at = now - 600
+    ev._auto_save_if_ended(now + 7_200, idle=True)
+    assert snapshots.list_records() == []
+
+
+def test_next_session_starting_saves_the_finished_one_first(snap_dir):
+    """MyWeR can roll into the next session's warm-up before the finish window
+    closes; that frame resets the standings, so the finished session is saved
+    just before it, with its real laps."""
+    import asyncio
+    from app.events import Event
+    from app.models import Flag
+    ev = Event(1)
+    ev.source = _src_with_terminal({Flag.FINISH, Flag.STOPPED})
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.GREEN), [_row("7", 1, 12)]))
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.STOPPED), [_row("7", 1, 13)]))
+    asyncio.run(ev._on_data(RaceInfo(run_type="R", flag=Flag.WARMUP), [_row("7", 1, 0)]))
+    recs = snapshots.list_records()
+    assert len(recs) == 1
+    assert snapshots.load_record(recs[0]["id"])["snapshot"]["drivers"][0]["laps"] == 13

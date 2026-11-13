@@ -102,12 +102,16 @@ LABEL_MAP = [
 RACE_KIND = re.compile(r"race|gara|endurance|final|finale|heat|gp|manche", re.I)
 TIMED_KIND = re.compile(r"practice|libere|prove|qualif|warm", re.I)
 
-LIGHT_MAP = [
-    ("green", Flag.GREEN), ("yellow", Flag.YELLOW), ("warn", Flag.YELLOW),
-    ("red", Flag.RED), ("stop", Flag.STOPPED),
-    ("chk", Flag.FINISH), ("check", Flag.FINISH), ("finish", Flag.FINISH),
-    ("end", Flag.FINISH), ("off", Flag.NONE),
-]
+# Light words -> flag, matched as WHOLE words: a substring match read
+# "weekend" as the end of the session (and "registered" as red, "official" as
+# off), so any descriptive text on the light channel could fake a finish.
+LIGHT_WORDS = {
+    "green": Flag.GREEN, "yellow": Flag.YELLOW, "warn": Flag.YELLOW, "warning": Flag.YELLOW,
+    "red": Flag.RED, "stop": Flag.STOPPED, "stopped": Flag.STOPPED,
+    "chk": Flag.FINISH, "check": Flag.FINISH, "checkered": Flag.FINISH, "chequered": Flag.FINISH,
+    "finish": Flag.FINISH, "finished": Flag.FINISH, "end": Flag.FINISH, "off": Flag.NONE,
+}
+LIGHT_TOKEN = re.compile(r"[a-z]+")
 
 # Short CSS light classes (exact-token match only)
 SHORT_LIGHT = {"lg": Flag.GREEN, "ly": Flag.YELLOW, "lr": Flag.RED, "lf": Flag.FINISH}
@@ -293,11 +297,10 @@ class ApexGrid:
                     self._kind_from_title = True
                 self.dirty = True
         elif target == "light":
-            blob = f"{klass} {value}".lower()
-            tokens = blob.split()
-            flag = next((f for t, f in SHORT_LIGHT.items() if t in tokens), None)
+            tokens = LIGHT_TOKEN.findall(f"{klass} {value}".lower())
+            flag = next((SHORT_LIGHT[t] for t in tokens if t in SHORT_LIGHT), None)
             if flag is None:
-                flag = next((f for needle, f in LIGHT_MAP if needle in blob), None)
+                flag = next((LIGHT_WORDS[t] for t in tokens if t in LIGHT_WORDS), None)
             if flag is not None:
                 self.race.flag = flag
             self.race.ended = self.race.flag == Flag.FINISH

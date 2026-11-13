@@ -502,3 +502,22 @@ def test_dyn_text_clock_still_passes_through():
     grid = ApexGrid()
     grid.apply("dyn1|text|01:00:00")
     assert grid.race.time_to_go == "01:00:00"
+
+
+def test_light_words_match_whole_words_only():
+    """Substring matching read "weekend" as the end of the session (a fake
+    finish -> premature autosave), "registered" as red, "official" as off."""
+    from app.models import Flag
+    for cmd, flag in [
+        ("light|on|Weekend race", Flag.NONE),
+        ("light|x|Official results", Flag.NONE),
+        ("light|x|registered", Flag.NONE),
+        ("light|lf|", Flag.FINISH),
+        ("light|x|race finished", Flag.FINISH),
+        ("light|chk|", Flag.FINISH),
+        ("light|lg|Green - pending restart", Flag.GREEN),
+    ]:
+        g = ApexGrid()
+        g.apply(cmd)
+        assert g.race.flag == flag, cmd
+        assert g.race.ended is (flag == Flag.FINISH), cmd
