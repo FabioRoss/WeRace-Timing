@@ -279,6 +279,9 @@ class EventSettings(BaseModel):
     auto_pitlane: bool | None = None
     hide_team_penalties: bool | None = None
     team_story_config: dict | None = None
+    # Race rules in seconds; 0 clears the limit.
+    min_pit_s: int | None = Field(default=None, ge=0, le=3600)
+    max_stint_s: int | None = Field(default=None, ge=0, le=24 * 3600)
 
 
 @router.post("/e/{slot}/api/admin/settings")
@@ -293,6 +296,10 @@ async def settings(slot: int, body: EventSettings) -> dict:
         event.state.auto_pitlane = body.auto_pitlane
     if body.hide_team_penalties is not None:
         event.state.hide_team_penalties = body.hide_team_penalties
+    if body.min_pit_s is not None:
+        event.state.min_pit_s = body.min_pit_s
+    if body.max_stint_s is not None:
+        event.state.max_stint_s = body.max_stint_s
     if body.team_story_config is not None:
         event.state.team_story_config = snapshots.sanitize_team_story_config(
             body.team_story_config
@@ -304,6 +311,8 @@ async def settings(slot: int, body: EventSettings) -> dict:
         "recompute_positions": event.state.recompute_positions,
         "auto_pitlane": event.state.auto_pitlane,
         "hide_team_penalties": event.state.hide_team_penalties,
+        "min_pit_s": event.state.min_pit_s,
+        "max_stint_s": event.state.max_stint_s,
         "team_story_config": event.state.team_story_config,
     }
 

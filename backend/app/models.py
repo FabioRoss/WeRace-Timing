@@ -69,6 +69,10 @@ class DriverRow(BaseModel):
     # Server clock when an inferred pit stop actually began (missed crossing),
     # so the rejoin forecast keeps the stationary-on-line time.
     pit_since_ts: float | None = None
+    # Race direction (gate venues): each completed pit stop's duration, and each
+    # completed stint's length (on track, pit exit -> next pit entry), in order.
+    pit_times_ms: list[int] = []
+    stints_s: list[int] = []
 
 
 class LapRecord(BaseModel):
@@ -157,6 +161,9 @@ class EventSnapshot(BaseModel):
     recompute_positions: bool = False
     auto_pitlane: bool = True
     hide_team_penalties: bool = False
+    # Race rules checked on the Race Control pit board (0 = no limit).
+    min_pit_s: int = 0
+    max_stint_s: int = 0
     # Staff-chosen defaults for the team Instagram-story graphic (blank = the
     # renderer's own fallbacks). Read by the team dashboard's preview/download.
     team_story_config: dict = {}

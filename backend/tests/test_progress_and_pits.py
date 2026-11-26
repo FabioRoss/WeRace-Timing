@@ -212,3 +212,69 @@ def test_laps_api_includes_pit_flag():
         assert body["laps"]["7"][-1]["pit"] is True
         assert body["laps"]["7"][0]["pit"] is False
         event.reset()
+
+class _Clock:
+    def __init__(self, monkeypatch, start=1000.0):
+        self.t = start
+        import app.state as state_mod
+        monkeypatch.setattr(state_mod.time, "time", lambda: self.t)
+
+
+def test_pit_board_measures_stops_and_stints(monkeypatch):
+    """Gate venue: stop times (feed value wins over our measurement, whichever
+    order it arrives in) and completed stint lengths for the RC pit board."""
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+
+    def frame(**kw):
+        row = make_row(**kw)
+        state.update(RaceInfo(), [row])
+        return row
+
+    frame(laps=1, last_lap_ms=40000)
+    clock.t += 600
+    frame(laps=15, last_lap_ms=40000)                       # 10-minute stint so far
+    clock.t += 5
+    row = frame(laps=15, last_lap_ms=40000, in_pit=True)     # enters the pit
+    assert row.stints_s == [605]
+    assert row.pit_since_ts == clock.t
+    clock.t += 62
+    row = frame(laps=15, last_lap_ms=40000, pits=1)          # out, feed time not yet in
+    assert row.pit_times_ms == [62000]
+    row = frame(laps=15, last_lap_ms=40000, pits=1, last_pit_ms=61480)
+    assert row.pit_times_ms == [61480]                       # feed value replaces ours
+
+    clock.t += 300
+    frame(laps=22, last_lap_ms=40000, pits=1, last_pit_ms=61480)
+    row = frame(laps=22, last_lap_ms=40000, pits=1, last_pit_ms=61480, in_pit=True)
+    assert row.stints_s == [605, 300]
+    clock.t += 45
+    # feed publishes the stop time while the kart is still flagged in the pit
+    frame(laps=22, last_lap_ms=40000, pits=2, last_pit_ms=44900, in_pit=True)
+    row = frame(laps=22, last_lap_ms=40000, pits=2, last_pit_ms=44900)
+    assert row.pit_times_ms == [61480, 44900]
+
+
+def test_pit_board_off_without_gates_and_limits_setting(monkeypatch):
+    state = EventState(1)
+    state.auto_pitlane = False
+    state.update(RaceInfo(), [make_row(laps=1, last_lap_ms=40000)])
+    row = make_row(laps=1, last_lap_ms=40000, in_pit=True)
+    state.update(RaceInfo(), [row])
+    assert row.pit_times_ms == [] and row.stints_s == []
+    # limits are race settings: survive a data reset and reach the snapshot
+    state.min_pit_s, state.max_stint_s = 90, 1800
+    state.reset()
+    snap = state.snapshot(__import__("app.models", fromlist=["SourceStatus"]).SourceStatus())
+    assert (snap.min_pit_s, snap.max_stint_s) == (90, 1800)
+
+
+def test_settings_endpoint_sets_limits():
+    with TestClient(app) as client:
+        h = {"X-Safeword": "boxbox"}
+        r = client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 120, "max_stint_s": 2400})
+        assert r.status_code == 200 and r.json()["min_pit_s"] == 120
+        assert client.get("/e/1/api/state").json()["max_stint_s"] == 2400
+        assert client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": -1}).status_code == 422
+        client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 0, "max_stint_s": 0})
+    get_manager().get(1).reset()

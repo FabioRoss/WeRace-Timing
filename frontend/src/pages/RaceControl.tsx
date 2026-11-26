@@ -13,6 +13,7 @@ import { OrderToggle, useOrderMode } from '../components/OrderToggle'
 import { SafewordGate } from '../components/SafewordGate'
 import { ToastStack, useToasts } from '../components/Toasts'
 import { PenaltyEditor } from '../components/PenaltyEditor'
+import { PitBoard, countIssues, parseDuration } from '../components/PitBoard'
 import { useT } from '../lib/i18n'
 import type { RaceMessage, SourceStatus } from '../lib/types'
 
@@ -59,7 +60,7 @@ function RaceControlInner() {
   const [error, setError] = useState('')
   const [section, setSectionState] = useState<Section>(() => {
     const v = localStorage.getItem(SECTION_KEY)
-    return v === 'penalties' || v === 'messages' || v === 'setup' ? v : 'live'
+    return v === 'pits' || v === 'penalties' || v === 'messages' || v === 'setup' ? v : 'live'
   })
   const setSection = (v: Section) => { setSectionState(v); localStorage.setItem(SECTION_KEY, v) }
   const { toasts, push, dismiss } = useToasts()
@@ -248,8 +249,15 @@ function RaceControlInner() {
   const sourceDown = !source?.connected
   const setHeld = (v: boolean) => act(() => api(`/e/${slot}/api/admin/settings`, { body: { hide_team_penalties: v }, safeword: true }))
 
+  // Pit board only where the pit-lane gates measure stops (automatic pit lane).
+  const pitsOn = snapshot?.auto_pitlane ?? true
+  const pitIssues = countIssues(snapshot)
   const NAV: { id: Section; label: string; icon: React.ReactNode; accent: string; badge?: React.ReactNode }[] = [
     { id: 'live', label: t('Live'), icon: <IconFlag />, accent: 'var(--color-race-green)' },
+    ...(pitsOn ? [{
+      id: 'pits' as const, label: t('Pits'), icon: <IconTimer />, accent: 'var(--color-race-yellow)',
+      badge: <CountBadge n={pitIssues} tone="bg-race-red text-white" />,
+    }] : []),
     {
       id: 'penalties', label: t('Penalties'), icon: <IconGavel />, accent: 'var(--color-race-red)',
       badge: <CountBadge n={toServe} tone="bg-race-red text-white" />,
@@ -323,7 +331,7 @@ function RaceControlInner() {
             <p className="mb-3 rounded-xl bg-race-red/10 px-4 py-2.5 text-sm text-race-red ring-1 ring-race-red/30">{error}</p>
           )}
 
-          {section === 'live' && (
+          {current.id === 'live' && (
             <div className="grid grid-cols-1 gap-3 sm:gap-4">
               <Panel title={t('Session flag')}>
                 {/* For organizers without access to the track system; "Track"
@@ -391,7 +399,27 @@ function RaceControlInner() {
             </div>
           )}
 
-          {section === 'penalties' && (
+          {current.id === 'pits' && (
+            <div className="grid grid-cols-1 gap-3 sm:gap-4">
+              <Panel
+                title={t('Pit stops & stints')}
+                actions={
+                  <button type="button" className="btn btn-quiet" onClick={() => setSection('setup')}>
+                    {t('Race rules')}
+                  </button>
+                }
+                bodyClass=""
+              >
+                {snapshot ? (
+                  <PitBoard snapshot={snapshot} serverNow={serverNow} />
+                ) : (
+                  <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
+                )}
+              </Panel>
+            </div>
+          )}
+
+          {current.id === 'penalties' && (
             <div className="grid grid-cols-1 gap-3 sm:gap-4">
               <div className={`flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 ring-1 ${
                 held ? 'bg-race-yellow/10 ring-race-yellow/40' : 'bg-race-green/10 ring-race-green/30'
@@ -421,7 +449,7 @@ function RaceControlInner() {
             </div>
           )}
 
-          {section === 'messages' && (
+          {current.id === 'messages' && (
             <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
               <Panel title={t('Send to drivers')}>
                 <form onSubmit={sendMessage} className="space-y-3">
@@ -502,7 +530,7 @@ function RaceControlInner() {
             </div>
           )}
 
-          {section === 'setup' && (
+          {current.id === 'setup' && (
             <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
               <Panel title={t('Timing source')}>
                 <div className="space-y-3">
@@ -591,6 +619,15 @@ function RaceControlInner() {
                 </div>
               </Panel>
 
+              <RaceRules
+                minPit={snapshot?.min_pit_s ?? 0}
+                maxStint={snapshot?.max_stint_s ?? 0}
+                gates={pitsOn}
+                busy={busy}
+                onSave={(min_pit_s, max_stint_s) => act(() =>
+                  api(`/e/${slot}/api/admin/settings`, { body: { min_pit_s, max_stint_s }, safeword: true }))}
+              />
+
               <Panel title={t('Recordings ({n})', { n: recordings.length })}>
                 {recordings.length === 0 ? (
                   <p className="text-sm text-ink-500">{t('No recordings on the server yet.')}</p>
@@ -627,8 +664,8 @@ function RaceControlInner() {
       {/* Phones: section tabs in thumb reach */}
       <nav
         aria-label={t('Race control sections')}
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-pit-800 bg-pit-950/95 backdrop-blur-md lg:hidden"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-pit-800 bg-pit-950/95 backdrop-blur-md lg:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)', gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}
       >
         {NAV.map((n) => (
           <button
@@ -654,7 +691,7 @@ function RaceControlInner() {
   )
 }
 
-type Section = 'live' | 'penalties' | 'messages' | 'setup'
+type Section = 'live' | 'pits' | 'penalties' | 'messages' | 'setup'
 const SECTION_KEY = 'wrb_rc_section'
 
 function Icon({ children }: { children: React.ReactNode }) {
@@ -665,6 +702,7 @@ function Icon({ children }: { children: React.ReactNode }) {
 }
 const IconFlag = () => <Icon><path d="M4 22V4" /><path d="M4 4h12l-2 4 2 4H4" /></Icon>
 const IconGavel = () => <Icon><path d="M14 13l-8.5 8.5a2.1 2.1 0 01-3-3L11 10" /><path d="M16 16l6-6" /><path d="M8 8l6-6" /><path d="M9 7l8 8" /><path d="M21 11l-8-8" /></Icon>
+const IconTimer = () => <Icon><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5" /><path d="M10 2h4" /><path d="M12 2v3" /></Icon>
 const IconChat = () => <Icon><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></Icon>
 const IconGear = () => <Icon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" /></Icon>
 
@@ -716,6 +754,57 @@ function fmtDate(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleString([], {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
+}
+
+/** Race rules: minimum pit time and maximum stint, checked on the pit board. */
+function RaceRules({ minPit, maxStint, gates, busy, onSave }: {
+  minPit: number
+  maxStint: number
+  gates: boolean
+  busy: boolean
+  onSave: (minPitS: number, maxStintS: number) => void
+}) {
+  const t = useT()
+  const show = (s: number) => (s ? fmtClock(s) : '')
+  const [minText, setMinText] = useState(show(minPit))
+  const [maxText, setMaxText] = useState(show(maxStint))
+  // Follow changes saved elsewhere (another race-control screen).
+  useEffect(() => { setMinText(show(minPit)) }, [minPit])
+  useEffect(() => { setMaxText(show(maxStint)) }, [maxStint])
+  const minS = parseDuration(minText)
+  const maxS = parseDuration(maxText)
+  const dirty = minS !== minPit || maxS !== maxStint
+  const valid = minS !== null && maxS !== null
+  const save = () => { if (valid && dirty) onSave(minS, maxS) }
+
+  return (
+    <Panel title={t('Race rules')}>
+      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save() }}>
+        <label className="block min-w-0">
+          <span className="label-race">{t('Minimum pit time')}</span>
+          <input className="field timing mt-1" inputMode="numeric" placeholder={t('off')} value={minText}
+            aria-invalid={minS === null} onChange={(e) => setMinText(e.target.value)} />
+          <span className="mt-1 block text-xs text-ink-500">{t('Shortest allowed time in the pit lane, e.g. 1:30.')}</span>
+        </label>
+        <label className="block min-w-0">
+          <span className="label-race">{t('Maximum stint time')}</span>
+          <input className="field timing mt-1" inputMode="numeric" placeholder={t('off')} value={maxText}
+            aria-invalid={maxS === null} onChange={(e) => setMaxText(e.target.value)} />
+          <span className="mt-1 block text-xs text-ink-500">{t('Longest allowed time on track between stops, e.g. 40:00.')}</span>
+        </label>
+        <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+          <button type="submit" className="btn btn-primary" disabled={busy || !valid || !dirty}>{t('Save rules')}</button>
+          {!valid && <span className="text-xs text-race-red">{t('Use m:ss, h:mm:ss or seconds.')}</span>}
+          {valid && <span className="text-xs text-ink-500">{t('Leave empty for no limit.')}</span>}
+        </div>
+        {!gates && (
+          <p className="text-xs text-race-yellow sm:col-span-2">
+            {t('The pit board needs Automatic pit lane on: without pit gates the stops can’t be timed.')}
+          </p>
+        )}
+      </form>
+    </Panel>
+  )
 }
 
 function Toggle({ label, hint, checked, disabled, onChange }: {

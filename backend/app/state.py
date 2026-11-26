@@ -73,6 +73,10 @@ class EventState:
         # Hide the penalty panels on the team dashboard (race control decides
         # when teams may see penalties, e.g. only after the session).
         self.hide_team_penalties: bool = False
+        # Race rules shown on the Race Control pit board: minimum pit-lane time
+        # and maximum stint length, in seconds (0 = no limit).
+        self.min_pit_s: int = 0
+        self.max_stint_s: int = 0
         # Staff-chosen defaults for the team Instagram-story graphic (title,
         # subtitle, session label, accent, which stats, saved background, footer
         # link). Empty = use the renderer's own fallbacks. Preserved across a
@@ -90,6 +94,15 @@ class EventState:
         self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
         self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
         self._auto_pits: dict[str, int] = {}     # inferred pit-stop count (no gates)
+        # Pit board (gate venues): per-kart stop durations and completed stints.
+        self._pit_times: dict[str, list[int]] = {}
+        self._pit_confirmed: dict[str, bool] = {}  # last stop carries the feed's time
+        self._pit_pending: dict[str, int] = {}     # feed time seen while still in pit
+        self._pit_seen_ms: dict[str, int] = {}     # last feed last_pit_ms seen
+        self._pit_entry: dict[str, float] = {}     # wall time the kart entered the pit
+        self._was_in_pit: dict[str, bool] = {}
+        self._prev_stint: dict[str, int] = {}      # stint seconds on the previous frame
+        self._stints: dict[str, list[int]] = {}
         # --- Penalties & warnings (race control) -------------------------------
         # In-memory only, like team messages: a server restart mid-race loses
         # these. This list + `_penalty_id` are the single storage seam — nothing
@@ -102,10 +115,10 @@ class EventState:
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
         settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
-                    self.team_story_config)
+                    self.team_story_config, self.min_pit_s, self.max_stint_s)
         self.__init__(self.slot)
         (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
-         self.team_story_config) = settings
+         self.team_story_config, self.min_pit_s, self.max_stint_s) = settings
 
     # ------------------------------------------------------- penalties & warnings
 
@@ -189,6 +202,8 @@ class EventState:
                 if not self.auto_pitlane:
                     self._infer_pit(row, now)
                 self._track_stint(row, now)
+                if self.auto_pitlane:
+                    self._track_pit_board(row, now)
             self.drivers = drivers
             self._update_session_best()
         self.updated_at = now
@@ -258,6 +273,9 @@ class EventState:
         self._pit_counts.clear()
         self._stint_started.clear()
         self._auto_pits.clear()
+        for board in (self._pit_times, self._pit_confirmed, self._pit_pending, self._pit_seen_ms,
+                      self._pit_entry, self._was_in_pit, self._prev_stint, self._stints):
+            board.clear()
         # A genuine new session voids the previous session's penalties/warnings.
         self.penalties.clear()
         self.session_best_ms = None
@@ -341,6 +359,64 @@ class EventState:
         ms = parse_duration_ms(row.stint_time) if row.stint_time else None
         row.stint_seconds = ms // 1000 if ms else int(now - self._stint_started[row.kart_no])
 
+    def _track_pit_board(self, row: DriverRow, now: float) -> None:
+        """Gate venues: each pit stop's duration and each stint's length, for the
+        Race Control pit board (min pit time / max stint checks).
+
+        A stop's time is the feed's own `last_pit_ms` when it reports one (the
+        gates measure it); otherwise our in->out measurement. The feed may update
+        `last_pit_ms` before or after its in-pit flag drops, so a feed time seen
+        while in the pit is held until the exit, and one seen after the exit
+        replaces the measured value."""
+        kart = row.kart_no
+        times = self._pit_times.setdefault(kart, [])
+        stints = self._stints.setdefault(kart, [])
+        was_in = self._was_in_pit.get(kart, False)
+
+        # Entering the pit: the stint that just ended, and the stop's start.
+        if row.in_pit and not was_in:
+            self._pit_entry[kart] = now
+            self._pit_pending.pop(kart, None)
+            # Feeds differ on whether their since-pit clock resets at pit entry
+            # or exit: take the larger of this frame's and the last on-track one.
+            ended = max(row.stint_seconds or 0, self._prev_stint.get(kart, 0))
+            # (< 10 s: a kart first seen just before it pits — not a stint.)
+            if ended >= 10 and kart in self._was_in_pit:
+                stints.append(ended)
+        # Leaving: the stop is complete.
+        if was_in and not row.in_pit:
+            entry = self._pit_entry.pop(kart, None)
+            pending = self._pit_pending.pop(kart, None)
+            if pending:
+                times.append(pending)
+                self._pit_confirmed[kart] = True
+            elif entry is not None:
+                times.append(int((now - entry) * 1000))
+                self._pit_confirmed[kart] = False
+
+        # The feed's own time for the latest stop.
+        feed = row.last_pit_ms or 0
+        if feed and feed != self._pit_seen_ms.get(kart):
+            first_sight = kart not in self._pit_seen_ms
+            self._pit_seen_ms[kart] = feed
+            if row.in_pit:
+                self._pit_pending[kart] = feed
+            elif times and not self._pit_confirmed.get(kart, True):
+                times[-1] = feed
+                self._pit_confirmed[kart] = True
+            elif not (first_sight and not row.pits):
+                # A stop we never saw go in/out (e.g. connected mid-race).
+                times.append(feed)
+                self._pit_confirmed[kart] = True
+
+        self._was_in_pit[kart] = row.in_pit
+        if not row.in_pit:
+            self._prev_stint[kart] = row.stint_seconds or 0
+        if row.in_pit and kart in self._pit_entry:
+            row.pit_since_ts = self._pit_entry[kart]
+        row.pit_times_ms = list(times)
+        row.stints_s = list(stints)
+
     def _update_session_best(self) -> None:
         best: tuple[int, str] | None = None
         for row in self.drivers:
@@ -371,6 +447,8 @@ class EventState:
             recompute_positions=self.recompute_positions,
             auto_pitlane=self.auto_pitlane,
             hide_team_penalties=self.hide_team_penalties,
+            min_pit_s=self.min_pit_s,
+            max_stint_s=self.max_stint_s,
             team_story_config=dict(self.team_story_config),
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
@@ -411,6 +489,8 @@ class EventState:
         st.recompute_positions = snap.get("recompute_positions", False)
         st.auto_pitlane = snap.get("auto_pitlane", True)
         st.hide_team_penalties = snap.get("hide_team_penalties", False)
+        st.min_pit_s = int(snap.get("min_pit_s") or 0)
+        st.max_stint_s = int(snap.get("max_stint_s") or 0)
         st.penalties = [Penalty.model_validate(p) for p in snap.get("penalties", [])]
         st._penalty_id = int(data.get("penalty_seq", len(st.penalties)))
         st.lap_history = {

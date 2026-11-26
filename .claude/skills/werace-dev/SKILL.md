@@ -525,6 +525,25 @@ socket opened without the safeword. Staff sockets (`/ws/live?safeword=…`, `use
 staff_payload=…)` sends each socket its version. The driver payload omits them too, penalty
 notifications aren't sent, and saved records (`export_state`) keep the full truth.
 
+## Race rules & pit board (Race Control → Pits)
+
+- `EventState.min_pit_s` / `max_stint_s` (0 = no limit): race settings set via
+  `POST /e/<slot>/api/admin/settings`, kept across a data reset, carried on the
+  snapshot. Edited in RC → Setup → "Race rules" (m:ss / h:mm:ss / seconds).
+- `_track_pit_board` (state.py, **automatic pit lane only**) fills
+  `DriverRow.pit_times_ms` (each stop) and `stints_s` (each completed stint) and
+  sets `pit_since_ts` at pit entry. Stop time = the feed's `last_pit_ms` when it
+  reports one (held if it arrives while still in the pit, replaces our in→out
+  measurement if it arrives after), else measured. Stint = larger of this frame's
+  and the last on-track `stint_seconds` at pit entry (feeds differ on whether
+  since-pit resets at entry or exit); < 10 s ignored.
+- `components/PitBoard.tsx`: live PIT timer (yellow until the minimum is served,
+  then green), running stint (yellow ≥ 90 % of max, red over), last/shortest pit,
+  longest stint; red edge = rule broken; nav badge = karts with a break
+  (`countIssues`). The Pits section only exists while automatic pit lane is on.
+- Test data: `scratchpad/ui/gen_pits.py` style synthetic MyWeR endurance
+  recording (gate pits, two short stops, one long stint).
+
 ## Control pages
 
 Race Control is split into sections (Live / Penalties / Messages / Setup; `wrb_rc_section`):

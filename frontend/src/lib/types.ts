@@ -49,6 +49,9 @@ export interface DriverRow {
   prog_to: number
   prog_ms: number | null
   pit_since_ts: number | null
+  /** Gate venues: each completed pit stop's duration / completed stint length. */
+  pit_times_ms?: number[]
+  stints_s?: number[]
 }
 
 export interface Penalty {
@@ -89,6 +92,9 @@ export interface Snapshot {
   recompute_positions: boolean
   auto_pitlane: boolean
   hide_team_penalties?: boolean
+  /** Race rules (seconds, 0 = no limit) checked on the Race Control pit board. */
+  min_pit_s?: number
+  max_stint_s?: number
   team_story_config?: Record<string, unknown>
   session_best_ms: number | null
   session_best_kart: string
