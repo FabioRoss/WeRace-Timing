@@ -558,4 +558,5 @@ export const IT: Record<string, string> = {
   "Stint / pit now": "Stint / box ora",
   "On track: time since leaving the pits. In the pit lane: time since entering it.": "In pista: tempo dall'uscita dai box. In corsia box: tempo dall'ingresso.",
   "Stint / pit now: on track, the running stint (time since leaving the pits); in the pit lane, the time since entering it, turning green once the minimum is served.": "Stint / box ora: in pista, lo stint in corso (tempo dall'uscita dai box); in corsia box, il tempo dall'ingresso, che diventa verde quando il minimo è rispettato.",
+  "Stint / pit": "Stint / box",
 }

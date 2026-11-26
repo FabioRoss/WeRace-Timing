@@ -118,8 +118,9 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
             <thead>
               <tr className="label-race border-y border-pit-800 text-left">
                 <th className="py-2 pl-4 pr-2 font-semibold">{t('Kart')}</th>
-                <th className="px-2 font-semibold" title={t('On track: time since leaving the pits. In the pit lane: time since entering it.')}>
-                  {t('Stint / pit now')}
+                <th className="whitespace-nowrap px-2 font-semibold" title={t('On track: time since leaving the pits. In the pit lane: time since entering it.')}>
+                  <span className="sm:hidden">{t('Stint / pit')}</span>
+                  <span className="hidden sm:inline">{t('Stint / pit now')}</span>
                 </th>
                 <th className="px-2 text-right font-semibold">{t('Pits')}</th>
                 <th className="hidden px-2 text-right font-semibold sm:table-cell">{t('Last pit')}</th>
@@ -198,13 +199,11 @@ function PitRow({ d, c, min, max, minPits, serverNow }: {
         <div className="truncate text-xs text-ink-300">{d.name}</div>
         {/* Phones: the pit/stint record columns as extra lines. */}
         <div className="timing mt-0.5 text-[0.75rem] leading-snug text-ink-500 sm:hidden">
-          <div>
-            <span className={lastShort ? 'font-bold text-race-red' : ''}>{t('Last pit')} {fmtPit(last)}</span>
-            {stops.length > 1 && (
-              <span className={c.shortPits.length ? 'font-bold text-race-red' : ''}> · {t('min')} {fmtPit(shortest)}</span>
-            )}
-          </div>
-          <div className={c.longStints.length ? 'font-bold text-race-red' : ''}>
+          <div className={`truncate ${lastShort ? 'font-bold text-race-red' : ''}`}>{t('Last pit')} {fmtPit(last)}</div>
+          {stops.length > 1 && (
+            <div className={`truncate ${c.shortPits.length ? 'font-bold text-race-red' : ''}`}>{t('Shortest pit')} {fmtPit(shortest)}</div>
+          )}
+          <div className={`truncate ${c.longStints.length ? 'font-bold text-race-red' : ''}`}>
             {t('Longest stint')} {longest != null ? fmtClock(longest) : '–'}
           </div>
         </div>
