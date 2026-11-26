@@ -118,7 +118,9 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
             <thead>
               <tr className="label-race border-y border-pit-800 text-left">
                 <th className="py-2 pl-4 pr-2 font-semibold">{t('Kart')}</th>
-                <th className="px-2 font-semibold">{t('Now')}</th>
+                <th className="px-2 font-semibold" title={t('On track: time since leaving the pits. In the pit lane: time since entering it.')}>
+                  {t('Stint / pit now')}
+                </th>
                 <th className="px-2 text-right font-semibold">{t('Pits')}</th>
                 <th className="hidden px-2 text-right font-semibold sm:table-cell">{t('Last pit')}</th>
                 <th className="hidden px-2 text-right font-semibold sm:table-cell">{t('Shortest pit')}</th>
@@ -134,6 +136,8 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
         </div>
       )}
       <p className="px-4 py-3 text-xs text-ink-500">
+        {t('Stint / pit now: on track, the running stint (time since leaving the pits); in the pit lane, the time since entering it, turning green once the minimum is served.')}
+        {' '}
         {t('Stint = time on track between pit exit and the next pit entry. Pit times are measured by the pit-lane gates.')}
       </p>
     </div>
@@ -158,23 +162,31 @@ function PitRow({ d, c, min, max, minPits, serverNow }: {
   const issue = hasIssue(c)
 
   // Live: time in the pit lane, or the running stint.
+  // Live cell: either the running stint (on track) or the time in the pit lane.
   let now: React.ReactNode
   if (d.in_pit) {
     const inFor = d.pit_since_ts ? Math.max(0, serverNow - d.pit_since_ts) : null
     const served = !min || (inFor != null && inFor >= min)
+    const toGo = min && inFor != null && !served ? Math.ceil(min - inFor) : 0
     now = (
-      <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-extrabold ${
-        served ? 'bg-race-green/15 text-race-green' : 'bg-race-yellow/15 text-race-yellow'
-      }`}>
-        {t('PIT')}
-        <span className="timing">{inFor != null ? fmtClock(Math.floor(inFor)) : '–'}</span>
-      </span>
+      <div className={`inline-block rounded-md px-1.5 py-0.5 ${served ? 'bg-race-green/15 text-race-green' : 'bg-race-yellow/15 text-race-yellow'}`}>
+        <div className="text-[0.65rem] font-extrabold uppercase tracking-wider">{t('In pit')}</div>
+        <div className="timing font-extrabold leading-tight">{inFor != null ? fmtClock(Math.floor(inFor)) : '–'}</div>
+        {toGo > 0 && <div className="text-[0.65rem] font-semibold">{t('{s}s to min', { s: toGo })}</div>}
+      </div>
     )
   } else {
     const s = d.stint_seconds ?? 0
     const tone = c.stintOver ? 'text-race-red font-extrabold' : max && s >= max * 0.9 ? 'text-race-yellow font-bold' : 'text-ink-100'
-    now = <span className={`timing ${tone}`}>{d.stint_seconds != null ? fmtClock(s) : '–'}</span>
+    now = (
+      <div className="px-1.5 py-0.5">
+        <div className="text-[0.65rem] font-semibold uppercase tracking-wider text-ink-500">{t('Stint')}</div>
+        <div className={`timing leading-tight ${tone}`}>{d.stint_seconds != null ? fmtClock(s) : '–'}</div>
+        {c.stintOver && <div className="text-[0.65rem] font-semibold text-race-red">{t('over max')}</div>}
+      </div>
+    )
   }
+
 
   return (
     <tr className={`border-b border-pit-800/70 align-top ${d.in_pit ? 'bg-race-yellow/5' : ''} ${issue ? 'shadow-[inset_3px_0_0_var(--color-race-red)]' : ''}`}>
