@@ -527,7 +527,7 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
 
 ## Race rules & pit board (Race Control → Pits)
 
-- `EventState.min_pit_s` / `max_stint_s` (0 = no limit): race settings set via
+- `EventState.min_pit_s` / `max_stint_s` / `min_pits` (0 = no limit): race settings set via
   `POST /e/<slot>/api/admin/settings`, kept across a data reset, carried on the
   snapshot. Edited in RC → Setup → "Race rules" (m:ss / h:mm:ss / seconds).
 - `_track_pit_board` (state.py, **automatic pit lane only**) fills
@@ -541,6 +541,10 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
   then green), running stint (yellow ≥ 90 % of max, red over), last/shortest pit,
   longest stint; red edge = rule broken; nav badge = karts with a break
   (`countIssues`). The Pits section only exists while automatic pit lane is on.
+- Mandatory stops (`min_pits`): Pits column shows `made/min` (green when done).
+  Stops still due are NOT a break during the race — only once the session is
+  over (`race.ended` or finish flag, incl. the RC override) or the kart finished;
+  "Pits due" filter lists karts still short.
 - Test data: `scratchpad/ui/gen_pits.py` style synthetic MyWeR endurance
   recording (gate pits, two short stops, one long stint).
 

@@ -622,10 +622,11 @@ function RaceControlInner() {
               <RaceRules
                 minPit={snapshot?.min_pit_s ?? 0}
                 maxStint={snapshot?.max_stint_s ?? 0}
+                minPits={snapshot?.min_pits ?? 0}
                 gates={pitsOn}
                 busy={busy}
-                onSave={(min_pit_s, max_stint_s) => act(() =>
-                  api(`/e/${slot}/api/admin/settings`, { body: { min_pit_s, max_stint_s }, safeword: true }))}
+                onSave={(min_pit_s, max_stint_s, min_pits) => act(() =>
+                  api(`/e/${slot}/api/admin/settings`, { body: { min_pit_s, max_stint_s, min_pits }, safeword: true }))}
               />
 
               <Panel title={t('Recordings ({n})', { n: recordings.length })}>
@@ -756,13 +757,14 @@ function fmtDate(epochSeconds: number): string {
   })
 }
 
-/** Race rules: minimum pit time and maximum stint, checked on the pit board. */
-function RaceRules({ minPit, maxStint, gates, busy, onSave }: {
+/** Race rules: minimum pit time, maximum stint and mandatory stops, checked on the pit board. */
+function RaceRules({ minPit, maxStint, minPits, gates, busy, onSave }: {
   minPit: number
   maxStint: number
+  minPits: number
   gates: boolean
   busy: boolean
-  onSave: (minPitS: number, maxStintS: number) => void
+  onSave: (minPitS: number, maxStintS: number, minPits: number) => void
 }) {
   const t = useT()
   const show = (s: number) => (s ? fmtClock(s) : '')
@@ -771,34 +773,43 @@ function RaceRules({ minPit, maxStint, gates, busy, onSave }: {
   // Follow changes saved elsewhere (another race-control screen).
   useEffect(() => { setMinText(show(minPit)) }, [minPit])
   useEffect(() => { setMaxText(show(maxStint)) }, [maxStint])
+  const [pitsText, setPitsText] = useState(minPits ? String(minPits) : '')
+  useEffect(() => { setPitsText(minPits ? String(minPits) : '') }, [minPits])
   const minS = parseDuration(minText)
   const maxS = parseDuration(maxText)
-  const dirty = minS !== minPit || maxS !== maxStint
-  const valid = minS !== null && maxS !== null
-  const save = () => { if (valid && dirty) onSave(minS, maxS) }
+  const pitsN = /^\d{0,2}$/.test(pitsText.trim()) && Number(pitsText || 0) <= 50 ? Number(pitsText || 0) : null
+  const dirty = minS !== minPit || maxS !== maxStint || pitsN !== minPits
+  const valid = minS !== null && maxS !== null && pitsN !== null
+  const save = () => { if (valid && dirty) onSave(minS, maxS, pitsN) }
 
   return (
     <Panel title={t('Race rules')}>
-      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save() }}>
+      <form className="grid grid-cols-1 gap-3 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); save() }}>
         <label className="block min-w-0">
-          <span className="label-race">{t('Minimum pit time')}</span>
+          <span className="label-race block truncate">{t('Min pit time')}</span>
           <input className="field timing mt-1" inputMode="numeric" placeholder={t('off')} value={minText}
             aria-invalid={minS === null} onChange={(e) => setMinText(e.target.value)} />
           <span className="mt-1 block text-xs text-ink-500">{t('Shortest allowed time in the pit lane, e.g. 1:30.')}</span>
         </label>
         <label className="block min-w-0">
-          <span className="label-race">{t('Maximum stint time')}</span>
+          <span className="label-race block truncate">{t('Max stint time')}</span>
           <input className="field timing mt-1" inputMode="numeric" placeholder={t('off')} value={maxText}
             aria-invalid={maxS === null} onChange={(e) => setMaxText(e.target.value)} />
           <span className="mt-1 block text-xs text-ink-500">{t('Longest allowed time on track between stops, e.g. 40:00.')}</span>
         </label>
-        <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+        <label className="block min-w-0">
+          <span className="label-race block truncate">{t('Min pit stops')}</span>
+          <input className="field timing mt-1" inputMode="numeric" placeholder={t('off')} value={pitsText}
+            aria-invalid={pitsN === null} onChange={(e) => setPitsText(e.target.value)} />
+          <span className="mt-1 block text-xs text-ink-500">{t('Mandatory stops per kart, e.g. 3.')}</span>
+        </label>
+        <div className="flex flex-wrap items-center gap-3 sm:col-span-3">
           <button type="submit" className="btn btn-primary" disabled={busy || !valid || !dirty}>{t('Save rules')}</button>
-          {!valid && <span className="text-xs text-race-red">{t('Use m:ss, h:mm:ss or seconds.')}</span>}
+          {!valid && <span className="text-xs text-race-red">{t('Times as m:ss, h:mm:ss or seconds; stops as a number up to 50.')}</span>}
           {valid && <span className="text-xs text-ink-500">{t('Leave empty for no limit.')}</span>}
         </div>
         {!gates && (
-          <p className="text-xs text-race-yellow sm:col-span-2">
+          <p className="text-xs text-race-yellow sm:col-span-3">
             {t('The pit board needs Automatic pit lane on: without pit gates the stops can’t be timed.')}
           </p>
         )}

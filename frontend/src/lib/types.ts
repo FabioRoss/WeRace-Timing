@@ -95,6 +95,7 @@ export interface Snapshot {
   /** Race rules (seconds, 0 = no limit) checked on the Race Control pit board. */
   min_pit_s?: number
   max_stint_s?: number
+  min_pits?: number
   team_story_config?: Record<string, unknown>
   session_best_ms: number | null
   session_best_kart: string

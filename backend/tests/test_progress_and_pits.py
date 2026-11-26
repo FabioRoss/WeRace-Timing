@@ -263,8 +263,9 @@ def test_pit_board_off_without_gates_and_limits_setting(monkeypatch):
     state.update(RaceInfo(), [row])
     assert row.pit_times_ms == [] and row.stints_s == []
     # limits are race settings: survive a data reset and reach the snapshot
-    state.min_pit_s, state.max_stint_s = 90, 1800
+    state.min_pit_s, state.max_stint_s, state.min_pits = 90, 1800, 2
     state.reset()
+    assert state.min_pits == 2
     snap = state.snapshot(__import__("app.models", fromlist=["SourceStatus"]).SourceStatus())
     assert (snap.min_pit_s, snap.max_stint_s) == (90, 1800)
 
@@ -272,9 +273,11 @@ def test_pit_board_off_without_gates_and_limits_setting(monkeypatch):
 def test_settings_endpoint_sets_limits():
     with TestClient(app) as client:
         h = {"X-Safeword": "boxbox"}
-        r = client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 120, "max_stint_s": 2400})
+        r = client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 120, "max_stint_s": 2400, "min_pits": 3})
         assert r.status_code == 200 and r.json()["min_pit_s"] == 120
-        assert client.get("/e/1/api/state").json()["max_stint_s"] == 2400
+        state = client.get("/e/1/api/state").json()
+        assert state["max_stint_s"] == 2400 and state["min_pits"] == 3
+        assert client.post("/e/1/api/admin/settings", headers=h, json={"min_pits": 51}).status_code == 422
         assert client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": -1}).status_code == 422
-        client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 0, "max_stint_s": 0})
+        client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 0, "max_stint_s": 0, "min_pits": 0})
     get_manager().get(1).reset()

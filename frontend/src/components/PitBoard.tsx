@@ -15,9 +15,23 @@ export interface PitCheck {
   shortPits: number[]          // indexes of stops under the minimum
   longStints: number[]         // indexes of completed stints over the maximum
   stintOver: boolean           // the running stint is already over the maximum
+  pitsDue: number              // mandatory stops still to make
+  pitsMissed: boolean          // session over with stops still due
 }
 
-export function checkKart(d: DriverRow, minPitS: number, maxStintS: number): PitCheck {
+export interface Rules { minPitS: number; maxStintS: number; minPits: number; finished: boolean }
+
+export function rulesOf(snapshot: Snapshot): Rules {
+  const race = snapshot.race
+  return {
+    minPitS: snapshot.min_pit_s ?? 0,
+    maxStintS: snapshot.max_stint_s ?? 0,
+    minPits: snapshot.min_pits ?? 0,
+    finished: race.ended || race.flag === 'finish',
+  }
+}
+
+export function checkKart(d: DriverRow, { minPitS, maxStintS, minPits, finished }: Rules): PitCheck {
   const shortPits = minPitS > 0
     ? (d.pit_times_ms ?? []).flatMap((ms, i) => (ms < minPitS * 1000 ? [i] : []))
     : []
@@ -25,18 +39,21 @@ export function checkKart(d: DriverRow, minPitS: number, maxStintS: number): Pit
     ? (d.stints_s ?? []).flatMap((s, i) => (s > maxStintS ? [i] : []))
     : []
   const stintOver = maxStintS > 0 && !d.in_pit && (d.stint_seconds ?? 0) > maxStintS
-  return { shortPits, longStints, stintOver }
+  const pitsDue = Math.max(0, minPits - (d.pits ?? 0))
+  // Missing stops only become a break once the kart can't make them any more.
+  const pitsMissed = pitsDue > 0 && (finished || d.finished)
+  return { shortPits, longStints, stintOver, pitsDue, pitsMissed }
 }
 
-export const hasIssue = (c: PitCheck) => c.shortPits.length > 0 || c.longStints.length > 0 || c.stintOver
+export const hasIssue = (c: PitCheck) =>
+  c.shortPits.length > 0 || c.longStints.length > 0 || c.stintOver || c.pitsMissed
 
 /** Karts breaking a rule (for the section badge). */
 export function countIssues(snapshot: Snapshot | null | undefined): number {
   if (!snapshot) return 0
-  const min = snapshot.min_pit_s ?? 0
-  const max = snapshot.max_stint_s ?? 0
-  if (!min && !max) return 0
-  return snapshot.drivers.filter((d) => hasIssue(checkKart(d, min, max))).length
+  const rules = rulesOf(snapshot)
+  if (!rules.minPitS && !rules.maxStintS && !rules.minPits) return 0
+  return snapshot.drivers.filter((d) => hasIssue(checkKart(d, rules))).length
 }
 
 /** 58123 -> "58.1", 83400 -> "1:23.4" */
@@ -48,18 +65,24 @@ export function fmtPit(ms: number | null | undefined): string {
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}.${frac}` : `${s}.${frac}`
 }
 
-type View = 'all' | 'issues' | 'pit'
+type View = 'all' | 'issues' | 'pit' | 'due'
 
 export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNow: number }) {
   const t = useT()
-  const min = snapshot.min_pit_s ?? 0
-  const max = snapshot.max_stint_s ?? 0
+  const rules = rulesOf(snapshot)
+  const { minPitS: min, maxStintS: max, minPits } = rules
   const [view, setView] = useState<View>('all')
 
-  const rows = useMemo(() => snapshot.drivers.map((d) => ({ d, c: checkKart(d, min, max) })), [snapshot.drivers, min, max])
+  const rows = useMemo(
+    () => snapshot.drivers.map((d) => ({ d, c: checkKart(d, rules) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot.drivers, min, max, minPits, rules.finished],
+  )
   const issues = rows.filter((r) => hasIssue(r.c)).length
   const inPit = rows.filter((r) => r.d.in_pit).length
-  const shown = rows.filter((r) => view === 'all' || (view === 'issues' ? hasIssue(r.c) : r.d.in_pit))
+  const due = rows.filter((r) => r.c.pitsDue > 0).length
+  const shown = rows.filter((r) =>
+    view === 'all' || (view === 'issues' ? hasIssue(r.c) : view === 'due' ? r.c.pitsDue > 0 : r.d.in_pit))
 
   return (
     <div className="min-w-0">
@@ -71,6 +94,7 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
           options={[
             { value: 'all', label: t('All') },
             { value: 'pit', label: `${t('In pit')} ${inPit || ''}`.trim() },
+            ...(minPits ? [{ value: 'due' as const, label: `${t('Pits due')} ${due || ''}`.trim() }] : []),
             { value: 'issues', label: `${t('Issues')} ${issues || ''}`.trim() },
           ]}
         />
@@ -78,12 +102,15 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
           {t('Min pit')} <b className="timing text-ink-300">{min ? fmtClock(min) : t('off')}</b>
           {' · '}
           {t('Max stint')} <b className="timing text-ink-300">{max ? fmtClock(max) : t('off')}</b>
+          {' · '}
+          {t('Min pits')} <b className="timing text-ink-300">{minPits || t('off')}</b>
         </p>
       </div>
 
       {shown.length === 0 ? (
         <p className="px-4 pb-4 text-sm text-ink-500">
-          {view === 'issues' ? t('No rule breaks.') : view === 'pit' ? t('No kart in the pit lane.') : t('No karts yet.')}
+          {view === 'issues' ? t('No rule breaks.') : view === 'pit' ? t('No kart in the pit lane.')
+            : view === 'due' ? t('Every kart has made its mandatory stops.') : t('No karts yet.')}
         </p>
       ) : (
         <div className="scroll-x">
@@ -100,7 +127,7 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
             </thead>
             <tbody>
               {shown.map(({ d, c }) => (
-                <PitRow key={d.kart_no} d={d} c={c} min={min} max={max} serverNow={serverNow} />
+                <PitRow key={d.kart_no} d={d} c={c} min={min} max={max} minPits={minPits} serverNow={serverNow} />
               ))}
             </tbody>
           </table>
@@ -113,11 +140,12 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
   )
 }
 
-function PitRow({ d, c, min, max, serverNow }: {
+function PitRow({ d, c, min, max, minPits, serverNow }: {
   d: DriverRow
   c: PitCheck
   min: number
   max: number
+  minPits: number
   serverNow: number
 }) {
   const t = useT()
@@ -170,7 +198,7 @@ function PitRow({ d, c, min, max, serverNow }: {
         </div>
       </td>
       <td className="whitespace-nowrap px-2 py-2">{now}</td>
-      <td className="timing px-2 py-2 text-right">{d.pits}</td>
+      <td className="whitespace-nowrap px-2 py-2 text-right"><PitCount pits={d.pits} min={minPits} c={c} /></td>
       <td className={`timing hidden whitespace-nowrap px-2 py-2 text-right sm:table-cell ${lastShort ? 'font-extrabold text-race-red' : ''}`}>
         {fmtPit(last)}
       </td>
@@ -194,4 +222,19 @@ export function parseDuration(text: string): number | null {
   const parts = v.split(':').map(Number)
   if (parts.slice(1).some((p) => p >= 60)) return null
   return parts.reduce((acc, p) => acc * 60 + p, 0)
+}
+
+/** Pit stops made, against the mandatory number when one is set. */
+function PitCount({ pits, min, c }: { pits: number; min: number; c: PitCheck }) {
+  const t = useT()
+  if (!min) return <span className="timing">{pits}</span>
+  const tone = c.pitsMissed
+    ? 'bg-race-red/15 text-race-red'
+    : c.pitsDue > 0 ? 'text-ink-100' : 'bg-race-green/15 text-race-green'
+  return (
+    <span className={`timing inline-block rounded-md px-1.5 py-0.5 font-bold ${tone}`}
+      title={c.pitsDue > 0 ? t('{n} mandatory stops to go', { n: c.pitsDue }) : t('Mandatory stops done')}>
+      {pits}<span className="font-normal opacity-60">/{min}</span>
+    </span>
+  )
 }

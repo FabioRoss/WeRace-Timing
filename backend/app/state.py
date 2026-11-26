@@ -77,6 +77,7 @@ class EventState:
         # and maximum stint length, in seconds (0 = no limit).
         self.min_pit_s: int = 0
         self.max_stint_s: int = 0
+        self.min_pits: int = 0          # mandatory pit stops per kart (0 = none)
         # Staff-chosen defaults for the team Instagram-story graphic (title,
         # subtitle, session label, accent, which stats, saved background, footer
         # link). Empty = use the renderer's own fallbacks. Preserved across a
@@ -115,10 +116,10 @@ class EventState:
     def reset(self) -> None:
         # Preserve race-control settings across a data reset.
         settings = (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
-                    self.team_story_config, self.min_pit_s, self.max_stint_s)
+                    self.team_story_config, self.min_pit_s, self.max_stint_s, self.min_pits)
         self.__init__(self.slot)
         (self.recompute_positions, self.auto_pitlane, self.hide_team_penalties,
-         self.team_story_config, self.min_pit_s, self.max_stint_s) = settings
+         self.team_story_config, self.min_pit_s, self.max_stint_s, self.min_pits) = settings
 
     # ------------------------------------------------------- penalties & warnings
 
@@ -449,6 +450,7 @@ class EventState:
             hide_team_penalties=self.hide_team_penalties,
             min_pit_s=self.min_pit_s,
             max_stint_s=self.max_stint_s,
+            min_pits=self.min_pits,
             team_story_config=dict(self.team_story_config),
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
@@ -491,6 +493,7 @@ class EventState:
         st.hide_team_penalties = snap.get("hide_team_penalties", False)
         st.min_pit_s = int(snap.get("min_pit_s") or 0)
         st.max_stint_s = int(snap.get("max_stint_s") or 0)
+        st.min_pits = int(snap.get("min_pits") or 0)
         st.penalties = [Penalty.model_validate(p) for p in snap.get("penalties", [])]
         st._penalty_id = int(data.get("penalty_seq", len(st.penalties)))
         st.lap_history = {
