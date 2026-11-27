@@ -6,17 +6,21 @@ import { Segmented } from './ui'
 
 /**
  * Race Control pit board (venues with automatic pit lane): every kart's pit
- * stops and stints against the race rules — minimum pit time and maximum
- * stint. Karts in the pit lane show a live timer that turns green once they've
- * served the minimum.
+ * stops and stints against the race rules — minimum pit time, maximum stint,
+ * minimum number of stops. Each rule break is its own "irregularity" that
+ * race control can mark as managed (stored on the server, shared by every
+ * race-control screen); managed ones stop counting and stop showing red.
  */
 
-export interface PitCheck {
-  shortPits: number[]          // indexes of stops under the minimum
-  longStints: number[]         // indexes of completed stints over the maximum
-  stintOver: boolean           // the running stint is already over the maximum
-  pitsDue: number              // mandatory stops still to make
-  pitsMissed: boolean          // session over with stops still due
+export type IrregularKind = 'pit' | 'stint' | 'stops'
+
+export interface Irregularity {
+  key: string                  // "<kart>:<kind>:<n>" — n = stop / stint index
+  kind: IrregularKind
+  n: number
+  managed: boolean
+  running?: boolean            // stint still going (already over the limit)
+  value: string                // the offending time / count
 }
 
 export interface Rules { minPitS: number; maxStintS: number; minPits: number; finished: boolean }
@@ -31,29 +35,38 @@ export function rulesOf(snapshot: Snapshot): Rules {
   }
 }
 
-export function checkKart(d: DriverRow, { minPitS, maxStintS, minPits, finished }: Rules): PitCheck {
-  const shortPits = minPitS > 0
-    ? (d.pit_times_ms ?? []).flatMap((ms, i) => (ms < minPitS * 1000 ? [i] : []))
-    : []
-  const longStints = maxStintS > 0
-    ? (d.stints_s ?? []).flatMap((s, i) => (s > maxStintS ? [i] : []))
-    : []
-  const stintOver = maxStintS > 0 && !d.in_pit && (d.stint_seconds ?? 0) > maxStintS
-  const pitsDue = Math.max(0, minPits - (d.pits ?? 0))
-  // Missing stops only become a break once the kart can't make them any more.
-  const pitsMissed = pitsDue > 0 && (finished || d.finished)
-  return { shortPits, longStints, stintOver, pitsDue, pitsMissed }
+/** Every rule break for one kart, in race order. */
+export function irregularities(d: DriverRow, rules: Rules, managed: Set<string>): Irregularity[] {
+  const out: Irregularity[] = []
+  const add = (kind: IrregularKind, n: number, value: string, running = false) => {
+    const key = `${d.kart_no}:${kind}:${n}`
+    out.push({ key, kind, n, value, running, managed: managed.has(key) })
+  }
+  if (rules.minPitS > 0) {
+    // 0 = a stop the feed counted whose time isn't known (yet): not judged.
+    ;(d.pit_times_ms ?? []).forEach((ms, i) => { if (ms > 0 && ms < rules.minPitS * 1000) add('pit', i, fmtPit(ms)) })
+  }
+  if (rules.maxStintS > 0) {
+    const stints = d.stints_s ?? []
+    stints.forEach((sec, i) => { if (sec > rules.maxStintS) add('stint', i, fmtClock(sec)) })
+    // The running stint keeps the index it will have once completed, so a
+    // "managed" mark carries over when the kart finally pits.
+    if (!d.in_pit && (d.stint_seconds ?? 0) > rules.maxStintS) add('stint', stints.length, fmtClock(d.stint_seconds ?? 0), true)
+  }
+  if (rules.minPits > 0 && d.pits < rules.minPits && (rules.finished || d.finished)) {
+    // Missing stops only become a break once the kart can't make them any more.
+    add('stops', 0, `${d.pits}/${rules.minPits}`)
+  }
+  return out
 }
 
-export const hasIssue = (c: PitCheck) =>
-  c.shortPits.length > 0 || c.longStints.length > 0 || c.stintOver || c.pitsMissed
-
-/** Karts breaking a rule (for the section badge). */
+/** Open (not managed) rule breaks across the field — the section badge. */
 export function countIssues(snapshot: Snapshot | null | undefined): number {
   if (!snapshot) return 0
   const rules = rulesOf(snapshot)
   if (!rules.minPitS && !rules.maxStintS && !rules.minPits) return 0
-  return snapshot.drivers.filter((d) => hasIssue(checkKart(d, rules))).length
+  const managed = new Set(snapshot.pit_managed ?? [])
+  return snapshot.drivers.reduce((n, d) => n + irregularities(d, rules, managed).filter((i) => !i.managed).length, 0)
 }
 
 /** 58123 -> "58.1", 83400 -> "1:23.4" */
@@ -67,22 +80,26 @@ export function fmtPit(ms: number | null | undefined): string {
 
 type View = 'all' | 'issues' | 'pit' | 'due'
 
-export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNow: number }) {
+export function PitBoard({ snapshot, serverNow, onManaged }: {
+  snapshot: Snapshot
+  serverNow: number
+  onManaged: (key: string, managed: boolean) => void
+}) {
   const t = useT()
   const rules = rulesOf(snapshot)
   const { minPitS: min, maxStintS: max, minPits } = rules
   const [view, setView] = useState<View>('all')
+  const managedKey = (snapshot.pit_managed ?? []).join(',')
 
-  const rows = useMemo(
-    () => snapshot.drivers.map((d) => ({ d, c: checkKart(d, rules) })),
+  const rows = useMemo(() => {
+    const managed = new Set(managedKey ? managedKey.split(',') : [])
+    return snapshot.drivers.map((d) => ({ d, irr: irregularities(d, rules, managed) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot.drivers, min, max, minPits, rules.finished],
-  )
-  const issues = rows.filter((r) => hasIssue(r.c)).length
+  }, [snapshot.drivers, min, max, minPits, rules.finished, managedKey])
+  const open = rows.reduce((n, r) => n + r.irr.filter((i) => !i.managed).length, 0)
   const inPit = rows.filter((r) => r.d.in_pit).length
-  const due = rows.filter((r) => r.c.pitsDue > 0).length
-  const shown = rows.filter((r) =>
-    view === 'all' || (view === 'issues' ? hasIssue(r.c) : view === 'due' ? r.c.pitsDue > 0 : r.d.in_pit))
+  const due = rows.filter((r) => minPits > 0 && r.d.pits < minPits).length
+  const shown = rows.filter((r) => view === 'all' || (view === 'due' ? minPits > 0 && r.d.pits < minPits : r.d.in_pit))
 
   return (
     <div className="min-w-0">
@@ -95,7 +112,7 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
             { value: 'all', label: t('All') },
             { value: 'pit', label: `${t('In pit')} ${inPit || ''}`.trim() },
             ...(minPits ? [{ value: 'due' as const, label: `${t('Pits due')} ${due || ''}`.trim() }] : []),
-            { value: 'issues', label: `${t('Issues')} ${issues || ''}`.trim() },
+            { value: 'issues', label: `${t('Issues')} ${open || ''}`.trim() },
           ]}
         />
         <p className="text-xs text-ink-500">
@@ -107,9 +124,11 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
         </p>
       </div>
 
-      {shown.length === 0 ? (
+      {view === 'issues' ? (
+        <IssueList rows={rows} rules={rules} onManaged={onManaged} />
+      ) : shown.length === 0 ? (
         <p className="px-4 pb-4 text-sm text-ink-500">
-          {view === 'issues' ? t('No rule breaks.') : view === 'pit' ? t('No kart in the pit lane.')
+          {view === 'pit' ? t('No kart in the pit lane.')
             : view === 'due' ? t('Every kart has made its mandatory stops.') : t('No karts yet.')}
         </p>
       ) : (
@@ -129,25 +148,101 @@ export function PitBoard({ snapshot, serverNow }: { snapshot: Snapshot; serverNo
               </tr>
             </thead>
             <tbody>
-              {shown.map(({ d, c }) => (
-                <PitRow key={d.kart_no} d={d} c={c} min={min} max={max} minPits={minPits} serverNow={serverNow} />
+              {shown.map(({ d, irr }) => (
+                <PitRow key={d.kart_no} d={d} irr={irr} min={min} max={max} minPits={minPits} serverNow={serverNow} />
               ))}
             </tbody>
           </table>
         </div>
       )}
       <p className="px-4 py-3 text-xs text-ink-500">
-        {t('Stint / pit now: on track, the running stint (time since leaving the pits); in the pit lane, the time since entering it, turning green once the minimum is served.')}
-        {' '}
-        {t('Stint = time on track between pit exit and the next pit entry. Pit times are measured by the pit-lane gates.')}
+        {view === 'issues'
+          ? t('Each rule break is listed on its own. Mark it managed once dealt with (penalty given, or no action needed); it stops counting and can be switched back.')
+          : <>
+              {t('Stint / pit now: on track, the running stint (time since leaving the pits); in the pit lane, the time since entering it, turning green once the minimum is served.')}
+              {' '}
+              {t('Stint = time on track between pit exit and the next pit entry. Pit times are measured by the pit-lane gates.')}
+            </>}
       </p>
     </div>
   )
 }
 
-function PitRow({ d, c, min, max, minPits, serverNow }: {
+/** Rule breaks, one line each, grouped by kart; open ones first. */
+function IssueList({ rows, rules, onManaged }: {
+  rows: { d: DriverRow; irr: Irregularity[] }[]
+  rules: Rules
+  onManaged: (key: string, managed: boolean) => void
+}) {
+  const t = useT()
+  const groups = rows
+    .filter((r) => r.irr.length > 0)
+    .map((r) => ({ ...r, open: r.irr.filter((i) => !i.managed).length }))
+    .sort((a, b) => (b.open > 0 ? 1 : 0) - (a.open > 0 ? 1 : 0) || (a.d.position || 999) - (b.d.position || 999))
+  if (groups.length === 0) {
+    return <p className="px-4 pb-4 text-sm text-ink-500">{t('No rule breaks.')}</p>
+  }
+  const describe = (i: Irregularity): { title: string; detail: string } => {
+    switch (i.kind) {
+      case 'pit':
+        return { title: t('Short pit stop'), detail: t('Stop {n}: {v} (min {min})', { n: i.n + 1, v: i.value, min: fmtClock(rules.minPitS) }) }
+      case 'stint':
+        return {
+          title: i.running ? t('Stint over max (still on track)') : t('Stint over max'),
+          detail: t('Stint {n}: {v} (max {max})', { n: i.n + 1, v: i.value, max: fmtClock(rules.maxStintS) }),
+        }
+      default:
+        return { title: t('Missing pit stops'), detail: t('{v} mandatory stops made', { v: i.value }) }
+    }
+  }
+  return (
+    <div className="space-y-3 px-3 pb-1 sm:px-4">
+      {groups.map(({ d, irr, open }) => (
+        <div key={d.kart_no} className={`overflow-hidden rounded-xl ring-1 ${open ? 'ring-race-red/40' : 'ring-pit-700'}`}>
+          <div className={`flex items-baseline gap-2 px-3 py-2 ${open ? 'bg-race-red/10' : 'bg-pit-850'}`}>
+            <span className="timing font-extrabold">#{d.kart_no}</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-ink-300">{d.name}</span>
+            <span className="timing text-xs text-ink-500">P{d.position || '–'}</span>
+          </div>
+          <ul className="divide-y divide-pit-800">
+            {[...irr].sort((a, b) => Number(a.managed) - Number(b.managed)).map((i) => {
+              const { title, detail } = describe(i)
+              return (
+                <li key={i.key} className={`flex items-center gap-3 px-3 py-2.5 ${i.managed ? 'opacity-60' : ''}`}>
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${i.managed ? 'bg-race-green' : 'bg-race-red'}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-sm font-bold ${i.managed ? 'text-ink-300 line-through decoration-ink-500' : 'text-ink-100'}`}>{title}</div>
+                    <div className="timing text-xs text-ink-300">{detail}</div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={i.managed}
+                    onClick={() => onManaged(i.key, !i.managed)}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider ring-1 transition-colors ${
+                      i.managed ? 'bg-race-green/15 text-race-green ring-race-green/40' : 'bg-pit-800 text-ink-300 ring-pit-600 hover:bg-pit-700'
+                    }`}
+                  >
+                    <span className={`grid h-4 w-4 place-items-center rounded border ${i.managed ? 'border-race-green bg-race-green text-pit-950' : 'border-ink-500'}`}>
+                      {i.managed && (
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="4" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+                      )}
+                    </span>
+                    {t('Managed')}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PitRow({ d, irr, min, max, minPits, serverNow }: {
   d: DriverRow
-  c: PitCheck
+  irr: Irregularity[]
   min: number
   max: number
   minPits: number
@@ -155,12 +250,22 @@ function PitRow({ d, c, min, max, minPits, serverNow }: {
 }) {
   const t = useT()
   const stops = d.pit_times_ms ?? []
+  const known = stops.filter((ms) => ms > 0)
   const stints = d.stints_s ?? []
   const last = stops.length ? stops[stops.length - 1] : d.last_pit_ms
-  const shortest = stops.length ? Math.min(...stops) : null
+  const shortest = known.length ? Math.min(...known) : null
   const longest = stints.length ? Math.max(...stints) : null
+  // Red only for rule breaks still open (managed ones are dealt with).
+  const openIrr = irr.filter((i) => !i.managed)
+  const c = {
+    shortPits: openIrr.filter((i) => i.kind === 'pit').map((i) => i.n),
+    longStints: openIrr.filter((i) => i.kind === 'stint' && !i.running).map((i) => i.n),
+    stintOver: openIrr.some((i) => i.kind === 'stint' && i.running),
+    pitsMissed: openIrr.some((i) => i.kind === 'stops'),
+    pitsDue: Math.max(0, minPits - d.pits),
+  }
   const lastShort = stops.length > 0 && c.shortPits.includes(stops.length - 1)
-  const issue = hasIssue(c)
+  const issue = openIrr.length > 0
 
   // Live: time in the pit lane, or the running stint.
   // Live cell: either the running stint (on track) or the time in the pit lane.
@@ -178,7 +283,8 @@ function PitRow({ d, c, min, max, minPits, serverNow }: {
     )
   } else {
     const s = d.stint_seconds ?? 0
-    const tone = c.stintOver ? 'text-race-red font-extrabold' : max && s >= max * 0.9 ? 'text-race-yellow font-bold' : 'text-ink-100'
+    const tone = c.stintOver ? 'text-race-red font-extrabold'
+      : max && s >= max * 0.9 ? 'text-race-yellow font-bold' : 'text-ink-100'
     now = (
       <div className="px-1.5 py-0.5">
         <div className="text-[0.65rem] font-semibold uppercase tracking-wider text-ink-500">{t('Stint')}</div>
@@ -236,7 +342,7 @@ export function parseDuration(text: string): number | null {
 }
 
 /** Pit stops made, against the mandatory number when one is set. */
-function PitCount({ pits, min, c }: { pits: number; min: number; c: PitCheck }) {
+function PitCount({ pits, min, c }: { pits: number; min: number; c: { pitsDue: number; pitsMissed: boolean } }) {
   const t = useT()
   if (!min) return <span className="timing">{pits}</span>
   const tone = c.pitsMissed

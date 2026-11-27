@@ -96,6 +96,8 @@ export interface Snapshot {
   min_pit_s?: number
   max_stint_s?: number
   min_pits?: number
+  /** Pit-board rule breaks marked as dealt with: "<kart>:<pit|stint|stops>:<n>". */
+  pit_managed?: string[]
   team_story_config?: Record<string, unknown>
   session_best_ms: number | null
   session_best_kart: string

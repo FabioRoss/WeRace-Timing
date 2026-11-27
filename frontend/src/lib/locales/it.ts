@@ -559,4 +559,13 @@ export const IT: Record<string, string> = {
   "On track: time since leaving the pits. In the pit lane: time since entering it.": "In pista: tempo dall'uscita dai box. In corsia box: tempo dall'ingresso.",
   "Stint / pit now: on track, the running stint (time since leaving the pits); in the pit lane, the time since entering it, turning green once the minimum is served.": "Stint / box ora: in pista, lo stint in corso (tempo dall'uscita dai box); in corsia box, il tempo dall'ingresso, che diventa verde quando il minimo è rispettato.",
   "Stint / pit": "Stint / box",
+  "Each rule break is listed on its own. Mark it managed once dealt with (penalty given, or no action needed); it stops counting and can be switched back.": "Ogni irregolarità è elencata singolarmente. Segnala come gestita quando l'hai trattata (penalità data o nessuna azione); smette di contare e puoi annullare in qualsiasi momento.",
+  "Short pit stop": "Sosta ai box troppo corta",
+  "Stop {n}: {v} (min {min})": "Sosta {n}: {v} (min {min})",
+  "Stint over max (still on track)": "Stint oltre il massimo (ancora in pista)",
+  "Stint over max": "Stint oltre il massimo",
+  "Stint {n}: {v} (max {max})": "Stint {n}: {v} (max {max})",
+  "Missing pit stops": "Soste obbligatorie mancanti",
+  "{v} mandatory stops made": "{v} soste obbligatorie fatte",
+  "Managed": "Gestita",
 }

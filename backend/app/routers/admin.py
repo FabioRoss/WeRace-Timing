@@ -321,6 +321,25 @@ async def settings(slot: int, body: EventSettings) -> dict:
     }
 
 
+class PitManaged(BaseModel):
+    # "<kart>:<kind>:<n>" — see EventSnapshot.pit_managed
+    key: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,12}:(pit|stint|stops):\d{1,4}$")
+    managed: bool = True
+
+
+@router.post("/e/{slot}/api/admin/pit-managed")
+async def pit_managed(slot: int, body: PitManaged) -> dict:
+    """Mark a pit-board rule break as dealt with by race control (or undo it)."""
+    event = get_event(slot)
+    if body.managed:
+        event.state.pit_managed.add(body.key)
+    else:
+        event.state.pit_managed.discard(body.key)
+    event.state.updated_at = time.time()
+    await event.broadcast_now()
+    return {"ok": True, "pit_managed": sorted(event.state.pit_managed)}
+
+
 class AdminMessage(BaseModel):
     text: str = Field(min_length=1, max_length=300)
     target: list[str] | None = None     # kart numbers; None/empty = all drivers

@@ -165,6 +165,9 @@ class EventSnapshot(BaseModel):
     min_pit_s: int = 0
     max_stint_s: int = 0
     min_pits: int = 0               # mandatory pit stops per kart (0 = none)
+    # Pit-board rule breaks race control marked as dealt with, "<kart>:<kind>:<n>"
+    # (kind: pit = short stop n, stint = long stint n, stops = missing stops).
+    pit_managed: list[str] = []
     # Staff-chosen defaults for the team Instagram-story graphic (blank = the
     # renderer's own fallbacks). Read by the team dashboard's preview/download.
     team_story_config: dict = {}

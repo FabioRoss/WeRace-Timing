@@ -236,21 +236,22 @@ def test_pit_board_measures_stops_and_stints(monkeypatch):
     frame(laps=15, last_lap_ms=40000)                       # 10-minute stint so far
     clock.t += 5
     row = frame(laps=15, last_lap_ms=40000, in_pit=True)     # enters the pit
-    assert row.stints_s == [605]
     assert row.pit_since_ts == clock.t
+    assert row.stints_s == []                                # not a stop until the counter moves
     clock.t += 62
     row = frame(laps=15, last_lap_ms=40000, pits=1)          # out, feed time not yet in
     assert row.pit_times_ms == [62000]
+    assert row.stints_s == [605]
     row = frame(laps=15, last_lap_ms=40000, pits=1, last_pit_ms=61480)
     assert row.pit_times_ms == [61480]                       # feed value replaces ours
 
     clock.t += 300
     frame(laps=22, last_lap_ms=40000, pits=1, last_pit_ms=61480)
-    row = frame(laps=22, last_lap_ms=40000, pits=1, last_pit_ms=61480, in_pit=True)
-    assert row.stints_s == [605, 300]
+    frame(laps=22, last_lap_ms=40000, pits=1, last_pit_ms=61480, in_pit=True)
     clock.t += 45
-    # feed publishes the stop time while the kart is still flagged in the pit
-    frame(laps=22, last_lap_ms=40000, pits=2, last_pit_ms=44900, in_pit=True)
+    # feed counts the stop and publishes its time while the kart is still in the pit
+    row = frame(laps=22, last_lap_ms=40000, pits=2, last_pit_ms=44900, in_pit=True)
+    assert row.stints_s == [605, 300]
     row = frame(laps=22, last_lap_ms=40000, pits=2, last_pit_ms=44900)
     assert row.pit_times_ms == [61480, 44900]
 
@@ -280,4 +281,50 @@ def test_settings_endpoint_sets_limits():
         assert client.post("/e/1/api/admin/settings", headers=h, json={"min_pits": 51}).status_code == 422
         assert client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": -1}).status_code == 422
         client.post("/e/1/api/admin/settings", headers=h, json={"min_pit_s": 0, "max_stint_s": 0, "min_pits": 0})
+    get_manager().get(1).reset()
+
+
+def test_pit_board_ignores_mywer_noise(monkeypatch):
+    """MyWeR (Rozzano): the in-pit flag blips and the last-pit time jitters to
+    sub-second values on ordinary laps. Only the pit counter makes stops."""
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+
+    def frame(**kw):
+        row = make_row(**kw)
+        state.update(RaceInfo(), [row])
+        return row
+
+    frame(laps=1, last_lap_ms=60000)
+    laps, pits, real = 1, 0, 0
+    for lap in range(2, 30):
+        clock.t += 60
+        laps += 1
+        # every lap: a one-frame pit blip and a junk last-pit time
+        frame(laps=laps, last_lap_ms=60000, pits=pits, last_pit_ms=600 + lap * 50, in_pit=True)
+        clock.t += 1
+        frame(laps=laps, last_lap_ms=60000, pits=pits, last_pit_ms=real or 300)
+        if lap in (10, 20):                     # the two real stops
+            clock.t += 2
+            for _ in range(60):
+                clock.t += 1
+                frame(laps=laps, last_lap_ms=60000, pits=pits, last_pit_ms=real or 300, in_pit=True)
+            clock.t += 1
+            pits += 1
+            real = 61300 if lap == 10 else 61800
+            frame(laps=laps, last_lap_ms=60000, pits=pits, last_pit_ms=real)
+    row = frame(laps=laps, last_lap_ms=60000, pits=pits, last_pit_ms=real)
+    assert row.pit_times_ms == [61300, 61800]
+    assert len(row.stints_s) == 2 and all(s > 400 for s in row.stints_s)
+
+
+def test_pit_managed_endpoint():
+    with TestClient(app) as client:
+        h = {"X-Safeword": "boxbox"}
+        assert client.post("/e/1/api/admin/pit-managed", headers=h, json={"key": "7:pit:0"}).status_code == 200
+        assert client.get("/e/1/api/state").json()["pit_managed"] == ["7:pit:0"]
+        client.post("/e/1/api/admin/pit-managed", headers=h, json={"key": "7:pit:0", "managed": False})
+        assert client.get("/e/1/api/state").json()["pit_managed"] == []
+        assert client.post("/e/1/api/admin/pit-managed", headers=h, json={"key": "7:bogus:0"}).status_code == 422
+        assert client.post("/e/1/api/admin/pit-managed", json={"key": "7:pit:0"}).status_code == 401
     get_manager().get(1).reset()

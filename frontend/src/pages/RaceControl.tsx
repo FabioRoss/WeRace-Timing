@@ -411,7 +411,12 @@ function RaceControlInner() {
                 bodyClass=""
               >
                 {snapshot ? (
-                  <PitBoard snapshot={snapshot} serverNow={serverNow} />
+                  <PitBoard
+                    snapshot={snapshot}
+                    serverNow={serverNow}
+                    onManaged={(key, managed) => act(() =>
+                      api(`/e/${slot}/api/admin/pit-managed`, { body: { key, managed }, safeword: true }))}
+                  />
                 ) : (
                   <div className="p-10 text-center text-ink-500">{t('Connecting…')}</div>
                 )}

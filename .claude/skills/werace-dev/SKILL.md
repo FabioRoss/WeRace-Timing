@@ -530,13 +530,25 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
 - `EventState.min_pit_s` / `max_stint_s` / `min_pits` (0 = no limit): race settings set via
   `POST /e/<slot>/api/admin/settings`, kept across a data reset, carried on the
   snapshot. Edited in RC → Setup → "Race rules" (m:ss / h:mm:ss / seconds).
-- `_track_pit_board` (state.py, **automatic pit lane only**) fills
-  `DriverRow.pit_times_ms` (each stop) and `stints_s` (each completed stint) and
-  sets `pit_since_ts` at pit entry. Stop time = the feed's `last_pit_ms` when it
-  reports one (held if it arrives while still in the pit, replaces our in→out
-  measurement if it arrives after), else measured. Stint = larger of this frame's
-  and the last on-track `stint_seconds` at pit entry (feeds differ on whether
-  since-pit resets at entry or exit); < 10 s ignored.
+- `_track_pit_board` (state.py, **automatic pit lane only**, `_PitTrack` per kart)
+  fills `DriverRow.pit_times_ms` (each stop, 0 = counted but time unknown) and
+  `stints_s`, and sets `pit_since_ts` while in the pit. **Only the feed's pit
+  COUNTER makes a stop**: MyWeR's `pit` flag blips and its `lastpittime` jitters
+  to sub-second values on ordinary laps (Rozzano showed ~27 fake 0.2–2.9 s
+  "stops" per kart). Stop time = feed `last_pit_ms` when it changes around the
+  counter (≥ `PIT_MIN_S` 10 s, accepted up to `PIT_FEED_WAIT_S` later), else our
+  in→out measurement. In-pit flag gaps < `PIT_GRACE_S` are one visit; visits with
+  no counter move are noise (only feeds with no counter at all count visits
+  ≥ 10 s). Stint = the feed's since-pit at pit entry when it sends one, else wall
+  clock since the previous exit; a counted visit also closes when the counter
+  moves again (replays faster than real time). Unknown first stint when joined
+  mid-session without a feed since-pit.
+- Irregularities: each rule break is its own item keyed `"<kart>:<pit|stint|stops>:<n>"`
+  (n = stop / stint index; a running over-max stint uses the index it will get, so
+  a managed mark carries over). `EventState.pit_managed` (set, cleared on session
+  rollover) via `POST /e/<slot>/api/admin/pit-managed {key, managed}`; on the
+  snapshot as `pit_managed`. Managed items stop counting (badge = open items) and
+  stop showing red. Issues view = list grouped by kart with a Managed switch.
 - `components/PitBoard.tsx`: live PIT timer (yellow until the minimum is served,
   then green), running stint (yellow ≥ 90 % of max, red over), last/shortest pit,
   longest stint; red edge = rule broken; nav badge = karts with a break

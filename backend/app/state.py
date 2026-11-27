@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import statistics
 import time
+from dataclasses import dataclass, field
 
 from .models import DriverRow, EventSnapshot, Flag, LapRecord, Penalty, RaceInfo, SourceStatus
 from .timeparse import parse_duration_ms
@@ -10,6 +11,30 @@ from .timeparse import parse_duration_ms
 log = logging.getLogger(__name__)
 
 MAX_LAPS_PER_KART = 2000
+
+# Pit board: anything shorter is feed noise, not a pit stop or a stint.
+PIT_MIN_S = 10.0
+# In-pit flag gaps shorter than this are the same pit visit.
+PIT_GRACE_S = 10.0
+# How long after a counted stop the feed may still deliver its pit time.
+PIT_FEED_WAIT_S = 30.0
+
+
+@dataclass
+class _PitTrack:
+    """Per-kart pit board bookkeeping (see EventState._track_pit_board)."""
+    times: list[int] = field(default_factory=list)      # stop durations, 0 = unknown yet
+    stints: list[int] = field(default_factory=list)     # completed stints, seconds
+    track_since: float | None = None                    # current stint start (None = unknown)
+    prev_pits: int | None = None
+    last_feed_ms: int = 0
+    visit_start: float | None = None
+    visit_last_in: float = 0.0
+    visit_out: float | None = None
+    visit_counted: int | None = None                    # stop index this visit was counted as
+    await_idx: int | None = None
+    await_until: float = 0.0
+    feed_stint_s: int = 0                               # feed's since-pit, last frame on track
 
 
 def infer_pit_laps(records: list[LapRecord]) -> set[int]:
@@ -95,15 +120,11 @@ class EventState:
         self._cross_ms: dict[str, int] = {}      # expected duration of the running lap
         self._clean_lap_ms: dict[str, int] = {}  # last lap NOT inflated by a pit stop
         self._auto_pits: dict[str, int] = {}     # inferred pit-stop count (no gates)
-        # Pit board (gate venues): per-kart stop durations and completed stints.
-        self._pit_times: dict[str, list[int]] = {}
-        self._pit_confirmed: dict[str, bool] = {}  # last stop carries the feed's time
-        self._pit_pending: dict[str, int] = {}     # feed time seen while still in pit
-        self._pit_seen_ms: dict[str, int] = {}     # last feed last_pit_ms seen
-        self._pit_entry: dict[str, float] = {}     # wall time the kart entered the pit
-        self._was_in_pit: dict[str, bool] = {}
-        self._prev_stint: dict[str, int] = {}      # stint seconds on the previous frame
-        self._stints: dict[str, list[int]] = {}
+        # Pit board (gate venues): per-kart stops and stints, see _track_pit_board.
+        self._boards: dict[str, _PitTrack] = {}
+        self._feed_counts_pits = False   # the feed's pit counter has moved this session
+        # Rule breaks race control marked as dealt with ("<kart>:<kind>:<n>").
+        self.pit_managed: set[str] = set()
         # --- Penalties & warnings (race control) -------------------------------
         # In-memory only, like team messages: a server restart mid-race loses
         # these. This list + `_penalty_id` are the single storage seam — nothing
@@ -274,9 +295,9 @@ class EventState:
         self._pit_counts.clear()
         self._stint_started.clear()
         self._auto_pits.clear()
-        for board in (self._pit_times, self._pit_confirmed, self._pit_pending, self._pit_seen_ms,
-                      self._pit_entry, self._was_in_pit, self._prev_stint, self._stints):
-            board.clear()
+        self._boards.clear()
+        self._feed_counts_pits = False
+        self.pit_managed.clear()
         # A genuine new session voids the previous session's penalties/warnings.
         self.penalties.clear()
         self.session_best_ms = None
@@ -362,61 +383,99 @@ class EventState:
 
     def _track_pit_board(self, row: DriverRow, now: float) -> None:
         """Gate venues: each pit stop's duration and each stint's length, for the
-        Race Control pit board (min pit time / max stint checks).
+        Race Control pit board (min pit time / max stint / min stops checks).
 
-        A stop's time is the feed's own `last_pit_ms` when it reports one (the
-        gates measure it); otherwise our in->out measurement. The feed may update
-        `last_pit_ms` before or after its in-pit flag drops, so a feed time seen
-        while in the pit is held until the exit, and one seen after the exit
-        replaces the measured value."""
-        kart = row.kart_no
-        times = self._pit_times.setdefault(kart, [])
-        stints = self._stints.setdefault(kart, [])
-        was_in = self._was_in_pit.get(kart, False)
+        Only the feed's pit COUNTER makes a stop: MyWeR's in-pit flag blips and
+        its last-pit-time field jitters to sub-second values on ordinary laps,
+        so neither may create stops on its own. A stop's duration is the feed's
+        last-pit time when it updates around the counter (≥ PIT_MIN_S), else our
+        in→out measurement. In-pit flag blips within PIT_GRACE_S are one visit;
+        a visit with no counter move is dropped as noise — except on feeds with
+        no pit counter at all, where a visit ≥ PIT_MIN_S counts."""
+        b = self._boards.get(row.kart_no)
+        if b is None:
+            b = self._boards[row.kart_no] = _PitTrack()
+            # Stint start: known only if we see the kart from the start.
+            if row.laps <= 1 and not row.in_pit:
+                b.track_since = now - (row.stint_seconds or 0)
+            b.prev_pits = row.pits
+            b.last_feed_ms = row.last_pit_ms or 0
 
-        # Entering the pit: the stint that just ended, and the stop's start.
-        if row.in_pit and not was_in:
-            self._pit_entry[kart] = now
-            self._pit_pending.pop(kart, None)
-            # Feeds differ on whether their since-pit clock resets at pit entry
-            # or exit: take the larger of this frame's and the last on-track one.
-            ended = max(row.stint_seconds or 0, self._prev_stint.get(kart, 0))
-            # (< 10 s: a kart first seen just before it pits — not a stint.)
-            if ended >= 10 and kart in self._was_in_pit:
-                stints.append(ended)
-        # Leaving: the stop is complete.
-        if was_in and not row.in_pit:
-            entry = self._pit_entry.pop(kart, None)
-            pending = self._pit_pending.pop(kart, None)
-            if pending:
-                times.append(pending)
-                self._pit_confirmed[kart] = True
-            elif entry is not None:
-                times.append(int((now - entry) * 1000))
-                self._pit_confirmed[kart] = False
+        # Close a finished visit: out of the pit for longer than the grace, or
+        # already counted and the counter moves again (a new stop — e.g. a
+        # replay running faster than real time).
+        counter_up = b.prev_pits is not None and row.pits > b.prev_pits
+        if b.visit_start is not None and b.visit_out is not None and (
+            now - b.visit_out >= PIT_GRACE_S or (counter_up and b.visit_counted is not None)
+        ):
+            out = b.visit_out
+            if b.visit_counted is not None:
+                if b.times[b.visit_counted] <= 0:
+                    b.times[b.visit_counted] = int((out - b.visit_start) * 1000)
+                b.track_since = out
+            elif not self._feed_counts_pits and out - b.visit_start >= PIT_MIN_S:
+                self._board_stop(b, b.visit_start, int((out - b.visit_start) * 1000), now)
+                b.track_since = out
+            b.visit_start = b.visit_out = b.visit_counted = None
 
-        # The feed's own time for the latest stop.
+        # The feed's own since-pit clock (when it sends one), frozen at pit entry
+        # (and read again once a counted stop's kart is back out).
+        if not row.in_pit and (b.visit_start is None or (b.visit_counted is not None and b.visit_out is not None)):
+            ms = parse_duration_ms(row.stint_time) if row.stint_time else None
+            b.feed_stint_s = ms // 1000 if ms else 0
+
+        # Pit-lane visit (flag blips inside the grace extend the same visit).
+        if row.in_pit:
+            if b.visit_start is None:
+                b.visit_start = now
+            b.visit_last_in = now
+            b.visit_out = None
+        elif b.visit_start is not None and b.visit_out is None:
+            b.visit_out = now
+
         feed = row.last_pit_ms or 0
-        if feed and feed != self._pit_seen_ms.get(kart):
-            first_sight = kart not in self._pit_seen_ms
-            self._pit_seen_ms[kart] = feed
-            if row.in_pit:
-                self._pit_pending[kart] = feed
-            elif times and not self._pit_confirmed.get(kart, True):
-                times[-1] = feed
-                self._pit_confirmed[kart] = True
-            elif not (first_sight and not row.pits):
-                # A stop we never saw go in/out (e.g. connected mid-race).
-                times.append(feed)
-                self._pit_confirmed[kart] = True
+        feed_new = feed != b.last_feed_ms and feed >= PIT_MIN_S * 1000
+        b.last_feed_ms = feed
 
-        self._was_in_pit[kart] = row.in_pit
-        if not row.in_pit:
-            self._prev_stint[kart] = row.stint_seconds or 0
-        if row.in_pit and kart in self._pit_entry:
-            row.pit_since_ts = self._pit_entry[kart]
-        row.pit_times_ms = list(times)
-        row.stints_s = list(stints)
+        if counter_up:
+            self._feed_counts_pits = True
+            if b.visit_start is not None:
+                end = b.visit_out if b.visit_out is not None else (b.visit_last_in if not row.in_pit else now)
+                measured = int((end - b.visit_start) * 1000)
+                entry = b.visit_start
+            else:
+                measured = 0
+                entry = now - (feed / 1000 if feed_new else 0)
+            dur = feed if feed_new else (measured if measured >= PIT_MIN_S * 1000 else 0)
+            idx = self._board_stop(b, entry, dur, now)
+            b.await_idx = None if feed_new else idx
+            b.await_until = now + PIT_FEED_WAIT_S
+            if b.visit_start is not None:
+                b.visit_counted = idx
+            else:
+                b.track_since = now
+        elif feed_new and b.await_idx is not None and now <= b.await_until:
+            # The feed's own time for the stop just counted, a frame or two late.
+            b.times[b.await_idx] = feed
+            b.await_idx = None
+        b.prev_pits = row.pits
+
+        if row.in_pit and b.visit_start is not None:
+            row.pit_since_ts = b.visit_start
+        row.pit_times_ms = list(b.times)          # 0 = stop counted, time not known
+        row.stints_s = list(b.stints)
+
+    @staticmethod
+    def _board_stop(b: "_PitTrack", entry: float, dur_ms: int, now: float) -> int:
+        """Record a stop (0 = duration not known yet) and the stint it ended:
+        the feed's since-pit at pit entry when it sends one, else our clock."""
+        stint = b.feed_stint_s or (entry - b.track_since if b.track_since is not None else 0)
+        if stint >= PIT_MIN_S:
+            b.stints.append(int(stint))
+        b.track_since = None
+        b.feed_stint_s = 0
+        b.times.append(dur_ms)
+        return len(b.times) - 1
 
     def _update_session_best(self) -> None:
         best: tuple[int, str] | None = None
@@ -451,6 +510,7 @@ class EventState:
             min_pit_s=self.min_pit_s,
             max_stint_s=self.max_stint_s,
             min_pits=self.min_pits,
+            pit_managed=sorted(self.pit_managed),
             team_story_config=dict(self.team_story_config),
             session_best_ms=self.session_best_ms,
             session_best_kart=self.session_best_kart,
