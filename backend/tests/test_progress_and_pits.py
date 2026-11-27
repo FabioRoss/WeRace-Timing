@@ -328,3 +328,25 @@ def test_pit_managed_endpoint():
         assert client.post("/e/1/api/admin/pit-managed", headers=h, json={"key": "7:bogus:0"}).status_code == 422
         assert client.post("/e/1/api/admin/pit-managed", json={"key": "7:pit:0"}).status_code == 401
     get_manager().get(1).reset()
+
+
+def test_pit_board_drops_stops_under_20s(monkeypatch):
+    """A counted stop whose only time is under 20 s (feed noise) has no
+    duration: it can't be judged as a short pit."""
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+
+    def frame(**kw):
+        row = make_row(**kw)
+        state.update(RaceInfo(), [row])
+        return row
+
+    frame(laps=1, last_lap_ms=60000)
+    clock.t += 300
+    frame(laps=6, last_lap_ms=60000)
+    clock.t += 1
+    row = frame(laps=6, last_lap_ms=60000, pits=1, last_pit_ms=14200)   # 14.2 s: noise
+    assert row.pit_times_ms == [0]
+    clock.t += 5
+    row = frame(laps=6, last_lap_ms=60000, pits=1, last_pit_ms=62400)   # real time arrives
+    assert row.pit_times_ms == [62400]

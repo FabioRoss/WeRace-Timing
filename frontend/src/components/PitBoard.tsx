@@ -12,6 +12,12 @@ import { Segmented } from './ui'
  * race-control screen); managed ones stop counting and stop showing red.
  */
 
+/**
+ * Pit times under this are feed noise, never real stops (MyWeR sends few-second
+ * pit times on ordinary laps). Mirrors PIT_STOP_MIN_S in backend state.py.
+ */
+export const PIT_STOP_MIN_MS = 20_000
+
 export type IrregularKind = 'pit' | 'stint' | 'stops'
 
 export interface Irregularity {
@@ -44,7 +50,9 @@ export function irregularities(d: DriverRow, rules: Rules, managed: Set<string>)
   }
   if (rules.minPitS > 0) {
     // 0 = a stop the feed counted whose time isn't known (yet): not judged.
-    ;(d.pit_times_ms ?? []).forEach((ms, i) => { if (ms > 0 && ms < rules.minPitS * 1000) add('pit', i, fmtPit(ms)) })
+    ;(d.pit_times_ms ?? []).forEach((ms, i) => {
+      if (ms >= PIT_STOP_MIN_MS && ms < rules.minPitS * 1000) add('pit', i, fmtPit(ms))
+    })
   }
   if (rules.maxStintS > 0) {
     const stints = d.stints_s ?? []
@@ -250,9 +258,11 @@ function PitRow({ d, irr, min, max, minPits, serverNow }: {
 }) {
   const t = useT()
   const stops = d.pit_times_ms ?? []
-  const known = stops.filter((ms) => ms > 0)
+  const known = stops.filter((ms) => ms >= PIT_STOP_MIN_MS)
   const stints = d.stints_s ?? []
-  const last = stops.length ? stops[stops.length - 1] : d.last_pit_ms
+  // Latest real stop (a feed pit time under the noise floor is never shown).
+  const lastRaw = stops.length ? stops[stops.length - 1] : d.last_pit_ms
+  const last = lastRaw != null && lastRaw >= PIT_STOP_MIN_MS ? lastRaw : null
   const shortest = known.length ? Math.min(...known) : null
   const longest = stints.length ? Math.max(...stints) : null
   // Red only for rule breaks still open (managed ones are dealt with).

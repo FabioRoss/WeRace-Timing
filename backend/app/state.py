@@ -12,8 +12,11 @@ log = logging.getLogger(__name__)
 
 MAX_LAPS_PER_KART = 2000
 
-# Pit board: anything shorter is feed noise, not a pit stop or a stint.
-PIT_MIN_S = 10.0
+# Pit board: a "stop" shorter than this is feed noise (MyWeR sends sub-second
+# and few-second pit times on ordinary laps), not a real pit stop.
+PIT_STOP_MIN_S = 20.0
+# A stint shorter than this isn't one (kart first seen just before it pits).
+STINT_MIN_S = 10.0
 # In-pit flag gaps shorter than this are the same pit visit.
 PIT_GRACE_S = 10.0
 # How long after a counted stop the feed may still deliver its pit time.
@@ -388,10 +391,10 @@ class EventState:
         Only the feed's pit COUNTER makes a stop: MyWeR's in-pit flag blips and
         its last-pit-time field jitters to sub-second values on ordinary laps,
         so neither may create stops on its own. A stop's duration is the feed's
-        last-pit time when it updates around the counter (≥ PIT_MIN_S), else our
+        last-pit time when it updates around the counter (≥ PIT_STOP_MIN_S), else our
         in→out measurement. In-pit flag blips within PIT_GRACE_S are one visit;
         a visit with no counter move is dropped as noise — except on feeds with
-        no pit counter at all, where a visit ≥ PIT_MIN_S counts."""
+        no pit counter at all, where a visit ≥ PIT_STOP_MIN_S counts."""
         b = self._boards.get(row.kart_no)
         if b is None:
             b = self._boards[row.kart_no] = _PitTrack()
@@ -413,7 +416,7 @@ class EventState:
                 if b.times[b.visit_counted] <= 0:
                     b.times[b.visit_counted] = int((out - b.visit_start) * 1000)
                 b.track_since = out
-            elif not self._feed_counts_pits and out - b.visit_start >= PIT_MIN_S:
+            elif not self._feed_counts_pits and out - b.visit_start >= PIT_STOP_MIN_S:
                 self._board_stop(b, b.visit_start, int((out - b.visit_start) * 1000), now)
                 b.track_since = out
             b.visit_start = b.visit_out = b.visit_counted = None
@@ -434,7 +437,7 @@ class EventState:
             b.visit_out = now
 
         feed = row.last_pit_ms or 0
-        feed_new = feed != b.last_feed_ms and feed >= PIT_MIN_S * 1000
+        feed_new = feed != b.last_feed_ms and feed >= PIT_STOP_MIN_S * 1000
         b.last_feed_ms = feed
 
         if counter_up:
@@ -446,7 +449,7 @@ class EventState:
             else:
                 measured = 0
                 entry = now - (feed / 1000 if feed_new else 0)
-            dur = feed if feed_new else (measured if measured >= PIT_MIN_S * 1000 else 0)
+            dur = feed if feed_new else (measured if measured >= PIT_STOP_MIN_S * 1000 else 0)
             idx = self._board_stop(b, entry, dur, now)
             b.await_idx = None if feed_new else idx
             b.await_until = now + PIT_FEED_WAIT_S
@@ -470,7 +473,7 @@ class EventState:
         """Record a stop (0 = duration not known yet) and the stint it ended:
         the feed's since-pit at pit entry when it sends one, else our clock."""
         stint = b.feed_stint_s or (entry - b.track_since if b.track_since is not None else 0)
-        if stint >= PIT_MIN_S:
+        if stint >= STINT_MIN_S:
             b.stints.append(int(stint))
         b.track_since = None
         b.feed_stint_s = 0

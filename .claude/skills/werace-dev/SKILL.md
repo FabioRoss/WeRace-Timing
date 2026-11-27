@@ -536,7 +536,7 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
   COUNTER makes a stop**: MyWeR's `pit` flag blips and its `lastpittime` jitters
   to sub-second values on ordinary laps (Rozzano showed ~27 fake 0.2–2.9 s
   "stops" per kart). Stop time = feed `last_pit_ms` when it changes around the
-  counter (≥ `PIT_MIN_S` 10 s, accepted up to `PIT_FEED_WAIT_S` later), else our
+  counter (≥ `PIT_STOP_MIN_S` 20 s — also the frontend `PIT_STOP_MIN_MS` floor for judging / showing stops; accepted up to `PIT_FEED_WAIT_S` later), else our
   in→out measurement. In-pit flag gaps < `PIT_GRACE_S` are one visit; visits with
   no counter move are noise (only feeds with no counter at all count visits
   ≥ 10 s). Stint = the feed's since-pit at pit entry when it sends one, else wall
