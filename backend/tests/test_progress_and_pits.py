@@ -350,3 +350,84 @@ def test_pit_board_drops_stops_under_20s(monkeypatch):
     clock.t += 5
     row = frame(laps=6, last_lap_ms=60000, pits=1, last_pit_ms=62400)   # real time arrives
     assert row.pit_times_ms == [62400]
+
+
+def test_pit_board_feed_time_before_counter(monkeypatch):
+    """Rozzano (MyWeR, live 27/11): lastpittime updates a frame BEFORE
+    nopitstops, and the pit flag is on for only ~12 s of a ~61 s stop. The
+    stop must carry the feed's 61 s, never our 12 s flag measurement."""
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+
+    def frame(**kw):
+        row = make_row(**kw)
+        state.update(RaceInfo(), [row])
+        return row
+
+    frame(laps=1, last_lap_ms=43000)
+    pits, last = 0, 0
+    for stop, feed in enumerate((61090, 62300, 60700)):
+        clock.t += 900
+        frame(laps=20 * (stop + 1), last_lap_ms=43000, pits=pits, last_pit_ms=last)
+        for _ in range(12):                                   # flag on ~12 s
+            clock.t += 1
+            frame(laps=20 * (stop + 1), last_lap_ms=43000, pits=pits, last_pit_ms=last, in_pit=True)
+        clock.t += 49                                         # rest of the stop, flag off
+        last = feed
+        frame(laps=20 * (stop + 1), last_lap_ms=43000, pits=pits, last_pit_ms=last)   # time first
+        clock.t += 1
+        pits += 1
+        row = frame(laps=20 * (stop + 1), last_lap_ms=43000, pits=pits, last_pit_ms=last)  # then counter
+    assert row.pit_times_ms == [61090, 62300, 60700]
+
+
+def test_pit_board_feed_time_after_counter_waits(monkeypatch):
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+    state.update(RaceInfo(), [make_row(laps=1, last_lap_ms=43000, last_pit_ms=0)])
+    clock.t += 600
+    state.update(RaceInfo(), [make_row(laps=14, last_lap_ms=43000, last_pit_ms=58000)])  # earlier stop's time? no: first real
+    clock.t += 100
+    row = make_row(laps=16, last_lap_ms=43000, pits=1, last_pit_ms=58000)
+    state.update(RaceInfo(), [row])
+    assert row.pit_times_ms == [58000]                        # fresh time, unused so far
+    clock.t += 900
+    row = make_row(laps=36, last_lap_ms=43000, pits=2, last_pit_ms=58000)   # counter, stale time
+    state.update(RaceInfo(), [row])
+    assert row.pit_times_ms == [58000, 0]                     # unknown, not the old 58 s
+    clock.t += 2
+    row = make_row(laps=36, last_lap_ms=43000, pits=2, last_pit_ms=63400)
+    state.update(RaceInfo(), [row])
+    assert row.pit_times_ms == [58000, 63400]
+
+
+def test_pit_board_rozzano_live_stop(monkeypatch):
+    """Real MyWeR frames (Rozzano, 27/11/2026): kart 5's 5th stop. nopitstops
+    moves at pit ENTRY, lastpittime then counts up live (3.3 → … → 60.7 s,
+    with stale frames jumping back) and the pit flag never moves. The board
+    must show the kart in the pit while it counts and keep the final 60.737 s."""
+    import json
+    from app.sources.mywer import MyWerDecoder
+    from .test_apex import FIXTURES
+
+    clock = _Clock(monkeypatch)
+    state = EventState(1)
+    dec = MyWerDecoder()
+    seen_in_pit = []
+    with (FIXTURES / "rozzano_pitstop.ndjson").open(encoding="utf-8") as fh:
+        for line in fh:
+            rec = json.loads(line)
+            clock.t = rec["ts"]
+            race, rows = dec.decode(rec["payload"])
+            if rows is None:
+                continue
+            state.update(race or state.race, rows)
+            k5 = next(d for d in state.drivers if d.kart_no == "5")
+            seen_in_pit.append(k5.in_pit)
+    k5 = next(d for d in state.drivers if d.kart_no == "5")
+    assert k5.pits == 5
+    # joined mid-race: earlier stops unknown; the one we saw = the feed's final time
+    assert k5.pit_times_ms == [60737]
+    assert any(seen_in_pit) and not k5.in_pit                               # in pit while timing, out after
+    # the stint after the stop counts from the pit exit, not the pit entry
+    assert k5.stint_seconds is not None and k5.stint_seconds < 60

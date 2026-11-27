@@ -531,18 +531,27 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
   `POST /e/<slot>/api/admin/settings`, kept across a data reset, carried on the
   snapshot. Edited in RC → Setup → "Race rules" (m:ss / h:mm:ss / seconds).
 - `_track_pit_board` (state.py, **automatic pit lane only**, `_PitTrack` per kart)
-  fills `DriverRow.pit_times_ms` (each stop, 0 = counted but time unknown) and
-  `stints_s`, and sets `pit_since_ts` while in the pit. **Only the feed's pit
-  COUNTER makes a stop**: MyWeR's `pit` flag blips and its `lastpittime` jitters
-  to sub-second values on ordinary laps (Rozzano showed ~27 fake 0.2–2.9 s
-  "stops" per kart). Stop time = feed `last_pit_ms` when it changes around the
-  counter (≥ `PIT_STOP_MIN_S` 20 s — also the frontend `PIT_STOP_MIN_MS` floor for judging / showing stops; accepted up to `PIT_FEED_WAIT_S` later), else our
-  in→out measurement. In-pit flag gaps < `PIT_GRACE_S` are one visit; visits with
-  no counter move are noise (only feeds with no counter at all count visits
-  ≥ 10 s). Stint = the feed's since-pit at pit entry when it sends one, else wall
-  clock since the previous exit; a counted visit also closes when the counter
-  moves again (replays faster than real time). Unknown first stint when joined
-  mid-session without a feed since-pit.
+  fills `DriverRow.pit_times_ms` (each stop, 0 = counted but time unknown/not
+  final) and `stints_s`, and sets `pit_since_ts` while in the pit. **Only the
+  feed's pit COUNTER makes a stop.** Verified on the live Rozzano MyWeR feed
+  (27/11/2026, fixture `rozzano_pitstop.ndjson`): `nopitstops` moves at pit
+  **ENTRY**, `lastpittime` then **counts up live** (~every 2.5 s, gaps up to ~7 s,
+  stale frames jumping back) to the final time (3.3 → … → 60.737 s), and the
+  `pit` flag never moves. Two styles handled after the counter moves:
+  * value too long to have been counted since the counter (> elapsed +
+    `PIT_LIVE_SLACK_S`, ≥ `PIT_STOP_MIN_S` 20 s) → a FINAL time (gates that count
+    at exit / time arriving a frame before or after the counter);
+  * otherwise a LIVE count: track the max, kart shown `in_pit` with
+    `pit_since_ts` = now − first live value, final when it stops growing for
+    `PIT_SETTLE_S` 12 s (or the next counter); exit = entry + final; the stint
+    then restarts from the exit (server stint clock restarts at the counter =
+    entry, so it is corrected when the feed has no since-pit).
+  A value equal to the previous stop's (`feed_used_ms`) is stale. Values under
+  20 s are never stop times (also the frontend `PIT_STOP_MIN_MS` floor). The
+  earlier bug: taking the first live reading ≥ threshold gave 10–15 s "stops".
+  In-pit flag visits (Apex): gaps < `PIT_GRACE_S` merge; visits with no counter
+  move are noise; our in→out measurement only on feeds that never send pit
+  times. Stint = feed since-pit at entry when sent, else clock since last exit.
 - Irregularities: each rule break is its own item keyed `"<kart>:<pit|stint|stops>:<n>"`
   (n = stop / stint index; a running over-max stint uses the index it will get, so
   a managed mark carries over). `EventState.pit_managed` (set, cleared on session

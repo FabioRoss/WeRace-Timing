@@ -21,6 +21,11 @@ STINT_MIN_S = 10.0
 PIT_GRACE_S = 10.0
 # How long after a counted stop the feed may still deliver its pit time.
 PIT_FEED_WAIT_S = 30.0
+# A live (counting-up) feed pit time may run ahead of our clock by this much.
+PIT_LIVE_SLACK_S = 10.0
+# A live pit time that stopped growing for this long is final (kart left).
+# MyWeR updates it every ~2.5 s, with gaps up to ~7 s.
+PIT_SETTLE_S = 12.0
 
 
 @dataclass
@@ -30,14 +35,20 @@ class _PitTrack:
     stints: list[int] = field(default_factory=list)     # completed stints, seconds
     track_since: float | None = None                    # current stint start (None = unknown)
     prev_pits: int | None = None
-    last_feed_ms: int = 0
+    feed_used_ms: int = 0                               # feed pit time already given to a stop
     visit_start: float | None = None
     visit_last_in: float = 0.0
     visit_out: float | None = None
     visit_counted: int | None = None                    # stop index this visit was counted as
-    await_idx: int | None = None
-    await_until: float = 0.0
     feed_stint_s: int = 0                               # feed's since-pit, last frame on track
+    # The stop being timed from the feed (counter moved, time not final yet).
+    open_idx: int | None = None
+    open_ts: float = 0.0                                # when the counter moved
+    open_live: bool = False                             # feed time counting up during the stop
+    open_max: int = 0                                   # highest live time seen
+    open_inc_ts: float = 0.0                            # when it last grew
+    open_entry_ts: float = 0.0                          # pit entry per the feed's own clock
+    exit_ts: float | None = None                        # pit exit of a live-timed stop
 
 
 def infer_pit_laps(records: list[LapRecord]) -> set[int]:
@@ -126,6 +137,7 @@ class EventState:
         # Pit board (gate venues): per-kart stops and stints, see _track_pit_board.
         self._boards: dict[str, _PitTrack] = {}
         self._feed_counts_pits = False   # the feed's pit counter has moved this session
+        self._feed_pit_times = False     # the feed sends its own pit times this session
         # Rule breaks race control marked as dealt with ("<kart>:<kind>:<n>").
         self.pit_managed: set[str] = set()
         # --- Penalties & warnings (race control) -------------------------------
@@ -300,6 +312,7 @@ class EventState:
         self._auto_pits.clear()
         self._boards.clear()
         self._feed_counts_pits = False
+        self._feed_pit_times = False
         self.pit_managed.clear()
         # A genuine new session voids the previous session's penalties/warnings.
         self.penalties.clear()
@@ -402,7 +415,7 @@ class EventState:
             if row.laps <= 1 and not row.in_pit:
                 b.track_since = now - (row.stint_seconds or 0)
             b.prev_pits = row.pits
-            b.last_feed_ms = row.last_pit_ms or 0
+            b.feed_used_ms = row.last_pit_ms or 0          # belongs to an earlier stop
 
         # Close a finished visit: out of the pit for longer than the grace, or
         # already counted and the counter moves again (a new stop — e.g. a
@@ -413,7 +426,9 @@ class EventState:
         ):
             out = b.visit_out
             if b.visit_counted is not None:
-                if b.times[b.visit_counted] <= 0:
+                # Our measurement only for feeds that never send pit times
+                # (MyWeR's in-pit flag covers just part of the stop).
+                if b.times[b.visit_counted] <= 0 and not self._feed_pit_times:
                     b.times[b.visit_counted] = int((out - b.visit_start) * 1000)
                 b.track_since = out
             elif not self._feed_counts_pits and out - b.visit_start >= PIT_STOP_MIN_S:
@@ -436,37 +451,87 @@ class EventState:
         elif b.visit_start is not None and b.visit_out is None:
             b.visit_out = now
 
+        # The feed's pit time for the stop. Two styles: a FINAL time delivered
+        # around the counter (gates that count at pit exit), or — MyWeR — a
+        # counter that moves at pit ENTRY and a time that then counts up live
+        # (with stale frames jumping back) until the kart leaves.
         feed = row.last_pit_ms or 0
-        feed_new = feed != b.last_feed_ms and feed >= PIT_STOP_MIN_S * 1000
-        b.last_feed_ms = feed
+        if feed >= PIT_STOP_MIN_S * 1000:
+            self._feed_pit_times = True
 
         if counter_up:
             self._feed_counts_pits = True
+            self._settle_open(b, now, force=True)
             if b.visit_start is not None:
                 end = b.visit_out if b.visit_out is not None else (b.visit_last_in if not row.in_pit else now)
                 measured = int((end - b.visit_start) * 1000)
                 entry = b.visit_start
             else:
                 measured = 0
-                entry = now - (feed / 1000 if feed_new else 0)
-            dur = feed if feed_new else (measured if measured >= PIT_STOP_MIN_S * 1000 else 0)
+                entry = now
+            dur = measured if (not self._feed_pit_times and measured >= PIT_STOP_MIN_S * 1000) else 0
             idx = self._board_stop(b, entry, dur, now)
-            b.await_idx = None if feed_new else idx
-            b.await_until = now + PIT_FEED_WAIT_S
+            b.open_idx, b.open_ts, b.open_live, b.open_max, b.open_inc_ts = idx, now, False, 0, now
+            b.exit_ts = None
             if b.visit_start is not None:
                 b.visit_counted = idx
-            else:
-                b.track_since = now
-        elif feed_new and b.await_idx is not None and now <= b.await_until:
-            # The feed's own time for the stop just counted, a frame or two late.
-            b.times[b.await_idx] = feed
-            b.await_idx = None
+
+        if b.open_idx is not None:
+            elapsed_ms = (now - b.open_ts) * 1000
+            if feed and feed != b.feed_used_ms:
+                if feed >= PIT_STOP_MIN_S * 1000 and feed > elapsed_ms + PIT_LIVE_SLACK_S * 1000:
+                    # Too long to have been counted since the counter: the final time.
+                    b.times[b.open_idx] = feed
+                    b.feed_used_ms = feed
+                    self._close_open(b, exit_ts=now)
+                elif feed <= elapsed_ms + PIT_LIVE_SLACK_S * 1000 and feed > b.open_max:
+                    if not b.open_live:
+                        # The feed had been timing the stop before the counter moved.
+                        b.open_entry_ts = now - feed / 1000
+                    b.open_live = True
+                    b.open_max = feed
+                    b.open_inc_ts = now
+            if b.open_idx is not None:
+                self._settle_open(b, now)
+            if b.open_idx is not None and b.open_live:
+                # Still counting: the kart is in the pit lane (MyWeR's own pit
+                # flag doesn't move).
+                row.in_pit = True
+                row.pit_since_ts = b.open_entry_ts
         b.prev_pits = row.pits
 
         if row.in_pit and b.visit_start is not None:
             row.pit_since_ts = b.visit_start
+        # Live-timed stops: the counter moved at pit ENTRY, so the server's
+        # stint clock (which restarts on the counter) includes the stop. Without
+        # a feed since-pit, count the stint from the pit exit instead.
+        if b.exit_ts is not None and not row.in_pit and b.feed_stint_s == 0 and not row.stint_time.strip("0:. "):
+            row.stint_seconds = max(0, int(now - b.exit_ts))
         row.pit_times_ms = list(b.times)          # 0 = stop counted, time not known
         row.stints_s = list(b.stints)
+
+    @staticmethod
+    def _close_open(b: "_PitTrack", exit_ts: float) -> None:
+        b.open_idx = None
+        b.open_live = False
+        if b.visit_start is None:       # no in-pit flag visit to take the exit from
+            b.track_since = exit_ts
+
+    def _settle_open(self, b: "_PitTrack", now: float, force: bool = False) -> None:
+        """Finish the open stop once its live time stopped growing (or a new
+        stop starts), or give up waiting for a feed time."""
+        if b.open_idx is None:
+            return
+        if b.open_live:
+            if force or now - b.open_inc_ts >= PIT_SETTLE_S:
+                if b.open_max >= PIT_STOP_MIN_S * 1000:
+                    b.times[b.open_idx] = b.open_max
+                b.feed_used_ms = b.open_max
+                exit_ts = b.open_entry_ts + b.open_max / 1000
+                b.exit_ts = exit_ts
+                self._close_open(b, exit_ts)
+        elif force or now - b.open_ts > PIT_FEED_WAIT_S:
+            self._close_open(b, b.open_ts)
 
     @staticmethod
     def _board_stop(b: "_PitTrack", entry: float, dur_ms: int, now: float) -> int:
