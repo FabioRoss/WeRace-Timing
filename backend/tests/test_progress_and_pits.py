@@ -424,6 +424,9 @@ def test_pit_board_rozzano_live_stop(monkeypatch):
             state.update(race or state.race, rows)
             k5 = next(d for d in state.drivers if d.kart_no == "5")
             seen_in_pit.append(k5.in_pit)
+            if k5.in_pit:
+                # the live pit time is the feed's, stamped when it last grew
+                assert k5.pit_live_ms and k5.pit_live_ts and k5.pit_live_ts <= clock.t
     k5 = next(d for d in state.drivers if d.kart_no == "5")
     assert k5.pits == 5
     # joined mid-race: earlier stops unknown; the one we saw = the feed's final time

@@ -72,7 +72,12 @@ class DriverRow(BaseModel):
     # Race direction (gate venues): each completed pit stop's duration, and each
     # completed stint's length (on track, pit exit -> next pit entry), in order.
     pit_times_ms: list[int] = []
-    stints_s: list[int] = []
+    stints_s: list[int] = []        # stints_s[n] = stint ended by stop n (0 = unknown)
+    # Feed-timed stop in progress (MyWeR): the feed's latest pit time and the
+    # server clock when it last grew. Clients tick from it briefly and then
+    # hold, instead of running a clock past the feed's last update.
+    pit_live_ms: int | None = None
+    pit_live_ts: float | None = None
 
 
 class LapRecord(BaseModel):

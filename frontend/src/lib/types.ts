@@ -52,6 +52,9 @@ export interface DriverRow {
   /** Gate venues: each completed pit stop's duration / completed stint length. */
   pit_times_ms?: number[]
   stints_s?: number[]
+  /** Feed-timed stop in progress: the feed's pit time, and when it last grew. */
+  pit_live_ms?: number | null
+  pit_live_ts?: number | null
 }
 
 export interface Penalty {

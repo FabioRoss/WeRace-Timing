@@ -552,6 +552,17 @@ notifications aren't sent, and saved records (`export_state`) keep the full trut
   In-pit flag visits (Apex): gaps < `PIT_GRACE_S` merge; visits with no counter
   move are noise; our in→out measurement only on feeds that never send pit
   times. Stint = feed since-pit at entry when sent, else clock since last exit.
+- The board OWNS `state.pit_stops` (lap, ms) on gate venues (`_board_stop` /
+  `_set_stop`; `_track_laps` no longer writes it): lap = the frame's lap when the
+  counter moved with a crossing, else the next lap. `stints_s[n]` = the stint
+  ended by stop n (0 = unknown) — aligned with stops. The PDF (`export.py
+  _pit_and_stint_sections`) prints these on gate venues: stop times < 20 s → "—",
+  stints = board seconds with lap ranges between pit laps, plus the running
+  stint (`stint_seconds`) — identical to the Pits page. Non-gate venues keep the
+  lap-sum `_stints_of`. Test: `test_pdf_pit_and_stint_tables_match_the_pit_board`.
+- Live pit clock: during a feed-timed stop `pit_live_ms` / `pit_live_ts` carry
+  the feed's reading; `PitBoard.pitElapsed` ticks ≤ 2.5 s past it and then
+  holds, so the clock stops when the feed's updates stop.
 - Irregularities: each rule break is its own item keyed `"<kart>:<pit|stint|stops>:<n>"`
   (n = stop / stint index; a running over-max stint uses the index it will get, so
   a managed mark carries over). `EventState.pit_managed` (set, cleared on session

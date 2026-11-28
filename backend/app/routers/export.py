@@ -160,7 +160,7 @@ except ImportError:  # pragma: no cover - only when the dep is absent
 from .. import snapshots
 from ..models import DriverRow
 from ..security import check_safeword
-from ..state import EventState, _classify_gap
+from ..state import PIT_STOP_MIN_S, EventState, _classify_gap
 from .public import get_event
 
 router = APIRouter()
@@ -595,6 +595,10 @@ def _pit_and_stint_sections(
     chart = state.lap_chart(last_n=100000)
     # Feed-measured pit history on gate venues; otherwise inferred pit laps.
     use_feed = state.auto_pitlane and any(state.pit_stops.values())
+    by_kart = {d.kart_no: d for d in state.drivers}
+    # Stints as Race Control's pit board measures them (time on track from pit
+    # exit to the next pit entry) — the same numbers as the Pits page.
+    board_stints = use_feed and any(d.stints_s for d in state.drivers)
     show_stop = include_pits and (use_feed or pit_estimate)
     stop_label = "Stop" if use_feed else "Est. stop"
 
@@ -605,7 +609,12 @@ def _pit_and_stint_sections(
         out.append(Paragraph(
             "Est. stop = the pit lap's time minus the kart's median lap — inferred from "
             "lap times, not measured (this venue has no pit-lane timing).", styles["Legend"]))
-    if include_stints:
+    if include_stints and board_stints:
+        out.append(Paragraph(
+            "Stint duration = time on track from pit exit to the next pit entry, as on "
+            "Race Control's pit board. Laps = the racing laps between pit laps. "
+            "— = not measured (e.g. timing joined mid-race).", styles["Legend"]))
+    elif include_stints:
         caveat = ("" if state.auto_pitlane else
                   " On tracks without pit-lane timing this is an approximation — the "
                   "partial lap around a stop isn't counted.")
@@ -617,7 +626,9 @@ def _pit_and_stint_sections(
 
     def pit_rows(k, recs):
         if use_feed:
-            return [(i, lap, ms) for i, (lap, ms) in enumerate(state.pit_stops.get(k, []), 1)]
+            # Under 20 s is never a real stop time (feed noise / not final): "—".
+            return [(i, lap, ms if ms and ms >= PIT_STOP_MIN_S * 1000 else None)
+                    for i, (lap, ms) in enumerate(state.pit_stops.get(k, []), 1)]
         times = [r["ms"] for r in recs if r["ms"]]
         base = statistics.median(times) if len(times) >= 3 else None
         res = []
@@ -646,15 +657,33 @@ def _pit_and_stint_sections(
         cell.append(t)
         return cell
 
-    def stint_cell(recs):
+    def stint_rows(k, recs):
+        if not board_stints:
+            return _stints_of(recs)
+        d = by_kart.get(k)
+        stints = list(d.stints_s) if d else []
+        rows = []
+        lo = recs[0]["lap"] if recs else 1
+        for i, (lap, _ms) in enumerate(state.pit_stops.get(k, [])):
+            hi = lap - 1
+            dur_s = stints[i] if i < len(stints) else 0
+            rows.append((i + 1, lo, hi, max(0, hi - lo + 1), dur_s * 1000))
+            lo = lap + 1
+        if d and d.laps >= lo:
+            # The stint still running at the end of the export.
+            dur_s = 0 if d.in_pit else (d.stint_seconds or 0)
+            rows.append((len(rows) + 1, lo, d.laps, d.laps - lo + 1, dur_s * 1000))
+        return rows
+
+    def stint_cell(k, recs):
         cell: list = [Paragraph("Stints", styles["MiniCap"])]
-        rows = _stints_of(recs)
+        rows = stint_rows(k, recs)
         if not rows:
             cell.append(Paragraph("No stints.", styles["ReportSmall"]))
             return cell
         trows = [["Stint", "Laps", "N", "Duration"]]
         for sn, lo, hi, n, dur in rows:
-            trows.append([str(sn), f"{lo}–{hi}", str(n), fmt_clock(dur)])
+            trows.append([str(sn), f"{lo}–{hi}" if hi >= lo else "—", str(n), fmt_clock(dur)])
         t = Table(trows, colWidths=[14 * mm, 22 * mm, 12 * mm, 26 * mm])
         t.hAlign = "LEFT"
         t.setStyle(_mini_style())
@@ -676,7 +705,7 @@ def _pit_and_stint_sections(
         if include_pits:
             cells.append(pit_cell(kart_no, recs))
         if include_stints:
-            cells.append(stint_cell(recs))
+            cells.append(stint_cell(kart_no, recs))
         if len(cells) == 2:
             row = Table([cells], colWidths=[CONTENT_W / 2, CONTENT_W / 2])
             row.setStyle(TableStyle([

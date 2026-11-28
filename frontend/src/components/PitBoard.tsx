@@ -264,7 +264,8 @@ function PitRow({ d, irr, min, max, minPits, serverNow }: {
   const lastRaw = stops.length ? stops[stops.length - 1] : d.last_pit_ms
   const last = lastRaw != null && lastRaw >= PIT_STOP_MIN_MS ? lastRaw : null
   const shortest = known.length ? Math.min(...known) : null
-  const longest = stints.length ? Math.max(...stints) : null
+  const knownStints = stints.filter((s) => s > 0)        // 0 = stint length unknown
+  const longest = knownStints.length ? Math.max(...knownStints) : null
   // Red only for rule breaks still open (managed ones are dealt with).
   const openIrr = irr.filter((i) => !i.managed)
   const c = {
@@ -281,7 +282,7 @@ function PitRow({ d, irr, min, max, minPits, serverNow }: {
   // Live cell: either the running stint (on track) or the time in the pit lane.
   let now: React.ReactNode
   if (d.in_pit) {
-    const inFor = d.pit_since_ts ? Math.max(0, serverNow - d.pit_since_ts) : null
+    const inFor = pitElapsed(d, serverNow)
     const served = !min || (inFor != null && inFor >= min)
     const toGo = min && inFor != null && !served ? Math.ceil(min - inFor) : 0
     now = (
@@ -339,6 +340,19 @@ function PitRow({ d, irr, min, max, minPits, serverNow }: {
       </td>
     </tr>
   )
+}
+
+/**
+ * Seconds in the pit lane. When the feed times the stop itself (MyWeR), tick
+ * from its last reading for at most one update interval and then hold: the
+ * clock stops when the feed's updates stop, at the feed's own time.
+ */
+const LIVE_TICK_MAX_S = 2.5
+export function pitElapsed(d: DriverRow, serverNow: number): number | null {
+  if (d.pit_live_ms != null && d.pit_live_ts != null) {
+    return d.pit_live_ms / 1000 + Math.min(LIVE_TICK_MAX_S, Math.max(0, serverNow - d.pit_live_ts))
+  }
+  return d.pit_since_ts ? Math.max(0, serverNow - d.pit_since_ts) : null
 }
 
 /** "m:ss", "h:mm:ss" or plain seconds -> seconds; '' -> 0 (no limit); null = invalid. */

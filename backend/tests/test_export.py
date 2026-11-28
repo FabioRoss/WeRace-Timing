@@ -411,3 +411,69 @@ def test_pdf_pit_stint_sections_follow_adjusted_order(client):
     order = [d.kart_no for d in _penalty_adjusted_drivers(event.state)]
     adj = _pit_and_stint_sections(event.state, styles, True, True, False, order=order)
     assert heads(adj)[0].startswith("Kart #36")
+
+
+def _table_text(flowables) -> list[list[str]]:
+    """Rows of every reportlab Table (incl. nested) as plain strings."""
+    from reportlab.platypus import KeepTogether, Table
+    rows: list[list[str]] = []
+
+    def walk(f):
+        if isinstance(f, (list, tuple)):
+            for x in f:
+                walk(x)
+        elif isinstance(f, KeepTogether):
+            walk(f._content)
+        elif isinstance(f, Table):
+            for r in f._cellvalues:
+                if all(isinstance(c, str) for c in r):
+                    rows.append(list(r))
+                else:
+                    walk([c for c in r if not isinstance(c, str)])
+    walk(flowables)
+    return rows
+
+
+def test_pdf_pit_and_stint_tables_match_the_pit_board(monkeypatch):
+    """PDF stops/stints come from the same pit-board tracking as Race Control:
+    MyWeR-style live pit time (not a mid-stop reading) and exit→entry stints."""
+    import collections
+
+    import app.state as state_mod
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    from app.routers.export import _pit_and_stint_sections
+    from app.state import EventState
+
+    clock = [1000.0]
+    monkeypatch.setattr(state_mod.time, "time", lambda: clock[0])
+    st = EventState(1)
+
+    def frame(**kw):
+        st.update(RaceInfo(), [DriverRow(kart_no="7", position=1, **kw)])
+
+    frame(laps=1, last_lap_ms=50000)
+    for lap in range(2, 13):                       # 11 laps × 50 s = 550 s stint
+        clock[0] += 50
+        frame(laps=lap, last_lap_ms=50000)
+    clock[0] += 10                                 # pit entry, counter moves, live count
+    frame(laps=12, last_lap_ms=50000, pits=1, last_pit_ms=3000)
+    for t in range(6, 64, 3):
+        clock[0] += 3
+        frame(laps=12, last_lap_ms=50000, pits=1, last_pit_ms=t * 1000)
+    clock[0] += 20                                 # settles; back on track
+    frame(laps=13, last_lap_ms=110000, pits=1, last_pit_ms=63000)
+    for lap in range(14, 18):
+        clock[0] += 50
+        frame(laps=lap, last_lap_ms=50000, pits=1, last_pit_ms=63000)
+
+    row = st.drivers[0]
+    assert row.pit_times_ms == [63000]
+    styles = collections.defaultdict(lambda: getSampleStyleSheet()["Normal"])
+    rows = _table_text(_pit_and_stint_sections(st, styles, True, True, False))
+    pit = [r for r in rows if r and r[0] == "1" and r[-1].endswith(" s")]
+    assert pit == [["1", "13", "63.0 s"]]          # the final pit time, on the pit lap
+    stints = [r for r in rows if len(r) == 4 and r[0] in ("1", "2")]
+    assert stints[0][1] == "1–12" and stints[0][3] == "9:20"   # 560 s on track, = board
+    assert row.stints_s == [560]
+    assert stints[1][1] == "14–17" and stints[1][3] == f"{row.stint_seconds // 60}:{row.stint_seconds % 60:02d}"
